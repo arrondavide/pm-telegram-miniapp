@@ -193,7 +193,7 @@ const invitationSchema = new Schema<IInvitation>(
   {
     company_id: { type: Schema.Types.ObjectId, ref: "Company", required: true },
     invited_by: { type: Schema.Types.ObjectId, ref: "User", required: true },
-    username: { type: String, required: true, index: true },
+    username: { type: String, default: "", index: true },
     telegram_id: { type: String, index: true },
     role: { type: String, enum: ["admin", "manager", "employee"], default: "employee" },
     department: { type: String, default: "" },

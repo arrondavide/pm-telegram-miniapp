@@ -141,6 +141,7 @@ interface AppState {
   acceptInvitation: (invitationCode: string) => boolean
   changeUserRole: (userId: string, newRole: "admin" | "manager" | "employee") => void
   getPendingInvitations: () => Invitation[]
+  deleteInvitation: (invitationId: string) => void
 
   // Statistics
   getPersonalStats: () => {
@@ -574,6 +575,12 @@ export const useAppStore = create<AppState>()(
           (i) =>
             i.companyId === currentUser.activeCompanyId && i.status === "pending" && new Date(i.expiresAt) > new Date(),
         )
+      },
+
+      deleteInvitation: (invitationId: string) => {
+        set((state) => ({
+          invitations: state.invitations.filter((i) => i.id !== invitationId),
+        }))
       },
 
       getPersonalStats: () => {

@@ -107,10 +107,16 @@ export const companyApi = {
       headers: { "X-Telegram-Init-Data": initData },
     }),
 
-  getPendingInvitations: (companyId: string, initData: string) =>
-    fetchApi<import("@/lib/store").Invitation[]>(`/companies/${companyId}/invitations`, {
+  getPendingInvitations: (companyId: string, telegramId: string) =>
+    fetchApi<{ invitations: import("@/lib/store").Invitation[] }>(`/companies/${companyId}/invitations`, {
       method: "GET",
-      headers: { "X-Telegram-Init-Data": initData },
+      headers: { "X-Telegram-Id": telegramId },
+    }),
+
+  deleteInvitation: (companyId: string, invitationId: string, telegramId: string) =>
+    fetchApi<{ success: boolean }>(`/companies/${companyId}/invitations/${invitationId}`, {
+      method: "DELETE",
+      headers: { "X-Telegram-Id": telegramId },
     }),
 }
 

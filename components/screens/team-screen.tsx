@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { UserPlus, Crown, Briefcase, UserIcon, Copy, Check, Search } from "lucide-react"
+import { UserPlus, Crown, Briefcase, UserIcon, Copy, Check, Search, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent } from "@/components/ui/card"
@@ -15,10 +15,22 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
 import { useAppStore, type User } from "@/lib/store"
 import { useTelegram } from "@/hooks/use-telegram"
+import { companyApi } from "@/lib/api"
 import { cn } from "@/lib/utils"
 
 const roleConfig = {
@@ -36,6 +48,7 @@ export function TeamScreen() {
     changeUserRole,
     getUserRole,
     currentUser,
+    deleteInvitation,
   } = useAppStore()
   const { hapticFeedback } = useTelegram()
 
@@ -46,12 +59,14 @@ export function TeamScreen() {
   const [inviteDepartment, setInviteDepartment] = useState("")
   const [generatedCode, setGeneratedCode] = useState("")
   const [copied, setCopied] = useState(false)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
 
   const company = getActiveCompany()
   const members = getCompanyMembers()
   const pendingInvitations = getPendingInvitations()
   const userRole = getUserRole()
   const isAdmin = userRole === "admin"
+  const isAdminOrManager = userRole === "admin" || userRole === "manager"
 
   const filteredMembers = members.filter(
     (m) =>
@@ -90,6 +105,33 @@ export function TeamScreen() {
     hapticFeedback("medium")
     changeUserRole(userId, newRole)
     hapticFeedback("success")
+  }
+
+  const handleDeleteInvitation = async (invitationId: string) => {
+    if (!company || !currentUser) return
+
+    setDeletingId(invitationId)
+    hapticFeedback("medium")
+
+    try {
+      // Try API first
+      const response = await companyApi.deleteInvitation(company.id, invitationId, currentUser.telegramId)
+
+      if (response.success) {
+        deleteInvitation(invitationId)
+        hapticFeedback("success")
+      } else {
+        // Fallback to local store
+        deleteInvitation(invitationId)
+        hapticFeedback("success")
+      }
+    } catch {
+      // Fallback to local store
+      deleteInvitation(invitationId)
+      hapticFeedback("success")
+    } finally {
+      setDeletingId(null)
+    }
   }
 
   const MemberCard = ({ member }: { member: User }) => {
@@ -281,7 +323,7 @@ export function TeamScreen() {
         <Tabs defaultValue="members">
           <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="members">Members ({members.length})</TabsTrigger>
-            {isAdmin && <TabsTrigger value="invitations">Pending ({pendingInvitations.length})</TabsTrigger>}
+            {isAdminOrManager && <TabsTrigger value="invitations">Pending ({pendingInvitations.length})</TabsTrigger>}
           </TabsList>
 
           <TabsContent value="members" className="mt-4 space-y-6">
@@ -331,7 +373,7 @@ export function TeamScreen() {
             )}
           </TabsContent>
 
-          {isAdmin && (
+          {isAdminOrManager && (
             <TabsContent value="invitations" className="mt-4 space-y-3">
               {pendingInvitations.length === 0 ? (
                 <Card>
@@ -345,16 +387,49 @@ export function TeamScreen() {
                 pendingInvitations.map((invite) => (
                   <Card key={invite.id}>
                     <CardContent className="flex items-center justify-between p-4">
-                      <div>
-                        <p className="font-medium">@{invite.username}</p>
+                      <div className="flex-1">
+                        <p className="font-medium">{invite.username ? `@${invite.username}` : "Unnamed invite"}</p>
                         <p className="text-sm text-muted-foreground">
-                          Role: {invite.role} • Code: {invite.invitationCode}
+                          Role: {invite.role} • Code: <span className="font-mono">{invite.invitationCode}</span>
                         </p>
                         <p className="text-xs text-muted-foreground">
                           Expires: {new Date(invite.expiresAt).toLocaleDateString()}
                         </p>
                       </div>
-                      <Badge variant="outline">Pending</Badge>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline">Pending</Badge>
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
+                              disabled={deletingId === invite.id}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Delete Invitation</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                Are you sure you want to delete this invitation? The code{" "}
+                                <span className="font-mono font-medium">{invite.invitationCode}</span> will no longer
+                                work.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogAction
+                                onClick={() => handleDeleteInvitation(invite.id)}
+                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                              >
+                                Delete
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </div>
                     </CardContent>
                   </Card>
                 ))
