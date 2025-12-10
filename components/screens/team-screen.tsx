@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import Image from "next/image"
 import {
   Users,
   UserPlus,
@@ -15,6 +16,7 @@ import {
   Loader2,
   Send,
   Link,
+  RefreshCw,
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -46,7 +48,7 @@ import { companyApi } from "@/lib/api"
 const BOT_USERNAME = "whatstaskbot"
 
 export function TeamScreen() {
-  const { currentUser, getActiveCompany, getUserRole, getCompanyMembers, addInvitation } = useAppStore()
+  const { currentUser, getActiveCompany, getUserRole, getCompanyMembers, loadMembers, addInvitation } = useAppStore()
   const { hapticFeedback, shareInviteLink, getInviteLink } = useTelegram()
 
   const [inviteUsername, setInviteUsername] = useState("")
@@ -63,6 +65,7 @@ export function TeamScreen() {
   const [inviteError, setInviteError] = useState<string | null>(null)
   const [deleteInviteId, setDeleteInviteId] = useState<string | null>(null)
   const [isDeletingInvite, setIsDeletingInvite] = useState(false)
+  const [isLoadingMembers, setIsLoadingMembers] = useState(false)
 
   const company = getActiveCompany()
   const userRole = getUserRole()
@@ -72,8 +75,26 @@ export function TeamScreen() {
   useEffect(() => {
     if (company && currentUser) {
       loadPendingInvitations()
+      loadMembersFromApi()
     }
   }, [company, currentUser])
+
+  const loadMembersFromApi = async () => {
+    if (!company || !currentUser) return
+
+    setIsLoadingMembers(true)
+    try {
+      const response = await companyApi.getMembers(company.id, currentUser.telegramId)
+      console.log("[v0] Members API response:", response)
+      if (response.success && response.data?.members) {
+        loadMembers(response.data.members)
+      }
+    } catch (error) {
+      console.error("[v0] Error loading members:", error)
+    } finally {
+      setIsLoadingMembers(false)
+    }
+  }
 
   const loadPendingInvitations = async () => {
     if (!company || !currentUser) return
@@ -232,134 +253,150 @@ export function TeamScreen() {
   return (
     <div className="flex flex-col">
       {/* Header */}
-      <header className="sticky top-0 z-40 border-b bg-background/95 px-4 py-4 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+      <header className="sticky top-0 z-40 border-b border-border/50 bg-background/95 px-4 py-4 backdrop-blur supports-[backdrop-filter]:bg-background/80">
         <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-bold">Team</h1>
-            <p className="text-sm text-muted-foreground">{company.name}</p>
+          <div className="flex items-center gap-3">
+            <div className="relative flex h-10 w-10 items-center justify-center rounded-full bg-[#040404]">
+              <Image src="/logo-dark.png" alt="WhatsTask" width={28} height={28} className="object-contain" />
+            </div>
+            <div>
+              <h1 className="text-xl font-bold">Team</h1>
+              <p className="text-sm text-muted-foreground">{company.name}</p>
+            </div>
           </div>
-          {canInvite && (
-            <Dialog
-              open={isInviteOpen}
-              onOpenChange={(open) => {
-                setIsInviteOpen(open)
-                if (!open) resetInviteForm()
-              }}
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={loadMembersFromApi}
+              disabled={isLoadingMembers}
+              className="border-border/50 bg-transparent"
             >
-              <DialogTrigger asChild>
-                <Button size="sm">
-                  <UserPlus className="mr-2 h-4 w-4" />
-                  Invite
-                </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Invite Team Member</DialogTitle>
-                  <DialogDescription>Create an invitation link for a new team member</DialogDescription>
-                </DialogHeader>
+              <RefreshCw className={`h-4 w-4 ${isLoadingMembers ? "animate-spin" : ""}`} />
+            </Button>
+            {canInvite && (
+              <Dialog
+                open={isInviteOpen}
+                onOpenChange={(open) => {
+                  setIsInviteOpen(open)
+                  if (!open) resetInviteForm()
+                }}
+              >
+                <DialogTrigger asChild>
+                  <Button size="sm">
+                    <UserPlus className="mr-2 h-4 w-4" />
+                    Invite
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Invite Team Member</DialogTitle>
+                    <DialogDescription>Create an invitation link for a new team member</DialogDescription>
+                  </DialogHeader>
 
-                {!generatedCode ? (
-                  <div className="space-y-4 py-4">
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium">Username (optional)</label>
-                      <Input
-                        placeholder="@username"
-                        value={inviteUsername}
-                        onChange={(e) => setInviteUsername(e.target.value)}
-                      />
-                      <p className="text-xs text-muted-foreground">
-                        Leave empty to create an open invite anyone can use
+                  {!generatedCode ? (
+                    <div className="space-y-4 py-4">
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium">Username (optional)</label>
+                        <Input
+                          placeholder="@username"
+                          value={inviteUsername}
+                          onChange={(e) => setInviteUsername(e.target.value)}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Leave empty to create an open invite anyone can use
+                        </p>
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium">Role</label>
+                        <Select value={inviteRole} onValueChange={setInviteRole}>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="employee">Employee</SelectItem>
+                            <SelectItem value="manager">Manager</SelectItem>
+                            {userRole === "admin" && <SelectItem value="admin">Admin</SelectItem>}
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium">Department (optional)</label>
+                        <Input
+                          placeholder="e.g. Engineering"
+                          value={inviteDepartment}
+                          onChange={(e) => setInviteDepartment(e.target.value)}
+                        />
+                      </div>
+
+                      {inviteError && <p className="text-sm text-destructive">{inviteError}</p>}
+
+                      <Button className="w-full" onClick={handleInvite} disabled={isCreatingInvite}>
+                        {isCreatingInvite ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Creating...
+                          </>
+                        ) : (
+                          <>
+                            <Mail className="mr-2 h-4 w-4" />
+                            Generate Invitation
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="space-y-4 py-4">
+                      <div className="rounded-lg border bg-muted/50 p-4 text-center">
+                        <p className="text-sm text-muted-foreground">Invitation Code</p>
+                        <p className="mt-2 font-mono text-2xl font-bold tracking-wider">{generatedCode}</p>
+                      </div>
+
+                      <div className="flex gap-2">
+                        <Button className="flex-1 bg-transparent" variant="outline" onClick={copyCode}>
+                          {copied ? (
+                            <>
+                              <Check className="mr-2 h-4 w-4" />
+                              Copied!
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="mr-2 h-4 w-4" />
+                              Copy Code
+                            </>
+                          )}
+                        </Button>
+                        <Button className="flex-1 bg-transparent" variant="outline" onClick={copyLink}>
+                          {copiedLink ? (
+                            <>
+                              <Check className="mr-2 h-4 w-4" />
+                              Copied!
+                            </>
+                          ) : (
+                            <>
+                              <Link className="mr-2 h-4 w-4" />
+                              Copy Link
+                            </>
+                          )}
+                        </Button>
+                      </div>
+
+                      <Button className="w-full" onClick={() => handleShareCode(generatedCode, company.name)}>
+                        <Send className="mr-2 h-4 w-4" />
+                        Share via Telegram
+                      </Button>
+
+                      <p className="text-center text-xs text-muted-foreground">
+                        Share the link or code with the employee. Expires in 7 days.
                       </p>
                     </div>
-
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium">Role</label>
-                      <Select value={inviteRole} onValueChange={setInviteRole}>
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="employee">Employee</SelectItem>
-                          <SelectItem value="manager">Manager</SelectItem>
-                          {userRole === "admin" && <SelectItem value="admin">Admin</SelectItem>}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium">Department (optional)</label>
-                      <Input
-                        placeholder="e.g. Engineering"
-                        value={inviteDepartment}
-                        onChange={(e) => setInviteDepartment(e.target.value)}
-                      />
-                    </div>
-
-                    {inviteError && <p className="text-sm text-destructive">{inviteError}</p>}
-
-                    <Button className="w-full" onClick={handleInvite} disabled={isCreatingInvite}>
-                      {isCreatingInvite ? (
-                        <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          Creating...
-                        </>
-                      ) : (
-                        <>
-                          <Mail className="mr-2 h-4 w-4" />
-                          Generate Invitation
-                        </>
-                      )}
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="space-y-4 py-4">
-                    <div className="rounded-lg border bg-muted/50 p-4 text-center">
-                      <p className="text-sm text-muted-foreground">Invitation Code</p>
-                      <p className="mt-2 font-mono text-2xl font-bold tracking-wider">{generatedCode}</p>
-                    </div>
-
-                    <div className="flex gap-2">
-                      <Button className="flex-1 bg-transparent" variant="outline" onClick={copyCode}>
-                        {copied ? (
-                          <>
-                            <Check className="mr-2 h-4 w-4" />
-                            Copied!
-                          </>
-                        ) : (
-                          <>
-                            <Copy className="mr-2 h-4 w-4" />
-                            Copy Code
-                          </>
-                        )}
-                      </Button>
-                      <Button className="flex-1 bg-transparent" variant="outline" onClick={copyLink}>
-                        {copiedLink ? (
-                          <>
-                            <Check className="mr-2 h-4 w-4" />
-                            Copied!
-                          </>
-                        ) : (
-                          <>
-                            <Link className="mr-2 h-4 w-4" />
-                            Copy Link
-                          </>
-                        )}
-                      </Button>
-                    </div>
-
-                    <Button className="w-full" onClick={() => handleShareCode(generatedCode, company.name)}>
-                      <Send className="mr-2 h-4 w-4" />
-                      Share via Telegram
-                    </Button>
-
-                    <p className="text-center text-xs text-muted-foreground">
-                      Share the link or code with the employee. Expires in 7 days.
-                    </p>
-                  </div>
-                )}
-              </DialogContent>
-            </Dialog>
-          )}
+                  )}
+                </DialogContent>
+              </Dialog>
+            )}
+          </div>
         </div>
       </header>
 
@@ -369,37 +406,47 @@ export function TeamScreen() {
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2 text-sm font-medium">
               <Users className="h-4 w-4" />
-              Members ({members.length})
+              Members ({members.length}){isLoadingMembers && <Loader2 className="h-4 w-4 animate-spin" />}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
-            {members.map((member) => {
-              const memberCompany = member.companies.find((c) => c.companyId === company.id)
-              return (
-                <div key={member.id} className="flex items-center justify-between rounded-lg border p-3">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-sm font-medium">
-                      {member.fullName
-                        .split(" ")
-                        .map((n) => n[0])
-                        .join("")
-                        .toUpperCase()
-                        .slice(0, 2)}
+            {isLoadingMembers && members.length === 0 ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : members.length === 0 ? (
+              <p className="py-4 text-center text-sm text-muted-foreground">No members yet</p>
+            ) : (
+              members.map((member) => {
+                const memberCompany = member.companies.find((c) => c.companyId === company.id)
+                return (
+                  <div key={member.id} className="flex items-center justify-between rounded-lg border p-3">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-sm font-medium">
+                        {member.fullName
+                          .split(" ")
+                          .map((n) => n[0])
+                          .join("")
+                          .toUpperCase()
+                          .slice(0, 2)}
+                      </div>
+                      <div>
+                        <p className="font-medium">{member.fullName}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {member.username ? `@${member.username}` : "No username"}
+                        </p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="font-medium">{member.fullName}</p>
-                      <p className="text-sm text-muted-foreground">@{member.username}</p>
+                    <div className="flex items-center gap-2">
+                      {getRoleIcon(memberCompany?.role || "employee")}
+                      <Badge variant="secondary" className="capitalize">
+                        {memberCompany?.role || "employee"}
+                      </Badge>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    {getRoleIcon(memberCompany?.role || "employee")}
-                    <Badge variant="secondary" className="capitalize">
-                      {memberCompany?.role || "employee"}
-                    </Badge>
-                  </div>
-                </div>
-              )
-            })}
+                )
+              })
+            )}
           </CardContent>
         </Card>
 

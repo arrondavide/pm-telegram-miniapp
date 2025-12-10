@@ -86,10 +86,10 @@ export const companyApi = {
       headers: { "X-Telegram-Id": telegramId },
     }),
 
-  getMembers: (companyId: string, initData: string) =>
-    fetchApi<import("@/lib/store").User[]>(`/companies/${companyId}/members`, {
+  getMembers: (companyId: string, telegramId: string) =>
+    fetchApi<{ members: import("@/lib/store").User[] }>(`/companies/${companyId}/members`, {
       method: "GET",
-      headers: { "X-Telegram-Init-Data": initData },
+      headers: { "X-Telegram-Id": telegramId },
     }),
 
   createInvitation: (

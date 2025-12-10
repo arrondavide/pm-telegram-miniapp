@@ -139,6 +139,7 @@ interface AppState {
 
   // Team management
   getCompanyMembers: () => User[]
+  loadMembers: (members: User[]) => void
   inviteEmployee: (username: string, role: "admin" | "manager" | "employee", department: string) => Invitation
   addInvitation: (invitation: Invitation) => void
   acceptInvitation: (invitationCode: string) => boolean
@@ -526,6 +527,20 @@ export const useAppStore = create<AppState>()(
         if (!currentUser?.activeCompanyId) return []
 
         return users.filter((u) => u.companies.some((c) => c.companyId === currentUser.activeCompanyId))
+      },
+
+      loadMembers: (members: User[]) => {
+        set((state) => {
+          const existingUserIds = new Set(state.users.map((u) => u.id))
+          const newUsers = members.filter((m) => !existingUserIds.has(m.id))
+          const updatedUsers = state.users.map((u) => {
+            const apiUser = members.find((m) => m.id === u.id)
+            return apiUser ? { ...u, ...apiUser } : u
+          })
+          return {
+            users: [...updatedUsers, ...newUsers],
+          }
+        })
       },
 
       inviteEmployee: (username, role, department) => {

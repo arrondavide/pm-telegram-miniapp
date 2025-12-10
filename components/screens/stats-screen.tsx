@@ -8,6 +8,7 @@ import { Progress } from "@/components/ui/progress"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useAppStore } from "@/lib/store"
 import { cn } from "@/lib/utils"
+import Image from "next/image"
 
 export function StatsScreen() {
   const { getPersonalStats, getTeamStats, getUserRole, getActiveCompany } = useAppStore()
@@ -31,10 +32,10 @@ export function StatsScreen() {
     description?: string
     className?: string
   }) => (
-    <Card className={className}>
+    <Card className={cn("border-border/50", className)}>
       <CardContent className="flex items-center gap-4 p-4">
-        <div className="rounded-lg bg-primary/10 p-2">
-          <Icon className="h-5 w-5 text-primary" />
+        <div className="rounded-lg bg-foreground/10 p-2">
+          <Icon className="h-5 w-5" />
         </div>
         <div>
           <p className="text-2xl font-bold">{value}</p>
@@ -48,24 +49,35 @@ export function StatsScreen() {
   return (
     <div className="flex flex-col">
       {/* Header */}
-      <header className="sticky top-0 z-40 border-b bg-background/95 px-4 py-4 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-        <div>
-          <h1 className="text-xl font-bold">Statistics</h1>
-          <p className="text-sm text-muted-foreground">{company?.name}</p>
+      <header className="sticky top-0 z-40 border-b border-border/50 bg-background/95 px-4 py-4 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+        <div className="flex items-center gap-3">
+          <div className="relative flex h-10 w-10 items-center justify-center rounded-full bg-[#040404]">
+            <Image src="/logo-dark.png" alt="WhatsTask" width={28} height={28} className="object-contain" />
+          </div>
+          <div>
+            <h1 className="text-xl font-bold">Statistics</h1>
+            <p className="text-sm text-muted-foreground">{company?.name}</p>
+          </div>
         </div>
       </header>
 
       <div className="flex-1 p-4">
         <Tabs defaultValue="personal">
-          <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="personal">My Stats</TabsTrigger>
-            {canViewTeamStats && <TabsTrigger value="team">Team Stats</TabsTrigger>}
+          <TabsList className="grid w-full grid-cols-2 bg-muted">
+            <TabsTrigger value="personal" className="data-[state=active]:bg-background">
+              My Stats
+            </TabsTrigger>
+            {canViewTeamStats && (
+              <TabsTrigger value="team" className="data-[state=active]:bg-background">
+                Team Stats
+              </TabsTrigger>
+            )}
           </TabsList>
 
           {/* Personal Stats */}
           <TabsContent value="personal" className="mt-4 space-y-4">
             {/* Completion Rate */}
-            <Card>
+            <Card className="border-border/50">
               <CardHeader className="pb-2">
                 <CardTitle className="flex items-center gap-2 text-sm font-medium">
                   <TrendingUp className="h-4 w-4" />
@@ -86,26 +98,21 @@ export function StatsScreen() {
             {/* Stats Grid */}
             <div className="grid grid-cols-2 gap-3">
               <StatCard title="Total Tasks" value={personalStats.totalTasks} icon={BarChart3} />
-              <StatCard
-                title="Completed"
-                value={personalStats.completedTasks}
-                icon={CheckCircle2}
-                className="border-emerald-500/20 bg-emerald-500/5"
-              />
+              <StatCard title="Completed" value={personalStats.completedTasks} icon={CheckCircle2} />
               <StatCard title="Pending" value={personalStats.pendingTasks} icon={Clock} />
               <StatCard
                 title="Overdue"
                 value={personalStats.overdueTasks}
                 icon={AlertTriangle}
-                className={cn(personalStats.overdueTasks > 0 && "border-destructive/20 bg-destructive/5")}
+                className={cn(personalStats.overdueTasks > 0 && "border-destructive/30 bg-destructive/5")}
               />
             </div>
 
             {/* Time Worked */}
-            <Card>
+            <Card className="border-border/50">
               <CardContent className="flex items-center gap-4 p-4">
-                <div className="rounded-lg bg-primary/10 p-3">
-                  <Clock className="h-6 w-6 text-primary" />
+                <div className="rounded-lg bg-foreground/10 p-3">
+                  <Clock className="h-6 w-6" />
                 </div>
                 <div>
                   <p className="text-3xl font-bold">{personalStats.totalHoursWorked}h</p>
@@ -119,7 +126,7 @@ export function StatsScreen() {
           {canViewTeamStats && (
             <TabsContent value="team" className="mt-4 space-y-4">
               {/* Team Completion Rate */}
-              <Card>
+              <Card className="border-border/50">
                 <CardHeader className="pb-2">
                   <CardTitle className="flex items-center gap-2 text-sm font-medium">
                     <TrendingUp className="h-4 w-4" />
@@ -140,24 +147,19 @@ export function StatsScreen() {
               {/* Team Stats Grid */}
               <div className="grid grid-cols-2 gap-3">
                 <StatCard title="Total Tasks" value={teamStats.totalTasks} icon={BarChart3} />
-                <StatCard
-                  title="Completed"
-                  value={teamStats.completedTasks}
-                  icon={CheckCircle2}
-                  className="border-emerald-500/20 bg-emerald-500/5"
-                />
+                <StatCard title="Completed" value={teamStats.completedTasks} icon={CheckCircle2} />
                 <StatCard title="Active" value={teamStats.pendingTasks} icon={Clock} />
                 <StatCard
                   title="Overdue"
                   value={teamStats.overdueTasks}
                   icon={AlertTriangle}
-                  className={cn(teamStats.overdueTasks > 0 && "border-destructive/20 bg-destructive/5")}
+                  className={cn(teamStats.overdueTasks > 0 && "border-destructive/30 bg-destructive/5")}
                 />
               </div>
 
               {/* Top Performers */}
               {teamStats.topPerformers.length > 0 && (
-                <Card>
+                <Card className="border-border/50">
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2 text-sm font-medium">
                       <Trophy className="h-4 w-4 text-amber-500" />

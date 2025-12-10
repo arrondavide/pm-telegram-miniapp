@@ -52,8 +52,8 @@ export function TasksScreen({ onTaskSelect, onCreateTask }: TasksScreenProps) {
       <header className="sticky top-0 z-40 border-b border-border/50 bg-background px-4 py-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="relative h-8 w-8">
-              <Image src="/logo.png" alt="WhatsTask" fill className="object-contain dark:invert" />
+            <div className="relative flex h-10 w-10 items-center justify-center rounded-full bg-[#040404]">
+              <Image src="/logo-dark.png" alt="WhatsTask" width={28} height={28} className="object-contain" />
             </div>
             <div>
               <h1 className="text-xl font-bold">Tasks</h1>

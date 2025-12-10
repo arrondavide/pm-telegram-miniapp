@@ -7,28 +7,47 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   try {
     const { companyId } = await params
 
+    console.log("[v0] Fetching members for company:", companyId)
+
     await connectToDatabase()
 
     const members = await User.find({
-      "companies.company_id": new mongoose.Types.ObjectId(companyId),
+      companies: {
+        $elemMatch: {
+          company_id: new mongoose.Types.ObjectId(companyId),
+        },
+      },
     }).lean()
 
+    console.log("[v0] Found members:", members.length)
+
     const formattedMembers = members.map((member: any) => {
-      const companyInfo = member.companies.find((c: any) => c.company_id.toString() === companyId)
+      const companyInfo = member.companies.find((c: any) => c.company_id?.toString() === companyId)
       return {
         id: member._id.toString(),
         telegramId: member.telegram_id,
         fullName: member.full_name,
-        username: member.username,
+        username: member.username || "",
         role: companyInfo?.role || "employee",
         department: companyInfo?.department || "",
         joinedAt: companyInfo?.joined_at,
+        companies: member.companies.map((c: any) => ({
+          companyId: c.company_id?.toString(),
+          role: c.role,
+          department: c.department || "",
+          joinedAt: c.joined_at,
+        })),
       }
     })
 
+    console.log(
+      "[v0] Formatted members:",
+      formattedMembers.map((m: any) => ({ name: m.fullName, role: m.role })),
+    )
+
     return NextResponse.json({ members: formattedMembers })
   } catch (error) {
-    console.error("Error fetching members:", error)
+    console.error("[v0] Error fetching members:", error)
     return NextResponse.json({ error: "Failed to fetch members" }, { status: 500 })
   }
 }

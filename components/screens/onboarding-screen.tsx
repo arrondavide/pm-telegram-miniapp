@@ -118,8 +118,8 @@ export function OnboardingScreen({ pendingInviteCode, onCodeUsed }: OnboardingSc
     <div className="flex min-h-screen flex-col items-center justify-center bg-background p-4">
       <div className="mb-8 text-center">
         <div className="mb-6 flex justify-center">
-          <div className="relative h-20 w-20">
-            <Image src="/logo.png" alt="WhatsTask" fill className="object-contain dark:invert" priority />
+          <div className="relative flex h-24 w-24 items-center justify-center rounded-full bg-[#040404]">
+            <Image src="/logo-dark.png" alt="WhatsTask" width={64} height={64} className="object-contain" priority />
           </div>
         </div>
         <h1 className="text-3xl font-bold tracking-tight">WhatsTask</h1>
