@@ -281,4 +281,51 @@ export const notificationApi = {
       method: "POST",
       body: JSON.stringify({ telegramId, message, type }),
     }),
+
+  getAll: (telegramId: string) =>
+    fetchApi<{
+      notifications: Array<{
+        id: string
+        type: string
+        title: string
+        message: string
+        taskId?: string
+        read: boolean
+        createdAt: string
+      }>
+    }>("/notifications", {
+      method: "GET",
+      headers: { "X-Telegram-Id": telegramId },
+    }),
+
+  create: (data: {
+    telegramId: string
+    type: string
+    title: string
+    message: string
+    taskId?: string
+    sendTelegram?: boolean
+  }) =>
+    fetchApi<{ success: boolean; notification: any }>("/notifications", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  markRead: (notificationId: string) =>
+    fetchApi<{ success: boolean }>("/notifications", {
+      method: "PATCH",
+      body: JSON.stringify({ notificationId }),
+    }),
+
+  markAllRead: (telegramId: string) =>
+    fetchApi<{ success: boolean }>("/notifications", {
+      method: "PATCH",
+      body: JSON.stringify({ markAllRead: true, telegramId }),
+    }),
+
+  clear: (telegramId: string) =>
+    fetchApi<{ success: boolean }>("/notifications", {
+      method: "DELETE",
+      headers: { "X-Telegram-Id": telegramId },
+    }),
 }

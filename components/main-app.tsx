@@ -8,6 +8,8 @@ import { StatsScreen } from "@/components/screens/stats-screen"
 import { ProfileScreen } from "@/components/screens/profile-screen"
 import { CreateTaskScreen } from "@/components/screens/create-task-screen"
 import { TaskDetailScreen } from "@/components/screens/task-detail-screen"
+import { NotificationsScreen } from "@/components/screens/notifications-screen"
+import { InAppNotification } from "@/components/in-app-notification"
 import { useAppStore } from "@/lib/store"
 import { useTelegram } from "@/hooks/use-telegram"
 import { companyApi } from "@/lib/api"
@@ -15,7 +17,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Button } from "@/components/ui/button"
 import { Loader2, CheckCircle, XCircle } from "lucide-react"
 
-export type Screen = "tasks" | "team" | "stats" | "profile" | "create-task" | "task-detail"
+export type Screen = "tasks" | "team" | "stats" | "profile" | "create-task" | "task-detail" | "notifications"
 
 interface MainAppProps {
   pendingInviteCode?: string | null
@@ -93,6 +95,8 @@ export function MainApp({ pendingInviteCode, onCodeUsed }: MainAppProps) {
         return <StatsScreen />
       case "profile":
         return <ProfileScreen />
+      case "notifications":
+        return <NotificationsScreen onBack={() => setActiveScreen("tasks")} onTaskSelect={handleTaskSelect} />
       case "create-task":
         return <CreateTaskScreen onBack={handleBack} onSuccess={handleBack} />
       case "task-detail":
@@ -110,6 +114,9 @@ export function MainApp({ pendingInviteCode, onCodeUsed }: MainAppProps) {
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
+      {/* In-app notification toast */}
+      <InAppNotification />
+
       <div className={`flex-1 ${showBottomNav ? "pb-20" : ""}`}>{renderScreen()}</div>
       {showBottomNav && (
         <BottomNav

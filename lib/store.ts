@@ -123,6 +123,7 @@ interface AppState {
   markAllNotificationsRead: () => void
   clearNotifications: () => void
   getUnreadNotificationCount: () => number
+  loadNotifications: (telegramId: string) => Promise<void>
 
   // Company actions
   createCompany: (name: string, creatorTelegramId: string, creatorName: string, creatorUsername: string) => Company
@@ -248,6 +249,26 @@ export const useAppStore = create<AppState>()(
 
       getUnreadNotificationCount: () => {
         return get().notifications.filter((n) => !n.read).length
+      },
+
+      loadNotifications: async (telegramId: string) => {
+        const user = get().getUserByTelegramId(telegramId)
+        if (!user) return
+
+        // Simulate fetching notifications from an API
+        const fetchedNotifications: Notification[] = [
+          {
+            id: "1",
+            type: "task_assigned",
+            title: "New Task Assigned",
+            message: "You have been assigned a new task.",
+            taskId: "task1",
+            read: false,
+            createdAt: new Date(),
+          },
+        ]
+
+        set({ notifications: fetchedNotifications })
       },
 
       createCompany: (name, creatorTelegramId, creatorName, creatorUsername) => {
@@ -782,14 +803,14 @@ export const useAppStore = create<AppState>()(
         ).length
 
         const userTimeLogs = timeLogs.filter((tl) => tl.userId === currentUser.id && tl.endTime)
-        const totalSeconds = userTimeLogs.reduce((acc, tl) => acc + tl.durationSeconds, 0)
+        const totalSeconds = userTimeLogs.reduce((acc, tl) => acc + (tl.durationSeconds || 0), 0)
 
         return {
           totalTasks: userTasks.length,
           completedTasks,
           pendingTasks,
           overdueTasks,
-          totalHoursWorked: Math.round((totalSeconds / 3600) * 10) / 10,
+          totalHoursWorked: isNaN(totalSeconds) ? 0 : Math.round((totalSeconds / 3600) * 10) / 10,
           completionRate: userTasks.length > 0 ? Math.round((completedTasks / userTasks.length) * 100) : 0,
         }
       },

@@ -1,5 +1,10 @@
 // Format time duration from seconds to human-readable string
 export function formatDuration(totalSeconds: number): string {
+  // Handle invalid input
+  if (!totalSeconds || isNaN(totalSeconds) || totalSeconds < 0) {
+    return "00:00:00:00"
+  }
+
   const days = Math.floor(totalSeconds / (60 * 60 * 24))
   const hours = Math.floor((totalSeconds % (60 * 60 * 24)) / (60 * 60))
   const minutes = Math.floor((totalSeconds % (60 * 60)) / 60)
@@ -12,6 +17,11 @@ export function formatDuration(totalSeconds: number): string {
 
 // Format elapsed seconds for timer display (live tracking)
 export function formatElapsedTime(totalSeconds: number): string {
+  // Handle invalid input
+  if (!totalSeconds || isNaN(totalSeconds) || totalSeconds < 0) {
+    return "00:00:00:00"
+  }
+
   const days = Math.floor(totalSeconds / (60 * 60 * 24))
   const hours = Math.floor((totalSeconds % (60 * 60 * 24)) / (60 * 60))
   const minutes = Math.floor((totalSeconds % (60 * 60)) / 60)

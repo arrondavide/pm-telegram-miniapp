@@ -3,7 +3,55 @@ import { connectToDatabase } from "@/lib/mongodb"
 import { Task, User, Update } from "@/lib/models"
 import mongoose from "mongoose"
 
-// ... existing GET code ...
+async function createNotification(
+  telegramId: string,
+  type: string,
+  title: string,
+  message: string,
+  taskId?: string,
+  sendTelegram = true,
+) {
+  try {
+    // Create in-app notification in database
+    const NotificationSchema = new mongoose.Schema({
+      telegram_id: String,
+      type: String,
+      title: String,
+      message: String,
+      task_id: String,
+      read: { type: Boolean, default: false },
+      created_at: { type: Date, default: Date.now },
+    })
+
+    const AppNotification = mongoose.models.AppNotification || mongoose.model("AppNotification", NotificationSchema)
+
+    await AppNotification.create({
+      telegram_id: telegramId,
+      type,
+      title,
+      message,
+      task_id: taskId,
+      read: false,
+    })
+
+    // Send Telegram notification
+    const BOT_TOKEN = process.env.BOT_TOKEN
+    if (sendTelegram && BOT_TOKEN) {
+      const telegramMessage = `<b>${title}</b>\n\n${message}`
+      await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: telegramId,
+          text: telegramMessage,
+          parse_mode: "HTML",
+        }),
+      })
+    }
+  } catch (error) {
+    console.error("Failed to create notification:", error)
+  }
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -80,8 +128,7 @@ export async function POST(request: NextRequest) {
       message: `Task "${title}" created`,
     })
 
-    const BOT_TOKEN = process.env.BOT_TOKEN
-    if (BOT_TOKEN && assignedUsers.length > 0) {
+    if (assignedUsers.length > 0) {
       const formattedDate = new Date(dueDate).toLocaleDateString("en-US", {
         month: "short",
         day: "numeric",
@@ -92,21 +139,16 @@ export async function POST(request: NextRequest) {
         // Don't notify the creator if they assigned themselves
         if (assignedUser.telegram_id === telegramId) continue
 
-        const message = `📋 <b>New Task Assigned</b>\n\n<b>${title}</b>\n\nAssigned by: ${user.full_name}\nDue: ${formattedDate}\nPriority: ${priority || "medium"}\n\nOpen the app to view details.`
+        const notifTitle = "New Task Assigned"
+        const notifMessage = `${title}\n\nAssigned by: ${user.full_name}\nDue: ${formattedDate}\nPriority: ${priority || "medium"}`
 
-        try {
-          await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              chat_id: assignedUser.telegram_id,
-              text: message,
-              parse_mode: "HTML",
-            }),
-          })
-        } catch (notifError) {
-          console.error("Failed to send notification:", notifError)
-        }
+        await createNotification(
+          assignedUser.telegram_id,
+          "task_assigned",
+          notifTitle,
+          notifMessage,
+          task._id.toString(),
+        )
       }
     }
 

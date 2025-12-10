@@ -1,6 +1,55 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { connectToDatabase } from "@/lib/mongodb"
 import { Task, User, Update } from "@/lib/models"
+import mongoose from "mongoose"
+
+async function createNotification(
+  telegramId: string,
+  type: string,
+  title: string,
+  message: string,
+  taskId?: string,
+  sendTelegram = true,
+) {
+  try {
+    const NotificationSchema = new mongoose.Schema({
+      telegram_id: String,
+      type: String,
+      title: String,
+      message: String,
+      task_id: String,
+      read: { type: Boolean, default: false },
+      created_at: { type: Date, default: Date.now },
+    })
+
+    const AppNotification = mongoose.models.AppNotification || mongoose.model("AppNotification", NotificationSchema)
+
+    await AppNotification.create({
+      telegram_id: telegramId,
+      type,
+      title,
+      message,
+      task_id: taskId,
+      read: false,
+    })
+
+    const BOT_TOKEN = process.env.BOT_TOKEN
+    if (sendTelegram && BOT_TOKEN) {
+      const telegramMessage = `<b>${title}</b>\n\n${message}`
+      await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: telegramId,
+          text: telegramMessage,
+          parse_mode: "HTML",
+        }),
+      })
+    }
+  } catch (error) {
+    console.error("Failed to create notification:", error)
+  }
+}
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ taskId: string }> }) {
   try {
@@ -40,6 +89,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
               id: (task.created_by as any)._id.toString(),
               fullName: (task.created_by as any).full_name,
               username: (task.created_by as any).username,
+              telegramId: (task.created_by as any).telegram_id,
             }
           : null,
         estimatedHours: task.estimated_hours,
@@ -72,7 +122,9 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       return NextResponse.json({ error: "User not found" }, { status: 404 })
     }
 
-    const task = await Task.findById(taskId).populate("assigned_to", "telegram_id full_name")
+    const task = await Task.findById(taskId)
+      .populate("assigned_to", "telegram_id full_name")
+      .populate("created_by", "telegram_id full_name")
     if (!task) {
       return NextResponse.json({ error: "Task not found" }, { status: 404 })
     }
@@ -107,35 +159,37 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         message: `Status changed from ${oldStatus} to ${body.status}`,
       })
 
-      const BOT_TOKEN = process.env.BOT_TOKEN
-      if (BOT_TOKEN) {
-        const assignedUsers = task.assigned_to as any[]
+      const peopleToNotify = new Set<string>()
 
-        for (const assignedUser of assignedUsers) {
-          // Don't notify the user who made the change
-          if (assignedUser.telegram_id === telegramId) continue
-
-          let message = ""
-          if (body.status === "completed") {
-            message = `✅ <b>Task Completed</b>\n\n<b>${task.title}</b>\n\nCompleted by: ${user.full_name}`
-          } else {
-            message = `🔄 <b>Task Updated</b>\n\n<b>${task.title}</b>\n\nStatus: ${oldStatus} → ${body.status}\nUpdated by: ${user.full_name}`
-          }
-
-          try {
-            await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                chat_id: assignedUser.telegram_id,
-                text: message,
-                parse_mode: "HTML",
-              }),
-            })
-          } catch (notifError) {
-            console.error("Failed to send notification:", notifError)
-          }
+      // Add all assigned users
+      const assignedUsers = task.assigned_to as any[]
+      for (const assignedUser of assignedUsers) {
+        if (assignedUser.telegram_id && assignedUser.telegram_id !== telegramId) {
+          peopleToNotify.add(assignedUser.telegram_id)
         }
+      }
+
+      // Add task creator (admin notification)
+      const creator = task.created_by as any
+      if (creator?.telegram_id && creator.telegram_id !== telegramId) {
+        peopleToNotify.add(creator.telegram_id)
+      }
+
+      // Send notifications
+      for (const notifyTelegramId of peopleToNotify) {
+        let notifTitle = "Task Updated"
+        let notifMessage = ""
+        let notifType = "task_updated"
+
+        if (body.status === "completed") {
+          notifTitle = "Task Completed"
+          notifMessage = `${task.title}\n\nCompleted by: ${user.full_name}`
+          notifType = "task_completed"
+        } else {
+          notifMessage = `${task.title}\n\nStatus: ${oldStatus} → ${body.status}\nUpdated by: ${user.full_name}`
+        }
+
+        await createNotification(notifyTelegramId, notifType, notifTitle, notifMessage, task._id.toString())
       }
     }
 
