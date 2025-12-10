@@ -23,7 +23,7 @@ interface CreateTaskScreenProps {
 
 export function CreateTaskScreen({ onBack, onSuccess }: CreateTaskScreenProps) {
   const { createTask, getCompanyMembers, currentUser, loadMembers } = useAppStore()
-  const { hapticFeedback, showBackButton, hideBackButton, webApp, user } = useTelegram()
+  const { hapticFeedback, showBackButton, hideBackButton, user } = useTelegram()
 
   const [title, setTitle] = useState("")
   const [description, setDescription] = useState("")
@@ -38,8 +38,10 @@ export function CreateTaskScreen({ onBack, onSuccess }: CreateTaskScreenProps) {
   const [estimatedHours, setEstimatedHours] = useState("4")
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isLoadingMembers, setIsLoadingMembers] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const members = getCompanyMembers()
+  const telegramId = user?.id?.toString() || currentUser?.telegramId || ""
 
   useEffect(() => {
     showBackButton(onBack)
@@ -51,7 +53,7 @@ export function CreateTaskScreen({ onBack, onSuccess }: CreateTaskScreenProps) {
       if (!currentUser?.activeCompanyId) return
       setIsLoadingMembers(true)
       try {
-        const response = await companyApi.getMembers(currentUser.activeCompanyId, user?.id?.toString() || "")
+        const response = await companyApi.getMembers(currentUser.activeCompanyId, telegramId)
         if (response.success && response.data?.members) {
           loadMembers(response.data.members)
         }
@@ -62,7 +64,7 @@ export function CreateTaskScreen({ onBack, onSuccess }: CreateTaskScreenProps) {
       }
     }
     loadMembersFromApi()
-  }, [currentUser?.activeCompanyId])
+  }, [currentUser?.activeCompanyId, telegramId])
 
   const handleAddTag = () => {
     if (newTag.trim() && !tags.includes(newTag.trim())) {
@@ -99,16 +101,21 @@ export function CreateTaskScreen({ onBack, onSuccess }: CreateTaskScreenProps) {
   const handleSubmit = async () => {
     if (!title.trim() || !dueDate || assignedTo.length === 0 || !currentUser?.activeCompanyId) {
       hapticFeedback("error")
+      setError("Please fill in all required fields and assign at least one person")
+      return
+    }
+
+    if (!telegramId) {
+      hapticFeedback("error")
+      setError("Unable to identify user. Please restart the app.")
       return
     }
 
     setIsSubmitting(true)
+    setError(null)
     hapticFeedback("medium")
 
     try {
-      const initData = webApp?.initData || ""
-
-      // Try API first
       const response = await taskApi.create(
         {
           companyId: currentUser.activeCompanyId,
@@ -133,7 +140,7 @@ export function CreateTaskScreen({ onBack, onSuccess }: CreateTaskScreenProps) {
           completedAt: null,
           createdAt: new Date(),
         } as any,
-        initData,
+        telegramId,
       )
 
       if (response.success) {
@@ -161,31 +168,11 @@ export function CreateTaskScreen({ onBack, onSuccess }: CreateTaskScreenProps) {
         hapticFeedback("success")
         onSuccess()
       } else {
-        // Fallback to local only
-        createTask({
-          title: title.trim(),
-          description: description.trim(),
-          dueDate,
-          priority,
-          status: "pending",
-          assignedTo,
-          createdBy: currentUser.id,
-          companyId: currentUser.activeCompanyId,
-          category: category.trim(),
-          tags,
-          department: "",
-          subtasks: subtasks.map((st, i) => ({
-            id: `st-${Date.now()}-${i}`,
-            title: st,
-            completed: false,
-            completedAt: null,
-          })),
-          estimatedHours: Number.parseFloat(estimatedHours) || 0,
-        })
-        hapticFeedback("success")
-        onSuccess()
+        setError(response.error || "Failed to create task")
+        hapticFeedback("error")
       }
-    } catch {
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "An unexpected error occurred")
       hapticFeedback("error")
     } finally {
       setIsSubmitting(false)
@@ -214,6 +201,13 @@ export function CreateTaskScreen({ onBack, onSuccess }: CreateTaskScreenProps) {
       </header>
 
       <div className="flex-1 space-y-6 p-4">
+        {/* Error message */}
+        {error && (
+          <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-destructive text-sm">
+            {error}
+          </div>
+        )}
+
         {/* Title */}
         <div className="space-y-2">
           <Label htmlFor="title" className="font-body">

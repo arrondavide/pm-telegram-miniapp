@@ -30,7 +30,7 @@ export function TasksScreen({ onTaskSelect, onCreateTask }: TasksScreenProps) {
     getUnreadNotificationCount,
     tasks,
   } = useAppStore()
-  const { webApp } = useTelegram()
+  const { user } = useTelegram()
   const [filter, setFilter] = useState<"all" | "pending" | "in_progress" | "completed">("all")
   const [priorityFilter, setPriorityFilter] = useState<string>("all")
   const [isLoading, setIsLoading] = useState(false)
@@ -40,22 +40,21 @@ export function TasksScreen({ onTaskSelect, onCreateTask }: TasksScreenProps) {
   const company = getActiveCompany()
   const isManagerOrAdmin = role === "admin" || role === "manager"
   const unreadCount = getUnreadNotificationCount()
+  const telegramId = user?.id?.toString() || currentUser?.telegramId || ""
 
   useEffect(() => {
-    if (company?.id && currentUser) {
+    if (company?.id && currentUser && telegramId) {
       loadTasksFromApi()
     }
-  }, [company?.id, currentUser])
+  }, [company?.id, currentUser, telegramId]) // Updated dependency array
 
   const loadTasksFromApi = async () => {
-    if (!company?.id || !currentUser) return
+    if (!company?.id || !currentUser || !telegramId) return
 
     setIsLoading(true)
     setDebugInfo(null)
     try {
-      const initData = webApp?.initData || ""
-
-      const response = await taskApi.getAll(company.id, initData)
+      const response = await taskApi.getAll(company.id, telegramId)
 
       if (response.success && response.data) {
         const tasksData = (response.data as any).tasks || response.data

@@ -452,16 +452,11 @@ export const useAppStore = create<AppState>()(
       getTasksForUser: () => {
         const { currentUser, tasks } = get()
         if (!currentUser?.activeCompanyId) {
-          console.log("[v0] getTasksForUser - no activeCompanyId")
           return []
         }
 
         const userTelegramId = currentUser.telegramId?.toString()
         const userId = currentUser.id
-
-        console.log("[v0] getTasksForUser checking - userId:", userId, "telegramId:", userTelegramId)
-        console.log("[v0] getTasksForUser - activeCompanyId:", currentUser.activeCompanyId)
-        console.log("[v0] getTasksForUser - total tasks:", tasks.length)
 
         const userTasks = tasks.filter((t) => {
           const companyMatch = t.companyId === currentUser.activeCompanyId
@@ -495,14 +490,8 @@ export const useAppStore = create<AppState>()(
             return false
           })
 
-          if (isAssigned) {
-            console.log("[v0] Task matched:", t.title)
-          }
-
           return isAssigned
         })
-
-        console.log("[v0] getTasksForUser result:", userTasks.length, "tasks")
 
         return userTasks.sort((a, b) => {
           const priorityOrder = { urgent: 0, high: 1, medium: 2, low: 3 }
