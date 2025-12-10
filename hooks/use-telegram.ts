@@ -37,6 +37,8 @@ interface WebApp {
   ready: () => void
   expand: () => void
   close: () => void
+  openTelegramLink: (url: string) => void
+  switchInlineQuery: (query: string, choose_chat_types?: string[]) => void
   MainButton: {
     text: string
     color: string
@@ -152,6 +154,36 @@ export function useTelegram() {
     webApp?.BackButton?.hide()
   }, [webApp])
 
+  const shareViaTelegram = useCallback(
+    (text: string) => {
+      if (!webApp) {
+        // Fallback for non-Telegram environment
+        const shareUrl = `https://t.me/share/url?text=${encodeURIComponent(text)}`
+        window.open(shareUrl, "_blank")
+        return
+      }
+
+      // Use Telegram's native share
+      const shareUrl = `https://t.me/share/url?text=${encodeURIComponent(text)}`
+      webApp.openTelegramLink(shareUrl)
+    },
+    [webApp],
+  )
+
+  const openBotChat = useCallback(
+    (botUsername: string, startParam?: string) => {
+      if (!webApp) {
+        const url = startParam ? `https://t.me/${botUsername}?start=${startParam}` : `https://t.me/${botUsername}`
+        window.open(url, "_blank")
+        return
+      }
+
+      const url = startParam ? `https://t.me/${botUsername}?start=${startParam}` : `https://t.me/${botUsername}`
+      webApp.openTelegramLink(url)
+    },
+    [webApp],
+  )
+
   return {
     webApp,
     user,
@@ -162,5 +194,7 @@ export function useTelegram() {
     hideMainButton,
     showBackButton,
     hideBackButton,
+    shareViaTelegram,
+    openBotChat,
   }
 }

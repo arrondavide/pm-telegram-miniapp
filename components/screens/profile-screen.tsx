@@ -79,6 +79,13 @@ export function ProfileScreen() {
     setJoinError(null)
     hapticFeedback("medium")
 
+    console.log("[v0] Attempting to join with code:", inviteCode.trim())
+    console.log("[v0] Current user:", {
+      telegramId: currentUser.telegramId,
+      fullName: currentUser.fullName,
+      username: currentUser.username,
+    })
+
     try {
       const response = await companyApi.joinWithCode({
         invitationCode: inviteCode.trim(),
@@ -87,8 +94,11 @@ export function ProfileScreen() {
         username: currentUser.username,
       })
 
+      console.log("[v0] Join response:", response)
+
       if (response.success && response.data) {
         const { company, user, allCompanies } = response.data
+        console.log("[v0] Join successful:", { company, user, allCompanies })
 
         // Update companies list
         if (allCompanies) {
@@ -107,11 +117,13 @@ export function ProfileScreen() {
         setIsJoinCompanyOpen(false)
         setInviteCode("")
       } else {
+        console.log("[v0] Join failed:", response.error)
         setJoinError(response.error || "Failed to join company")
         hapticFeedback("error")
       }
     } catch (error) {
-      setJoinError("Failed to join company")
+      console.error("[v0] Join exception:", error)
+      setJoinError("Failed to join company. Please try again.")
       hapticFeedback("error")
     } finally {
       setIsJoining(false)
