@@ -65,7 +65,9 @@ export function TasksScreen({ onTaskSelect, onCreateTask }: TasksScreenProps) {
               status: t.status,
               priority: t.priority,
               companyId: company.id,
-              assignedTo: t.assignedTo?.map((a: any) => a.id || a) || [],
+              assignedTo: (t.assignedTo || [])
+                .map((a: any) => (typeof a === "string" ? a : a.id || a.telegramId || a._id?.toString()))
+                .filter(Boolean),
               createdBy: t.createdBy?.id || t.createdBy || currentUser?.id || "",
               category: t.category || "",
               tags: t.tags || [],

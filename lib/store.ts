@@ -453,7 +453,22 @@ export const useAppStore = create<AppState>()(
         if (!currentUser?.activeCompanyId) return []
 
         return tasks
-          .filter((t) => t.companyId === currentUser.activeCompanyId && t.assignedTo.includes(currentUser.id))
+          .filter((t) => {
+            if (t.companyId !== currentUser.activeCompanyId) return false
+
+            // Check if user is assigned - match by id or telegramId
+            const isAssigned = t.assignedTo.some(
+              (assigneeId) =>
+                assigneeId === currentUser.id ||
+                assigneeId === currentUser.telegramId ||
+                // Also check if assignedTo contains objects with id/telegramId
+                (typeof assigneeId === "object" &&
+                  assigneeId !== null &&
+                  ((assigneeId as any).id === currentUser.id ||
+                    (assigneeId as any).telegramId === currentUser.telegramId)),
+            )
+            return isAssigned
+          })
           .sort((a, b) => {
             const priorityOrder = { urgent: 0, high: 1, medium: 2, low: 3 }
             return (

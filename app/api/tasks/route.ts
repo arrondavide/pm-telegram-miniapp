@@ -128,7 +128,6 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// ... existing GET code stays the same ...
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
@@ -182,6 +181,7 @@ export async function GET(request: NextRequest) {
             id: task.created_by._id.toString(),
             fullName: task.created_by.full_name,
             username: task.created_by.username,
+            telegramId: task.created_by.telegram_id,
           }
         : null,
       estimatedHours: task.estimated_hours,

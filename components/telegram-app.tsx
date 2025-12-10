@@ -12,35 +12,20 @@ export function TelegramApp() {
   const { webApp, user, isReady, initData, startParam } = useTelegram()
   const { currentUser, setCurrentUser, initialize, setCompanies } = useAppStore()
   const [isLoading, setIsLoading] = useState(true)
-  const [loadError, setLoadError] = useState<string | null>(null)
   const [pendingInviteCode, setPendingInviteCode] = useState<string | null>(null)
 
   useEffect(() => {
-    // Log all available params for debugging
-    console.log("[v0] startParam from hook:", startParam)
-    console.log("[v0] webApp?.initDataUnsafe:", webApp?.initDataUnsafe)
-
-    // Check URL params as fallback (for web testing)
     const urlParams = new URLSearchParams(window.location.search)
     const urlStartParam = urlParams.get("tgWebAppStartParam") || urlParams.get("startapp")
-    console.log("[v0] URL params startParam:", urlStartParam)
-
-    // Also check hash params (Telegram sometimes uses hash)
     const hashParams = new URLSearchParams(window.location.hash.replace("#", "?"))
     const hashStartParam = hashParams.get("tgWebAppStartParam") || hashParams.get("startapp")
-    console.log("[v0] Hash params startParam:", hashStartParam)
-
     const effectiveStartParam = startParam || urlStartParam || hashStartParam
-    console.log("[v0] Effective startParam:", effectiveStartParam)
 
     if (effectiveStartParam) {
       if (effectiveStartParam.startsWith("join_")) {
         const code = effectiveStartParam.replace("join_", "")
-        console.log("[v0] Extracted invite code from link:", code)
         setPendingInviteCode(code)
       } else {
-        // Maybe the code was passed directly without "join_" prefix
-        console.log("[v0] startParam without join_ prefix:", effectiveStartParam)
         setPendingInviteCode(effectiveStartParam)
       }
     }
@@ -50,12 +35,22 @@ export function TelegramApp() {
     async function loadUserData() {
       if (!isReady || !user) return
 
+      const persistedUser = useAppStore.getState().currentUser
+      const persistedActiveCompanyId = persistedUser?.activeCompanyId
+
       try {
         const response = await userApi.getByTelegramId(user.id.toString(), initData)
 
         if (response.success && response.data) {
           if (response.data.user) {
-            setCurrentUser(response.data.user)
+            const apiUser = response.data.user
+            const finalActiveCompanyId =
+              persistedActiveCompanyId || apiUser.activeCompanyId || response.data.companies?.[0]?.id
+
+            setCurrentUser({
+              ...apiUser,
+              activeCompanyId: finalActiveCompanyId,
+            })
             setCompanies(response.data.companies)
           }
         } else {
@@ -68,9 +63,13 @@ export function TelegramApp() {
       } catch (error) {
         console.error("Failed to load user data:", error)
         initialize()
-        const existingUser = useAppStore.getState().getUserByTelegramId(user.id.toString())
-        if (existingUser) {
-          setCurrentUser(existingUser)
+        if (persistedUser) {
+          setCurrentUser(persistedUser)
+        } else {
+          const existingUser = useAppStore.getState().getUserByTelegramId(user.id.toString())
+          if (existingUser) {
+            setCurrentUser(existingUser)
+          }
         }
       } finally {
         setIsLoading(false)
@@ -101,19 +100,6 @@ export function TelegramApp() {
           <Spinner className="h-8 w-8" />
           <p className="text-muted-foreground">Loading WhatsTask...</p>
           {pendingInviteCode && <p className="text-xs text-primary">Invite code detected: {pendingInviteCode}</p>}
-        </div>
-      </div>
-    )
-  }
-
-  if (loadError) {
-    return (
-      <div className="flex h-screen items-center justify-center bg-background p-4">
-        <div className="text-center">
-          <p className="text-destructive">{loadError}</p>
-          <button className="mt-4 text-primary underline" onClick={() => window.location.reload()}>
-            Retry
-          </button>
         </div>
       </div>
     )
