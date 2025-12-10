@@ -1,20 +1,57 @@
 "use client"
 
 import { useState } from "react"
-import { Building2, Bell, Clock, ChevronRight, Check, Moon, Sun, Settings } from "lucide-react"
+import { Building2, Bell, Clock, ChevronRight, Check, Moon, Sun, Settings, Trash2, UserPlus } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Switch } from "@/components/ui/switch"
 import { Badge } from "@/components/ui/badge"
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { useAppStore } from "@/lib/store"
 import { useTelegram } from "@/hooks/use-telegram"
+import { companyApi } from "@/lib/api"
 import { cn } from "@/lib/utils"
 
 export function ProfileScreen() {
-  const { currentUser, companies, switchCompany, getActiveCompany, getUserRole } = useAppStore()
+  const {
+    currentUser,
+    companies,
+    switchCompany,
+    getActiveCompany,
+    getUserRole,
+    deleteCompany,
+    joinCompanyWithCode,
+    setCompanies,
+  } = useAppStore()
   const { hapticFeedback, webApp } = useTelegram()
 
   const [isCompanySwitchOpen, setIsCompanySwitchOpen] = useState(false)
+  const [isJoinCompanyOpen, setIsJoinCompanyOpen] = useState(false)
+  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false)
+  const [companyToDelete, setCompanyToDelete] = useState<string | null>(null)
+  const [inviteCode, setInviteCode] = useState("")
+  const [joinError, setJoinError] = useState<string | null>(null)
+  const [isJoining, setIsJoining] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
   const [isDarkMode, setIsDarkMode] = useState(
     typeof document !== "undefined" && document.documentElement.classList.contains("dark"),
   )
@@ -33,6 +70,82 @@ export function ProfileScreen() {
     switchCompany(companyId)
     setIsCompanySwitchOpen(false)
     hapticFeedback("success")
+  }
+
+  const handleJoinCompany = async () => {
+    if (!inviteCode.trim() || !currentUser) return
+
+    setIsJoining(true)
+    setJoinError(null)
+    hapticFeedback("medium")
+
+    try {
+      const response = await companyApi.joinWithCode({
+        invitationCode: inviteCode.trim(),
+        telegramId: currentUser.telegramId,
+        fullName: currentUser.fullName,
+        username: currentUser.username,
+      })
+
+      if (response.success && response.data) {
+        const { company, user, allCompanies } = response.data
+
+        // Update companies list
+        if (allCompanies) {
+          setCompanies(allCompanies)
+        }
+
+        // Add the new company to user
+        joinCompanyWithCode(company, {
+          companyId: company.id,
+          role: user.companies.find((c: any) => c.companyId === company.id)?.role || "employee",
+          department: "",
+          joinedAt: new Date(),
+        })
+
+        hapticFeedback("success")
+        setIsJoinCompanyOpen(false)
+        setInviteCode("")
+      } else {
+        setJoinError(response.error || "Failed to join company")
+        hapticFeedback("error")
+      }
+    } catch (error) {
+      setJoinError("Failed to join company")
+      hapticFeedback("error")
+    } finally {
+      setIsJoining(false)
+    }
+  }
+
+  const handleDeleteCompany = async () => {
+    if (!companyToDelete || !currentUser) return
+
+    setIsDeleting(true)
+    hapticFeedback("medium")
+
+    try {
+      const response = await companyApi.delete(companyToDelete, currentUser.telegramId)
+
+      if (response.success) {
+        deleteCompany(companyToDelete)
+        hapticFeedback("success")
+      } else {
+        hapticFeedback("error")
+      }
+    } catch (error) {
+      hapticFeedback("error")
+    } finally {
+      setIsDeleting(false)
+      setIsDeleteConfirmOpen(false)
+      setCompanyToDelete(null)
+    }
+  }
+
+  const confirmDeleteCompany = (companyId: string) => {
+    setCompanyToDelete(companyId)
+    setIsDeleteConfirmOpen(true)
+    hapticFeedback("warning")
   }
 
   const toggleDarkMode = () => {
@@ -106,6 +219,11 @@ export function ProfileScreen() {
           </CardContent>
         </Card>
 
+        <Button variant="outline" className="w-full bg-transparent" onClick={() => setIsJoinCompanyOpen(true)}>
+          <UserPlus className="mr-2 h-4 w-4" />
+          Join Another Company
+        </Button>
+
         {/* Settings */}
         <Card>
           <CardHeader className="pb-2">
@@ -159,27 +277,42 @@ export function ProfileScreen() {
       <Dialog open={isCompanySwitchOpen} onOpenChange={setIsCompanySwitchOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Switch Company</DialogTitle>
-            <DialogDescription>Select a company to switch to</DialogDescription>
+            <DialogTitle>Your Companies</DialogTitle>
+            <DialogDescription>Switch between companies or manage them</DialogDescription>
           </DialogHeader>
           <div className="space-y-2 py-4">
             {userCompanies.map((uc) => {
               const isActive = uc.companyId === currentUser.activeCompanyId
+              const isAdmin = uc.role === "admin"
               return (
                 <Card
                   key={uc.companyId}
-                  className={cn(
-                    "cursor-pointer transition-colors",
-                    isActive ? "border-primary bg-primary/5" : "hover:bg-muted/50",
-                  )}
-                  onClick={() => !isActive && handleCompanySwitch(uc.companyId)}
+                  className={cn("transition-colors", isActive ? "border-primary bg-primary/5" : "hover:bg-muted/50")}
                 >
                   <CardContent className="flex items-center justify-between p-4">
-                    <div>
+                    <div
+                      className="flex-1 cursor-pointer"
+                      onClick={() => !isActive && handleCompanySwitch(uc.companyId)}
+                    >
                       <p className="font-medium">{uc.company?.name || "Unknown"}</p>
                       <p className="text-sm text-muted-foreground capitalize">{uc.role}</p>
                     </div>
-                    {isActive && <Check className="h-5 w-5 text-primary" />}
+                    <div className="flex items-center gap-2">
+                      {isActive && <Check className="h-5 w-5 text-primary" />}
+                      {isAdmin && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            confirmDeleteCompany(uc.companyId)
+                          }}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
+                    </div>
                   </CardContent>
                 </Card>
               )
@@ -187,6 +320,61 @@ export function ProfileScreen() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <Dialog open={isJoinCompanyOpen} onOpenChange={setIsJoinCompanyOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Join a Company</DialogTitle>
+            <DialogDescription>Enter the invitation code to join a company</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="inviteCode">Invitation Code</Label>
+              <Input
+                id="inviteCode"
+                placeholder="Enter code (e.g., ABC12345)"
+                value={inviteCode}
+                onChange={(e) => {
+                  setInviteCode(e.target.value.toUpperCase())
+                  setJoinError(null)
+                }}
+                className="uppercase"
+              />
+              {joinError && <p className="text-sm text-destructive">{joinError}</p>}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsJoinCompanyOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleJoinCompany} disabled={!inviteCode.trim() || isJoining}>
+              {isJoining ? "Joining..." : "Join Company"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={isDeleteConfirmOpen} onOpenChange={setIsDeleteConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Company</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this company? This action cannot be undone. All tasks, invitations, and
+              data will be permanently deleted.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteCompany}
+              disabled={isDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeleting ? "Deleting..." : "Delete Company"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

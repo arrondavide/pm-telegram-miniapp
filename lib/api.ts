@@ -80,6 +80,12 @@ export const companyApi = {
       headers: { "X-Telegram-Init-Data": data.initData },
     }),
 
+  delete: (companyId: string, telegramId: string) =>
+    fetchApi<{ success: boolean }>(`/companies/${companyId}`, {
+      method: "DELETE",
+      headers: { "X-Telegram-Id": telegramId },
+    }),
+
   getMembers: (companyId: string, initData: string) =>
     fetchApi<import("@/lib/store").User[]>(`/companies/${companyId}/members`, {
       method: "GET",
@@ -93,11 +99,19 @@ export const companyApi = {
       headers: { "X-Telegram-Init-Data": data.initData },
     }),
 
-  acceptInvitation: (invitationCode: string, initData: string) =>
-    fetchApi<import("@/lib/store").User>("/companies/join", {
+  joinWithCode: (data: {
+    invitationCode: string
+    telegramId: string
+    fullName: string
+    username: string
+  }) =>
+    fetchApi<{
+      company: import("@/lib/store").Company
+      user: import("@/lib/store").User
+      allCompanies: import("@/lib/store").Company[]
+    }>("/companies/join", {
       method: "POST",
-      body: JSON.stringify({ invitationCode }),
-      headers: { "X-Telegram-Init-Data": initData },
+      body: JSON.stringify(data),
     }),
 
   changeUserRole: (companyId: string, userId: string, role: string, initData: string) =>

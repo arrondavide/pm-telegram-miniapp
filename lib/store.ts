@@ -111,6 +111,8 @@ interface AppState {
   createCompany: (name: string, creatorTelegramId: string, creatorName: string, creatorUsername: string) => Company
   switchCompany: (companyId: string) => void
   getActiveCompany: () => Company | null
+  deleteCompany: (companyId: string) => void
+  joinCompanyWithCode: (company: Company, userCompany: UserCompany) => void
 
   // User actions
   registerUser: (telegramId: string, fullName: string, username: string) => User
@@ -269,6 +271,51 @@ export const useAppStore = create<AppState>()(
         const { currentUser, companies } = get()
         if (!currentUser?.activeCompanyId) return null
         return companies.find((c) => c.id === currentUser.activeCompanyId) || null
+      },
+
+      deleteCompany: (companyId: string) => {
+        const { currentUser } = get()
+        if (!currentUser) return
+
+        // Remove company from user's companies
+        const updatedCompanies = currentUser.companies.filter((c) => c.companyId !== companyId)
+
+        // Set new active company
+        const newActiveCompanyId = updatedCompanies.length > 0 ? updatedCompanies[0].companyId : null
+
+        const updatedUser = {
+          ...currentUser,
+          companies: updatedCompanies,
+          activeCompanyId: newActiveCompanyId,
+        }
+
+        set((state) => ({
+          companies: state.companies.filter((c) => c.id !== companyId),
+          tasks: state.tasks.filter((t) => t.companyId !== companyId),
+          invitations: state.invitations.filter((i) => i.companyId !== companyId),
+          currentUser: updatedUser,
+          users: state.users.map((u) => (u.id === currentUser.id ? updatedUser : u)),
+        }))
+      },
+
+      joinCompanyWithCode: (company: Company, userCompany: UserCompany) => {
+        const { currentUser } = get()
+        if (!currentUser) return
+
+        // Check if company already exists in state
+        const companyExists = get().companies.some((c) => c.id === company.id)
+
+        const updatedUser = {
+          ...currentUser,
+          companies: [...currentUser.companies, userCompany],
+          activeCompanyId: company.id,
+        }
+
+        set((state) => ({
+          companies: companyExists ? state.companies : [...state.companies, company],
+          currentUser: updatedUser,
+          users: state.users.map((u) => (u.id === currentUser.id ? updatedUser : u)),
+        }))
       },
 
       registerUser: (telegramId, fullName, username) => {
