@@ -43,7 +43,7 @@ import { useAppStore, type Invitation } from "@/lib/store"
 import { useTelegram } from "@/hooks/use-telegram"
 import { companyApi } from "@/lib/api"
 
-const BOT_USERNAME = process.env.NEXT_PUBLIC_BOT_USERNAME || "WhatsTaskBot"
+const BOT_USERNAME = "whatstaskbot"
 
 export function TeamScreen() {
   const { currentUser, getActiveCompany, getUserRole, getCompanyMembers, addInvitation } = useAppStore()

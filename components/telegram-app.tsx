@@ -16,11 +16,35 @@ export function TelegramApp() {
   const [pendingInviteCode, setPendingInviteCode] = useState<string | null>(null)
 
   useEffect(() => {
-    if (startParam && startParam.startsWith("join_")) {
-      const code = startParam.replace("join_", "")
-      setPendingInviteCode(code)
+    // Log all available params for debugging
+    console.log("[v0] startParam from hook:", startParam)
+    console.log("[v0] webApp?.initDataUnsafe:", webApp?.initDataUnsafe)
+
+    // Check URL params as fallback (for web testing)
+    const urlParams = new URLSearchParams(window.location.search)
+    const urlStartParam = urlParams.get("tgWebAppStartParam") || urlParams.get("startapp")
+    console.log("[v0] URL params startParam:", urlStartParam)
+
+    // Also check hash params (Telegram sometimes uses hash)
+    const hashParams = new URLSearchParams(window.location.hash.replace("#", "?"))
+    const hashStartParam = hashParams.get("tgWebAppStartParam") || hashParams.get("startapp")
+    console.log("[v0] Hash params startParam:", hashStartParam)
+
+    const effectiveStartParam = startParam || urlStartParam || hashStartParam
+    console.log("[v0] Effective startParam:", effectiveStartParam)
+
+    if (effectiveStartParam) {
+      if (effectiveStartParam.startsWith("join_")) {
+        const code = effectiveStartParam.replace("join_", "")
+        console.log("[v0] Extracted invite code from link:", code)
+        setPendingInviteCode(code)
+      } else {
+        // Maybe the code was passed directly without "join_" prefix
+        console.log("[v0] startParam without join_ prefix:", effectiveStartParam)
+        setPendingInviteCode(effectiveStartParam)
+      }
     }
-  }, [startParam])
+  }, [startParam, webApp])
 
   useEffect(() => {
     async function loadUserData() {
@@ -34,9 +58,7 @@ export function TelegramApp() {
             setCurrentUser(response.data.user)
             setCompanies(response.data.companies)
           }
-          // If no user found, they'll see the onboarding screen
         } else {
-          // Fallback to local initialization for demo/development
           initialize()
           const existingUser = useAppStore.getState().getUserByTelegramId(user.id.toString())
           if (existingUser) {
@@ -45,7 +67,6 @@ export function TelegramApp() {
         }
       } catch (error) {
         console.error("Failed to load user data:", error)
-        // Fallback to local store
         initialize()
         const existingUser = useAppStore.getState().getUserByTelegramId(user.id.toString())
         if (existingUser) {
@@ -60,7 +81,6 @@ export function TelegramApp() {
   }, [isReady, user, initData, setCurrentUser, setCompanies, initialize])
 
   useEffect(() => {
-    // Apply Telegram theme
     if (webApp) {
       document.documentElement.style.setProperty("--tg-theme-bg-color", webApp.backgroundColor || "#ffffff")
       document.documentElement.style.setProperty("--tg-theme-text-color", webApp.themeParams?.text_color || "#000000")
@@ -80,6 +100,7 @@ export function TelegramApp() {
         <div className="flex flex-col items-center gap-4">
           <Spinner className="h-8 w-8" />
           <p className="text-muted-foreground">Loading WhatsTask...</p>
+          {pendingInviteCode && <p className="text-xs text-primary">Invite code detected: {pendingInviteCode}</p>}
         </div>
       </div>
     )
