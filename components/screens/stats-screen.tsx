@@ -183,6 +183,7 @@ export function StatsScreen() {
     pendingTasks: 0,
     overdueTasks: 0,
     totalSecondsWorked: 0,
+    totalHoursWorked: 0,
     completionRate: 0,
   }
 
@@ -270,7 +271,9 @@ export function StatsScreen() {
                   <Clock className="h-6 w-6" />
                 </div>
                 <div>
-                  <p className="text-3xl font-bold font-mono">{formatDuration(personalStats.totalSecondsWorked)}</p>
+                  <p className="text-3xl font-bold font-mono">
+                    {formatDuration(personalStats.totalSecondsWorked || 0)}
+                  </p>
                   <p className="text-sm text-muted-foreground">Total Time Tracked (DD:HH:MM:SS)</p>
                 </div>
               </CardContent>

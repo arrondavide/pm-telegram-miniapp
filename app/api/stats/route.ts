@@ -70,21 +70,26 @@ export async function GET(request: NextRequest) {
     // Get user's total time logged
     let totalSeconds = 0
     if (user) {
-      const userTimeLogs = await TimeLog.find({
-        user_id: user._id,
-        end_time: { $ne: null },
-      }).lean()
+      try {
+        const userTimeLogs = await TimeLog.find({
+          user_id: user._id,
+          end_time: { $ne: null },
+        }).lean()
 
-      for (const log of userTimeLogs as any[]) {
-        if (log.duration_seconds) {
-          totalSeconds += log.duration_seconds
-        } else if (log.duration_minutes) {
-          totalSeconds += log.duration_minutes * 60
-        } else if (log.start_time && log.end_time) {
-          const start = new Date(log.start_time).getTime()
-          const end = new Date(log.end_time).getTime()
-          totalSeconds += Math.round((end - start) / 1000)
+        for (const log of userTimeLogs as any[]) {
+          // Database stores duration_minutes, convert to seconds
+          if (log.duration_minutes && typeof log.duration_minutes === "number") {
+            totalSeconds += log.duration_minutes * 60
+          } else if (log.start_time && log.end_time) {
+            // Fallback: calculate from timestamps
+            const start = new Date(log.start_time).getTime()
+            const end = new Date(log.end_time).getTime()
+            totalSeconds += Math.round((end - start) / 1000)
+          }
         }
+      } catch (timeLogError) {
+        console.error("Error fetching time logs:", timeLogError)
+        // Continue with 0 seconds
       }
     }
 
