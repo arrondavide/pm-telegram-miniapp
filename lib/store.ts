@@ -139,6 +139,7 @@ interface AppState {
   createTask: (task: Omit<Task, "id" | "createdAt" | "completedAt" | "actualHours">) => Task
   updateTask: (taskId: string, updates: Partial<Task>) => void
   updateTaskStatus: (taskId: string, status: Task["status"]) => void
+  deleteTask: (taskId: string) => void
   getTasksForUser: () => Task[]
   getAllCompanyTasks: () => Task[]
   getTaskById: (taskId: string) => Task | null
@@ -423,6 +424,14 @@ export const useAppStore = create<AppState>()(
       updateTask: (taskId, updates) => {
         set((state) => ({
           tasks: state.tasks.map((t) => (t.id === taskId ? { ...t, ...updates } : t)),
+        }))
+      },
+
+      deleteTask: (taskId) => {
+        set((state) => ({
+          tasks: state.tasks.filter((t) => t.id !== taskId),
+          comments: state.comments.filter((c) => c.taskId !== taskId),
+          timeLogs: state.timeLogs.filter((tl) => tl.taskId !== taskId),
         }))
       },
 

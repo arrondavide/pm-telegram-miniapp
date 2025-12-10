@@ -13,12 +13,16 @@ import {
   Edit2,
   Send,
   Loader2,
+  Trash2,
+  AlertTriangle,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
 import { Textarea } from "@/components/ui/textarea"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
   DropdownMenu,
@@ -27,6 +31,14 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { TimeTracker } from "@/components/time-tracker"
 import { useAppStore, type Task } from "@/lib/store"
@@ -45,6 +57,13 @@ const statusOptions: Array<{ value: Task["status"]; label: string; color: string
   { value: "in_progress", label: "In Progress", color: "bg-indigo-500" },
   { value: "completed", label: "Completed", color: "bg-emerald-500" },
   { value: "blocked", label: "Blocked", color: "bg-red-500" },
+]
+
+const priorityOptions: Array<{ value: Task["priority"]; label: string }> = [
+  { value: "low", label: "Low" },
+  { value: "medium", label: "Medium" },
+  { value: "high", label: "High" },
+  { value: "urgent", label: "Urgent" },
 ]
 
 const priorityConfig = {
@@ -69,6 +88,8 @@ export function TaskDetailScreen({ taskId, onBack }: TaskDetailScreenProps) {
   const {
     getTaskById,
     updateTaskStatus,
+    updateTask,
+    deleteTask,
     toggleSubtask,
     addComment,
     getCommentsForTask,
@@ -77,6 +98,7 @@ export function TaskDetailScreen({ taskId, onBack }: TaskDetailScreenProps) {
     currentUser,
     activeTimeLog,
     addNotification,
+    getUserRole,
   } = useAppStore()
   const { hapticFeedback, showBackButton, hideBackButton, webApp, user } = useTelegram()
 
@@ -86,9 +108,22 @@ export function TaskDetailScreen({ taskId, onBack }: TaskDetailScreenProps) {
   const [apiComments, setApiComments] = useState<ApiComment[]>([])
   const [isLoadingComments, setIsLoadingComments] = useState(false)
 
+  const [showEditDialog, setShowEditDialog] = useState(false)
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+  const [editForm, setEditForm] = useState({
+    title: "",
+    description: "",
+    priority: "medium" as Task["priority"],
+    dueDate: "",
+  })
+
   const task = getTaskById(taskId)
   const localComments = getCommentsForTask(taskId)
   const timeLogs = getTimeLogsForTask(taskId)
+  const role = getUserRole()
+  const isManagerOrAdmin = role === "admin" || role === "manager"
 
   useEffect(() => {
     showBackButton(onBack)
@@ -105,13 +140,24 @@ export function TaskDetailScreen({ taskId, onBack }: TaskDetailScreenProps) {
           setApiComments((response.data as any).comments || [])
         }
       } catch (error) {
-        console.error("Failed to load comments:", error)
+        // Silently fail
       } finally {
         setIsLoadingComments(false)
       }
     }
     loadComments()
   }, [taskId])
+
+  useEffect(() => {
+    if (task) {
+      setEditForm({
+        title: task.title,
+        description: task.description || "",
+        priority: task.priority,
+        dueDate: new Date(task.dueDate).toISOString().split("T")[0],
+      })
+    }
+  }, [task])
 
   if (!task) {
     return (
@@ -126,10 +172,22 @@ export function TaskDetailScreen({ taskId, onBack }: TaskDetailScreenProps) {
   const completedSubtasks = task.subtasks.filter((st) => st.completed).length
   const subtaskProgress = task.subtasks.length > 0 ? (completedSubtasks / task.subtasks.length) * 100 : 0
 
-  const assignees = task.assignedTo.map((id) => users.find((u) => u.id === id)).filter(Boolean)
+  const assignees = task.assignedTo
+    .map((id) => {
+      if (typeof id === "string") {
+        return users.find((u) => u.id === id || u.telegramId === id)
+      }
+      return users.find((u) => u.id === (id as any).id || u.telegramId === (id as any).telegramId)
+    })
+    .filter(Boolean)
   const creator = users.find((u) => u.id === task.createdBy)
 
-  const isAssigned = currentUser && task.assignedTo.includes(currentUser.id)
+  const isAssigned =
+    currentUser &&
+    task.assignedTo.some((a) => {
+      if (typeof a === "string") return a === currentUser.id || a === currentUser.telegramId
+      return (a as any).id === currentUser.id || (a as any).telegramId === currentUser.telegramId
+    })
   const totalTimeMinutes = timeLogs.reduce((sum, tl) => sum + (tl.durationMinutes || 0), 0)
   const totalTimeHours = Math.round((totalTimeMinutes / 60) * 10) / 10
 
@@ -138,11 +196,10 @@ export function TaskDetailScreen({ taskId, onBack }: TaskDetailScreenProps) {
     setIsUpdatingStatus(true)
 
     try {
-      const initData = webApp?.initData || ""
-      await taskApi.update(taskId, { status }, initData)
+      const telegramId = currentUser?.telegramId || user?.id?.toString() || ""
+      await taskApi.update(taskId, { status }, telegramId)
       updateTaskStatus(taskId, status)
 
-      // Add in-app notification
       if (status === "completed") {
         addNotification({
           type: "task_completed",
@@ -154,8 +211,6 @@ export function TaskDetailScreen({ taskId, onBack }: TaskDetailScreenProps) {
 
       hapticFeedback("success")
     } catch (error) {
-      console.error("Failed to update status:", error)
-      // Still update locally
       updateTaskStatus(taskId, status)
       hapticFeedback("success")
     } finally {
@@ -175,21 +230,18 @@ export function TaskDetailScreen({ taskId, onBack }: TaskDetailScreenProps) {
     setIsSubmittingComment(true)
 
     try {
-      const initData = webApp?.initData || ""
-      const response = await commentApi.create(taskId, currentUser.id, newComment.trim(), initData)
+      const telegramId = currentUser?.telegramId || user?.id?.toString() || ""
+      const response = await commentApi.create(taskId, currentUser.id, newComment.trim(), telegramId)
 
       if (response.success && response.data) {
         const newApiComment = (response.data as any).comment
         setApiComments((prev) => [...prev, newApiComment])
       }
 
-      // Also add locally for immediate feedback
       addComment(taskId, newComment.trim())
       setNewComment("")
       hapticFeedback("success")
     } catch (error) {
-      console.error("Failed to add comment:", error)
-      // Still add locally
       addComment(taskId, newComment.trim())
       setNewComment("")
       hapticFeedback("success")
@@ -198,7 +250,60 @@ export function TaskDetailScreen({ taskId, onBack }: TaskDetailScreenProps) {
     }
   }
 
-  // Combine API and local comments, deduplicate by message
+  const handleEditTask = async () => {
+    if (!editForm.title.trim()) return
+
+    setIsSaving(true)
+    hapticFeedback("medium")
+
+    try {
+      const telegramId = currentUser?.telegramId || user?.id?.toString() || ""
+      const updates = {
+        title: editForm.title,
+        description: editForm.description,
+        priority: editForm.priority,
+        dueDate: new Date(editForm.dueDate),
+      }
+
+      await taskApi.update(taskId, updates, telegramId)
+      updateTask(taskId, updates)
+      setShowEditDialog(false)
+      hapticFeedback("success")
+    } catch (error) {
+      // Still update locally
+      updateTask(taskId, {
+        title: editForm.title,
+        description: editForm.description,
+        priority: editForm.priority,
+        dueDate: new Date(editForm.dueDate),
+      })
+      setShowEditDialog(false)
+      hapticFeedback("success")
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  const handleDeleteTask = async () => {
+    setIsDeleting(true)
+    hapticFeedback("medium")
+
+    try {
+      const telegramId = currentUser?.telegramId || user?.id?.toString() || ""
+      await taskApi.delete(taskId, telegramId)
+      deleteTask(taskId)
+      hapticFeedback("success")
+      onBack()
+    } catch (error) {
+      // Still delete locally
+      deleteTask(taskId)
+      hapticFeedback("success")
+      onBack()
+    } finally {
+      setIsDeleting(false)
+    }
+  }
+
   const allComments = [...apiComments].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
 
   return (
@@ -210,21 +315,26 @@ export function TaskDetailScreen({ taskId, onBack }: TaskDetailScreenProps) {
             <ArrowLeft className="h-4 w-4" />
             Back
           </Button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon">
-                <MoreVertical className="h-5 w-5" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem>
-                <Edit2 className="mr-2 h-4 w-4" />
-                Edit Task
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem className="text-destructive">Delete Task</DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          {isManagerOrAdmin && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon">
+                  <MoreVertical className="h-5 w-5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => setShowEditDialog(true)}>
+                  <Edit2 className="mr-2 h-4 w-4" />
+                  Edit Task
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem className="text-destructive" onClick={() => setShowDeleteDialog(true)}>
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Delete Task
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </div>
       </header>
 
@@ -310,19 +420,23 @@ export function TaskDetailScreen({ taskId, onBack }: TaskDetailScreenProps) {
             </CardTitle>
           </CardHeader>
           <CardContent className="flex flex-wrap gap-2">
-            {assignees.map((user) => (
-              <Badge key={user?.id} variant="secondary" className="gap-2 py-1.5 font-body">
-                <div className="flex h-5 w-5 items-center justify-center rounded-full bg-foreground text-[10px] font-medium text-background">
-                  {user?.fullName
-                    .split(" ")
-                    .map((n) => n[0])
-                    .join("")
-                    .toUpperCase()
-                    .slice(0, 2)}
-                </div>
-                {user?.fullName}
-              </Badge>
-            ))}
+            {assignees.length > 0 ? (
+              assignees.map((user) => (
+                <Badge key={user?.id} variant="secondary" className="gap-2 py-1.5 font-body">
+                  <div className="flex h-5 w-5 items-center justify-center rounded-full bg-foreground text-[10px] font-medium text-background">
+                    {user?.fullName
+                      .split(" ")
+                      .map((n) => n[0])
+                      .join("")
+                      .toUpperCase()
+                      .slice(0, 2)}
+                  </div>
+                  {user?.fullName}
+                </Badge>
+              ))
+            ) : (
+              <p className="text-sm text-muted-foreground">No assignees</p>
+            )}
           </CardContent>
         </Card>
 
@@ -458,6 +572,100 @@ export function TaskDetailScreen({ taskId, onBack }: TaskDetailScreenProps) {
           </CardContent>
         </Card>
       </div>
+
+      <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="font-heading">Edit Task</DialogTitle>
+            <DialogDescription className="font-body">Make changes to your task.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit-title">Title</Label>
+              <Input
+                id="edit-title"
+                value={editForm.title}
+                onChange={(e) => setEditForm((f) => ({ ...f, title: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-description">Description</Label>
+              <Textarea
+                id="edit-description"
+                value={editForm.description}
+                onChange={(e) => setEditForm((f) => ({ ...f, description: e.target.value }))}
+                rows={3}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Priority</Label>
+                <Select
+                  value={editForm.priority}
+                  onValueChange={(v) => setEditForm((f) => ({ ...f, priority: v as Task["priority"] }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {priorityOptions.map((p) => (
+                      <SelectItem key={p.value} value={p.value}>
+                        {p.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-dueDate">Due Date</Label>
+                <Input
+                  id="edit-dueDate"
+                  type="date"
+                  value={editForm.dueDate}
+                  onChange={(e) => setEditForm((f) => ({ ...f, dueDate: e.target.value }))}
+                />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowEditDialog(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleEditTask}
+              disabled={isSaving || !editForm.title.trim()}
+              className="bg-foreground text-background hover:bg-foreground/90"
+            >
+              {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Save Changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 font-heading text-destructive">
+              <AlertTriangle className="h-5 w-5" />
+              Delete Task
+            </DialogTitle>
+            <DialogDescription className="font-body">
+              Are you sure you want to delete "{task.title}"? This action cannot be undone and will also delete all
+              comments and time logs associated with this task.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowDeleteDialog(false)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleDeleteTask} disabled={isDeleting}>
+              {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
+              Delete Task
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

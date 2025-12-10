@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Plus, Filter, Clock, AlertTriangle, RefreshCw, Bell } from "lucide-react"
+import { Plus, Filter, Clock, AlertTriangle, RefreshCw, Bell, Info } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { TaskCard } from "@/components/task-card"
@@ -28,11 +28,13 @@ export function TasksScreen({ onTaskSelect, onCreateTask }: TasksScreenProps) {
     currentUser,
     loadTasks,
     getUnreadNotificationCount,
+    tasks,
   } = useAppStore()
   const { webApp } = useTelegram()
   const [filter, setFilter] = useState<"all" | "pending" | "in_progress" | "completed">("all")
   const [priorityFilter, setPriorityFilter] = useState<string>("all")
   const [isLoading, setIsLoading] = useState(false)
+  const [debugInfo, setDebugInfo] = useState<string | null>(null)
 
   const role = getUserRole()
   const company = getActiveCompany()
@@ -43,36 +45,31 @@ export function TasksScreen({ onTaskSelect, onCreateTask }: TasksScreenProps) {
     if (company?.id && currentUser) {
       loadTasksFromApi()
     }
-  }, [company?.id, currentUser]) // Updated dependency to currentUser
+  }, [company?.id, currentUser])
 
   const loadTasksFromApi = async () => {
     if (!company?.id || !currentUser) return
 
     setIsLoading(true)
+    setDebugInfo(null)
     try {
       const initData = webApp?.initData || ""
-      console.log("[v0] Loading tasks for company:", company.id, "user:", currentUser.telegramId)
 
       const response = await taskApi.getAll(company.id, initData)
 
       if (response.success && response.data) {
-        const tasks = (response.data as any).tasks || response.data
-        console.log("[v0] API returned tasks:", tasks.length)
+        const tasksData = (response.data as any).tasks || response.data
 
-        const formattedTasks = Array.isArray(tasks)
-          ? tasks.map((t: any) => {
-              // Build assignedTo with all possible ID formats for matching
+        const formattedTasks = Array.isArray(tasksData)
+          ? tasksData.map((t: any) => {
               const assignedToData = (t.assignedTo || []).map((a: any) => {
                 if (typeof a === "string") return a
-                // Return the full object so we can match against any ID
                 return {
                   id: a.id || a._id,
                   telegramId: a.telegramId?.toString(),
                   fullName: a.fullName,
                 }
               })
-
-              console.log("[v0] Task:", t.title, "assignedTo:", JSON.stringify(assignedToData))
 
               return {
                 id: t.id,
@@ -81,7 +78,7 @@ export function TasksScreen({ onTaskSelect, onCreateTask }: TasksScreenProps) {
                 dueDate: new Date(t.dueDate),
                 status: t.status,
                 priority: t.priority,
-                companyId: company.id, // Use current company ID to ensure match
+                companyId: company.id,
                 assignedTo: assignedToData,
                 createdBy: t.createdBy?.id || t.createdBy || currentUser?.id || "",
                 category: t.category || "",
@@ -101,13 +98,28 @@ export function TasksScreen({ onTaskSelect, onCreateTask }: TasksScreenProps) {
             })
           : []
 
-        console.log("[v0] Formatted tasks:", formattedTasks.length)
-        console.log("[v0] Current user telegramId:", currentUser.telegramId)
+        if (formattedTasks.length > 0) {
+          const userTelegramId = currentUser.telegramId?.toString()
+          const matchingTasks = formattedTasks.filter((t: any) =>
+            t.assignedTo.some((a: any) => {
+              if (typeof a === "string") return a === userTelegramId
+              return a.telegramId === userTelegramId
+            }),
+          )
+
+          if (matchingTasks.length === 0 && formattedTasks.length > 0) {
+            setDebugInfo(
+              `Found ${formattedTasks.length} task(s) in company, but none assigned to you (ID: ${userTelegramId})`,
+            )
+          }
+        }
 
         loadTasks(formattedTasks)
+      } else {
+        setDebugInfo(`API response: ${response.error || "No data"}`)
       }
     } catch (error) {
-      console.error("[v0] Failed to load tasks:", error)
+      setDebugInfo(`Error: ${error instanceof Error ? error.message : "Unknown error"}`)
     } finally {
       setIsLoading(false)
     }
@@ -115,8 +127,6 @@ export function TasksScreen({ onTaskSelect, onCreateTask }: TasksScreenProps) {
 
   const myTasks = getTasksForUser()
   const allTasks = isManagerOrAdmin ? getAllCompanyTasks() : myTasks
-
-  console.log("[v0] myTasks count:", myTasks.length, "allTasks count:", allTasks.length)
 
   const filterTasks = (tasks: typeof myTasks) => {
     return tasks.filter((task) => {
@@ -188,6 +198,13 @@ export function TasksScreen({ onTaskSelect, onCreateTask }: TasksScreenProps) {
           </div>
         )}
 
+        {debugInfo && (
+          <div className="mt-4 flex items-start gap-2 rounded-lg border border-blue-500/30 bg-blue-500/5 p-3 text-blue-700">
+            <Info className="h-4 w-4 mt-0.5 shrink-0" />
+            <span className="font-body text-sm">{debugInfo}</span>
+          </div>
+        )}
+
         <div className="mt-4 flex gap-2">
           <Select value={filter} onValueChange={(v) => setFilter(v as typeof filter)}>
             <SelectTrigger className="w-[130px] border-border/50">
@@ -249,6 +266,9 @@ export function TasksScreen({ onTaskSelect, onCreateTask }: TasksScreenProps) {
                 <h3 className="font-heading font-medium">No tasks found</h3>
                 <p className="font-body text-sm text-muted-foreground">
                   {filter !== "all" ? "Try adjusting your filters" : "You have no assigned tasks"}
+                </p>
+                <p className="font-body text-xs text-muted-foreground/50 mt-2">
+                  Your ID: {currentUser?.telegramId || "Unknown"}
                 </p>
               </div>
             ) : (
