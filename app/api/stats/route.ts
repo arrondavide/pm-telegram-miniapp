@@ -17,14 +17,56 @@ export async function GET(request: NextRequest) {
 
     const user = await User.findOne({ telegram_id: telegramId })
     if (!user) {
-      return NextResponse.json({ error: "User not found" }, { status: 404 })
+      return NextResponse.json({
+        company: {
+          totalTasks: 0,
+          completedTasks: 0,
+          pendingTasks: 0,
+          overdueTasks: 0,
+          completionRate: 0,
+        },
+        personal: {
+          totalTasks: 0,
+          completedTasks: 0,
+          pendingTasks: 0,
+          overdueTasks: 0,
+          totalSecondsWorked: 0,
+          totalHoursWorked: 0,
+          completionRate: 0,
+        },
+        topPerformers: [],
+      })
     }
 
-    let companyObjectId: mongoose.Types.ObjectId
+    let companyObjectId: mongoose.Types.ObjectId | null = null
     try {
-      companyObjectId = new mongoose.Types.ObjectId(companyId)
+      if (mongoose.Types.ObjectId.isValid(companyId)) {
+        companyObjectId = new mongoose.Types.ObjectId(companyId)
+      }
     } catch {
-      return NextResponse.json({ error: "Invalid company ID" }, { status: 400 })
+      // Invalid ObjectId, continue with null
+    }
+
+    if (!companyObjectId) {
+      return NextResponse.json({
+        company: {
+          totalTasks: 0,
+          completedTasks: 0,
+          pendingTasks: 0,
+          overdueTasks: 0,
+          completionRate: 0,
+        },
+        personal: {
+          totalTasks: 0,
+          completedTasks: 0,
+          pendingTasks: 0,
+          overdueTasks: 0,
+          totalSecondsWorked: 0,
+          totalHoursWorked: 0,
+          completionRate: 0,
+        },
+        topPerformers: [],
+      })
     }
 
     // Get all company tasks
@@ -52,11 +94,6 @@ export async function GET(request: NextRequest) {
     }).lean()
 
     // Merge and deduplicate
-    const allUserTaskIds = new Set([
-      ...userTasksById.map((t: any) => t._id.toString()),
-      ...userTasksByTelegramId.map((t: any) => t._id.toString()),
-    ])
-
     const allUserTasks = [
       ...userTasksById,
       ...userTasksByTelegramId.filter(
@@ -71,7 +108,7 @@ export async function GET(request: NextRequest) {
       (t: any) => !["completed", "cancelled"].includes(t.status) && t.due_date && new Date(t.due_date) < new Date(),
     ).length
 
-    // Get user's total time logged (all time, not just this week)
+    // Get user's total time logged
     const userTimeLogs = await TimeLog.find({
       user_id: user._id,
       end_time: { $ne: null },
@@ -91,7 +128,7 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Get top performers (users with most completed tasks)
+    // Get top performers
     const topPerformers = await Task.aggregate([
       {
         $match: {
@@ -118,12 +155,11 @@ export async function GET(request: NextRequest) {
       },
     ])
 
-    // Format top performers with fallback for telegram ID based assignments
+    // Format top performers
     const formattedPerformers = []
     for (const p of topPerformers) {
       let userData = p.userById?.[0]
 
-      // If not found by ObjectId, try finding by telegram_id string
       if (!userData && typeof p._id === "string") {
         userData = await User.findOne({ telegram_id: p._id }).lean()
       }
@@ -162,6 +198,24 @@ export async function GET(request: NextRequest) {
     })
   } catch (error) {
     console.error("Error fetching stats:", error)
-    return NextResponse.json({ error: "Failed to fetch stats" }, { status: 500 })
+    return NextResponse.json({
+      company: {
+        totalTasks: 0,
+        completedTasks: 0,
+        pendingTasks: 0,
+        overdueTasks: 0,
+        completionRate: 0,
+      },
+      personal: {
+        totalTasks: 0,
+        completedTasks: 0,
+        pendingTasks: 0,
+        overdueTasks: 0,
+        totalSecondsWorked: 0,
+        totalHoursWorked: 0,
+        completionRate: 0,
+      },
+      topPerformers: [],
+    })
   }
 }

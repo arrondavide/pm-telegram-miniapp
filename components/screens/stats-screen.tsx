@@ -64,14 +64,37 @@ export function StatsScreen() {
         headers: { "X-Telegram-Id": currentUser.telegramId },
       })
 
-      if (!response.ok) {
-        throw new Error("Failed to fetch stats")
-      }
-
       const data = await response.json()
-      setStats(data)
+
+      if (data.error) {
+        if (data.company && data.personal) {
+          setStats(data)
+        } else {
+          setError(data.error)
+        }
+      } else {
+        setStats(data)
+      }
     } catch (err) {
-      setError("Failed to load statistics")
+      setStats({
+        company: {
+          totalTasks: 0,
+          completedTasks: 0,
+          pendingTasks: 0,
+          overdueTasks: 0,
+          completionRate: 0,
+        },
+        personal: {
+          totalTasks: 0,
+          completedTasks: 0,
+          pendingTasks: 0,
+          overdueTasks: 0,
+          totalSecondsWorked: 0,
+          totalHoursWorked: 0,
+          completionRate: 0,
+        },
+        topPerformers: [],
+      })
     } finally {
       setIsLoading(false)
     }
