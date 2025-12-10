@@ -130,6 +130,8 @@ export function TaskDetailScreen({ taskId, onBack }: TaskDetailScreenProps) {
     dueDate: "",
   })
 
+  const [isLoadingTimeLogs, setIsLoadingTimeLogs] = useState(false)
+
   const task = getTaskById(taskId)
   const localComments = getCommentsForTask(taskId)
   const timeLogs = getTimeLogsForTask(taskId)
@@ -144,8 +146,9 @@ export function TaskDetailScreen({ taskId, onBack }: TaskDetailScreenProps) {
   useEffect(() => {
     const loadTimeLogs = async () => {
       const telegramId = currentUser?.telegramId || user?.id?.toString() || ""
-      if (!telegramId || !taskId) return
+      if (!taskId) return
 
+      setIsLoadingTimeLogs(true)
       try {
         const response = await timeApi.getTaskTimeLogs(taskId, telegramId)
         if (response.success && response.data?.timeLogs) {
@@ -153,6 +156,8 @@ export function TaskDetailScreen({ taskId, onBack }: TaskDetailScreenProps) {
         }
       } catch (error) {
         // Silently fail, will use local time logs
+      } finally {
+        setIsLoadingTimeLogs(false)
       }
     }
     loadTimeLogs()
@@ -436,9 +441,16 @@ export function TaskDetailScreen({ taskId, onBack }: TaskDetailScreenProps) {
               <Clock className="h-5 w-5 text-muted-foreground" />
               <div>
                 <p className="font-body text-xs text-muted-foreground">Time Tracked</p>
-                <p className="font-body font-medium">
-                  {formattedTimeSpent} / {formattedEstimate}
-                </p>
+                {isLoadingTimeLogs ? (
+                  <div className="flex items-center gap-1">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    <span className="font-body text-sm">Loading...</span>
+                  </div>
+                ) : (
+                  <p className="font-body font-medium font-mono text-sm">
+                    {formattedTimeSpent} / {formattedEstimate}
+                  </p>
+                )}
               </div>
             </CardContent>
           </Card>
