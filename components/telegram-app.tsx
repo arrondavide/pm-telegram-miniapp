@@ -9,10 +9,18 @@ import { userApi } from "@/lib/api"
 import { Spinner } from "@/components/ui/spinner"
 
 export function TelegramApp() {
-  const { webApp, user, isReady, initData } = useTelegram()
+  const { webApp, user, isReady, initData, startParam } = useTelegram()
   const { currentUser, setCurrentUser, initialize, setCompanies } = useAppStore()
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [pendingInviteCode, setPendingInviteCode] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (startParam && startParam.startsWith("join_")) {
+      const code = startParam.replace("join_", "")
+      setPendingInviteCode(code)
+    }
+  }, [startParam])
 
   useEffect(() => {
     async function loadUserData() {
@@ -91,8 +99,8 @@ export function TelegramApp() {
   }
 
   if (!currentUser || currentUser.companies.length === 0) {
-    return <OnboardingScreen />
+    return <OnboardingScreen pendingInviteCode={pendingInviteCode} onCodeUsed={() => setPendingInviteCode(null)} />
   }
 
-  return <MainApp />
+  return <MainApp pendingInviteCode={pendingInviteCode} onCodeUsed={() => setPendingInviteCode(null)} />
 }

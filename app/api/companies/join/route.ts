@@ -18,93 +18,64 @@ export async function POST(request: NextRequest) {
     const normalizedCode = invitationCode.toString().trim().toUpperCase().replace(/\s+/g, "")
     console.log("[v0] Looking for invitation code:", normalizedCode)
 
-    const allInvitations = await Invitation.find({}).lean()
-    console.log(
-      "[v0] All invitations in database:",
-      allInvitations.map((i: any) => ({
-        code: i.invitation_code,
-        status: i.status,
-        expires: i.expires_at,
-      })),
-    )
-
-    // Try exact match first
-    let invitation = await Invitation.findOne({
+    const invitation = await Invitation.findOne({
       invitation_code: normalizedCode,
-      status: "pending",
     })
 
-    // If not found, try case-insensitive
+    console.log(
+      "[v0] Found invitation:",
+      invitation
+        ? {
+            id: invitation._id,
+            code: invitation.invitation_code,
+            status: invitation.status,
+            expires: invitation.expires_at,
+          }
+        : "No",
+    )
+
     if (!invitation) {
-      invitation = await Invitation.findOne({
-        invitation_code: { $regex: new RegExp(`^${normalizedCode}$`, "i") },
-        status: "pending",
-      })
+      // List all invitations for debugging
+      const allInvitations = await Invitation.find({}).select("invitation_code status").lean()
+      console.log(
+        "[v0] All invitation codes:",
+        allInvitations.map((i: any) => i.invitation_code),
+      )
+
+      return NextResponse.json({ error: "Invalid invitation code. Please check and try again." }, { status: 400 })
     }
 
-    console.log("[v0] Found pending invitation:", invitation ? "Yes" : "No")
+    // Check status
+    if (invitation.status === "accepted") {
+      return NextResponse.json({ error: "This invitation code has already been used" }, { status: 400 })
+    }
 
-    if (!invitation) {
-      // Check if any invitation exists with this code
-      const anyInvitation = await Invitation.findOne({
-        $or: [
-          { invitation_code: normalizedCode },
-          { invitation_code: { $regex: new RegExp(`^${normalizedCode}$`, "i") } },
-        ],
-      })
-
-      if (anyInvitation) {
-        console.log("[v0] Found non-pending invitation:", {
-          code: anyInvitation.invitation_code,
-          status: anyInvitation.status,
-          expires: anyInvitation.expires_at,
-          now: new Date(),
-        })
-
-        if (anyInvitation.status === "accepted") {
-          return NextResponse.json({ error: "This invitation code has already been used" }, { status: 400 })
-        }
-        if (anyInvitation.status === "expired" || new Date(anyInvitation.expires_at) < new Date()) {
-          if (anyInvitation.status !== "expired") {
-            anyInvitation.status = "expired"
-            await anyInvitation.save()
-          }
-          return NextResponse.json({ error: "This invitation code has expired" }, { status: 400 })
-        }
-        if (anyInvitation.status === "rejected") {
-          return NextResponse.json({ error: "This invitation code has been rejected" }, { status: 400 })
-        }
-      }
-
-      // No invitation found at all
-      return NextResponse.json(
-        {
-          error: "Invalid invitation code. Please check and try again.",
-          debug: {
-            searchedFor: normalizedCode,
-            availableCodes: allInvitations.map((i: any) => i.invitation_code),
-          },
-        },
-        { status: 400 },
-      )
+    if (invitation.status === "rejected") {
+      return NextResponse.json({ error: "This invitation code has been rejected" }, { status: 400 })
     }
 
     // Check expiration
-    if (new Date(invitation.expires_at) < new Date()) {
-      invitation.status = "expired"
-      await invitation.save()
+    if (invitation.status === "expired" || new Date(invitation.expires_at) < new Date()) {
+      if (invitation.status !== "expired") {
+        invitation.status = "expired"
+        await invitation.save()
+      }
       return NextResponse.json({ error: "This invitation code has expired" }, { status: 400 })
     }
 
+    // Get company
     const company = await Company.findById(invitation.company_id)
     if (!company) {
       return NextResponse.json({ error: "Company no longer exists" }, { status: 400 })
     }
 
+    console.log("[v0] Found company:", company.name)
+
     // Find or create user
     let user = await User.findOne({ telegram_id: telegramId.toString() })
 
     if (!user) {
+      console.log("[v0] Creating new user")
       user = await User.create({
         telegram_id: telegramId.toString(),
         full_name: fullName || "User",
@@ -118,7 +89,8 @@ export async function POST(request: NextRequest) {
     }
 
     // Check if user already in company
-    const alreadyMember = user.companies.some((c: any) => c.company_id.toString() === invitation.company_id.toString())
+    const companyIdStr = invitation.company_id.toString()
+    const alreadyMember = user.companies.some((c: any) => c.company_id?.toString() === companyIdStr)
 
     if (alreadyMember) {
       return NextResponse.json({ error: "You are already a member of this company" }, { status: 400 })
@@ -134,11 +106,15 @@ export async function POST(request: NextRequest) {
     user.active_company_id = invitation.company_id
     await user.save()
 
+    console.log("[v0] User added to company")
+
     // Update invitation status
     invitation.status = "accepted"
     invitation.telegram_id = telegramId.toString()
     invitation.accepted_at = new Date()
     await invitation.save()
+
+    console.log("[v0] Invitation marked as accepted")
 
     // Get all user companies
     const allCompanyIds = user.companies.map((c: any) => c.company_id)

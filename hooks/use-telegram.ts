@@ -90,6 +90,7 @@ export function useTelegram() {
   const [user, setUser] = useState<TelegramUser | null>(null)
   const [isReady, setIsReady] = useState(false)
   const [initData, setInitData] = useState<string>("")
+  const [startParam, setStartParam] = useState<string | null>(null)
 
   useEffect(() => {
     const tgWebApp = window.Telegram?.WebApp
@@ -98,6 +99,8 @@ export function useTelegram() {
       setWebApp(tgWebApp)
       setUser(tgWebApp.initDataUnsafe.user || null)
       setInitData(tgWebApp.initData || "")
+      // Extract start_param for deep linking (e.g., join_ABCD1234)
+      setStartParam(tgWebApp.initDataUnsafe.start_param || null)
     } else {
       setUser({
         id: 123456789,
@@ -184,11 +187,36 @@ export function useTelegram() {
     [webApp],
   )
 
+  const shareInviteLink = useCallback(
+    (inviteCode: string, companyName: string, botUsername: string) => {
+      // Create a deep link that opens the mini app with the invite code
+      const deepLink = `https://t.me/${botUsername}?startapp=join_${inviteCode}`
+      const message = `Join "${companyName}" on WhatsTask!\n\nClick here to join: ${deepLink}`
+
+      if (!webApp) {
+        // Fallback for non-Telegram environment
+        const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(deepLink)}&text=${encodeURIComponent(`Join "${companyName}" on WhatsTask!`)}`
+        window.open(shareUrl, "_blank")
+        return
+      }
+
+      // Use Telegram's native share with the deep link
+      const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(deepLink)}&text=${encodeURIComponent(`Join "${companyName}" on WhatsTask!`)}`
+      webApp.openTelegramLink(shareUrl)
+    },
+    [webApp],
+  )
+
+  const getInviteLink = useCallback((inviteCode: string, botUsername: string) => {
+    return `https://t.me/${botUsername}?startapp=join_${inviteCode}`
+  }, [])
+
   return {
     webApp,
     user,
     isReady,
     initData,
+    startParam,
     hapticFeedback,
     showMainButton,
     hideMainButton,
@@ -196,5 +224,7 @@ export function useTelegram() {
     hideBackButton,
     shareViaTelegram,
     openBotChat,
+    shareInviteLink,
+    getInviteLink,
   }
 }

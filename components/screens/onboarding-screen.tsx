@@ -1,17 +1,22 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Building2, UserPlus, Briefcase, ArrowRight, User } from "lucide-react"
+import { Building2, UserPlus, Briefcase, ArrowRight, User, Loader2 } from "lucide-react"
 import { useAppStore } from "@/lib/store"
 import { useTelegram } from "@/hooks/use-telegram"
 import { companyApi } from "@/lib/api"
 
-export function OnboardingScreen() {
-  const { user, hapticFeedback, initData } = useTelegram()
+interface OnboardingScreenProps {
+  pendingInviteCode?: string | null
+  onCodeUsed?: () => void
+}
+
+export function OnboardingScreen({ pendingInviteCode, onCodeUsed }: OnboardingScreenProps) {
+  const { user, hapticFeedback } = useTelegram()
   const { createCompany, registerUser, acceptInvitation, setCurrentUser, getUserByTelegramId, setCompanies } =
     useAppStore()
 
@@ -19,10 +24,18 @@ export function OnboardingScreen() {
   const [inviteCode, setInviteCode] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState("")
+  const [activeTab, setActiveTab] = useState("create")
 
   const telegramId = user?.id.toString() || ""
   const fullName = `${user?.first_name || ""} ${user?.last_name || ""}`.trim() || "User"
   const username = user?.username || "user"
+
+  useEffect(() => {
+    if (pendingInviteCode) {
+      setInviteCode(pendingInviteCode)
+      setActiveTab("join")
+    }
+  }, [pendingInviteCode])
 
   const handleCreateCompany = async () => {
     if (!companyName.trim()) {
@@ -36,13 +49,12 @@ export function OnboardingScreen() {
     try {
       hapticFeedback("medium")
 
-      // Try API first
       const response = await companyApi.create({
         name: companyName.trim(),
         telegramId,
         fullName,
         username,
-        initData,
+        initData: "",
       })
 
       if (response.success && response.data) {
@@ -50,12 +62,10 @@ export function OnboardingScreen() {
         setCompanies([response.data.company])
         hapticFeedback("success")
       } else {
-        // Fallback to local store
         createCompany(companyName.trim(), telegramId, fullName, username)
         hapticFeedback("success")
       }
     } catch {
-      // Fallback to local store
       createCompany(companyName.trim(), telegramId, fullName, username)
       hapticFeedback("success")
     } finally {
@@ -75,33 +85,31 @@ export function OnboardingScreen() {
     try {
       hapticFeedback("medium")
 
-      // Try API first
-      const response = await companyApi.acceptInvitation(inviteCode.trim().toUpperCase(), initData)
+      const response = await companyApi.joinWithCode({
+        invitationCode: inviteCode.trim().toUpperCase(),
+        telegramId,
+        fullName,
+        username,
+      })
+
+      console.log("[v0] Join response:", response)
 
       if (response.success && response.data) {
-        setCurrentUser(response.data)
-        hapticFeedback("success")
-      } else {
-        // Fallback to local store
-        let currentUser = getUserByTelegramId(telegramId)
-        if (!currentUser) {
-          currentUser = registerUser(telegramId, fullName, username)
-        }
-
-        const success = acceptInvitation(inviteCode.trim().toUpperCase())
-        if (success) {
-          hapticFeedback("success")
-          const updatedUser = getUserByTelegramId(telegramId)
-          if (updatedUser) {
-            setCurrentUser(updatedUser)
-          }
+        setCurrentUser(response.data.user)
+        if (response.data.allCompanies) {
+          setCompanies(response.data.allCompanies)
         } else {
-          setError("Invalid or expired invitation code")
-          hapticFeedback("error")
+          setCompanies([response.data.company])
         }
+        hapticFeedback("success")
+        onCodeUsed?.()
+      } else {
+        setError(response.error || "Invalid or expired invitation code")
+        hapticFeedback("error")
       }
-    } catch {
-      setError("Failed to join company")
+    } catch (err) {
+      console.error("[v0] Join error:", err)
+      setError("Failed to join company. Please try again.")
       hapticFeedback("error")
     } finally {
       setIsLoading(false)
@@ -137,7 +145,7 @@ export function OnboardingScreen() {
           <CardDescription>Create a company or join an existing one</CardDescription>
         </CardHeader>
         <CardContent>
-          <Tabs defaultValue="create" className="w-full">
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
             <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="create" className="gap-2">
                 <Building2 className="h-4 w-4" />
@@ -160,8 +168,17 @@ export function OnboardingScreen() {
                 />
               </div>
               <Button className="w-full gap-2" onClick={handleCreateCompany} disabled={isLoading}>
-                {isLoading ? "Creating..." : "Create Company"}
-                <ArrowRight className="h-4 w-4" />
+                {isLoading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Creating...
+                  </>
+                ) : (
+                  <>
+                    Create Company
+                    <ArrowRight className="h-4 w-4" />
+                  </>
+                )}
               </Button>
             </TabsContent>
 
@@ -177,8 +194,17 @@ export function OnboardingScreen() {
                 />
               </div>
               <Button className="w-full gap-2" onClick={handleJoinWithCode} disabled={isLoading}>
-                {isLoading ? "Joining..." : "Join Company"}
-                <ArrowRight className="h-4 w-4" />
+                {isLoading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Joining...
+                  </>
+                ) : (
+                  <>
+                    Join Company
+                    <ArrowRight className="h-4 w-4" />
+                  </>
+                )}
               </Button>
               <p className="text-center text-xs text-muted-foreground">Ask your admin for an invitation code</p>
             </TabsContent>

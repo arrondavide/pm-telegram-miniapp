@@ -1,7 +1,21 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Users, UserPlus, Mail, Copy, Check, Crown, Shield, User, Trash2, Clock, Loader2, Send } from "lucide-react"
+import {
+  Users,
+  UserPlus,
+  Mail,
+  Copy,
+  Check,
+  Crown,
+  Shield,
+  User,
+  Trash2,
+  Clock,
+  Loader2,
+  Send,
+  Link,
+} from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -29,15 +43,19 @@ import { useAppStore, type Invitation } from "@/lib/store"
 import { useTelegram } from "@/hooks/use-telegram"
 import { companyApi } from "@/lib/api"
 
+const BOT_USERNAME = process.env.NEXT_PUBLIC_BOT_USERNAME || "WhatsTaskBot"
+
 export function TeamScreen() {
   const { currentUser, getActiveCompany, getUserRole, getCompanyMembers, addInvitation } = useAppStore()
-  const { hapticFeedback, shareViaTelegram } = useTelegram()
+  const { hapticFeedback, shareInviteLink, getInviteLink } = useTelegram()
 
   const [inviteUsername, setInviteUsername] = useState("")
   const [inviteRole, setInviteRole] = useState("employee")
   const [inviteDepartment, setInviteDepartment] = useState("")
   const [generatedCode, setGeneratedCode] = useState<string | null>(null)
+  const [generatedLink, setGeneratedLink] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  const [copiedLink, setCopiedLink] = useState(false)
   const [isInviteOpen, setIsInviteOpen] = useState(false)
   const [pendingInvitations, setPendingInvitations] = useState<Invitation[]>([])
   const [isLoadingInvitations, setIsLoadingInvitations] = useState(false)
@@ -63,7 +81,6 @@ export function TeamScreen() {
     setIsLoadingInvitations(true)
     try {
       const response = await companyApi.getPendingInvitations(company.id, currentUser.telegramId)
-      console.log("[v0] Loaded invitations:", response)
       if (response.success && response.data?.invitations) {
         const invs = response.data.invitations.map((inv: any) => ({
           id: inv.id,
@@ -78,7 +95,7 @@ export function TeamScreen() {
         setPendingInvitations(invs.filter((i: Invitation) => i.status === "pending"))
       }
     } catch (error) {
-      console.error("[v0] Error loading invitations:", error)
+      console.error("Error loading invitations:", error)
     } finally {
       setIsLoadingInvitations(false)
     }
@@ -91,8 +108,6 @@ export function TeamScreen() {
     setInviteError(null)
     hapticFeedback("medium")
 
-    console.log("[v0] Creating invitation for company:", company.id)
-
     try {
       const response = await companyApi.createInvitation(
         company.id,
@@ -104,11 +119,10 @@ export function TeamScreen() {
         currentUser.telegramId,
       )
 
-      console.log("[v0] Create invitation response:", response)
-
       if (response.success && response.data?.invitation) {
         const inv = response.data.invitation
         setGeneratedCode(inv.code)
+        setGeneratedLink(getInviteLink(inv.code, BOT_USERNAME))
 
         const newInvitation: Invitation = {
           id: inv.id,
@@ -125,12 +139,10 @@ export function TeamScreen() {
 
         hapticFeedback("success")
       } else {
-        console.error("[v0] Failed to create invitation:", response.error)
         setInviteError(response.error || "Failed to create invitation. Please try again.")
         hapticFeedback("error")
       }
     } catch (error) {
-      console.error("[v0] Exception creating invitation:", error)
       setInviteError("Failed to create invitation. Please check your connection.")
       hapticFeedback("error")
     } finally {
@@ -170,14 +182,22 @@ export function TeamScreen() {
     }
   }
 
+  const copyLink = () => {
+    if (generatedLink) {
+      navigator.clipboard.writeText(generatedLink)
+      setCopiedLink(true)
+      hapticFeedback("success")
+      setTimeout(() => setCopiedLink(false), 2000)
+    }
+  }
+
   const copyInviteCode = (code: string) => {
     navigator.clipboard.writeText(code)
     hapticFeedback("success")
   }
 
   const handleShareCode = (code: string, companyName: string) => {
-    const message = `Join ${companyName} on WhatsTask!\n\nUse this invitation code: ${code}\n\nOpen the app and enter this code to join the team.`
-    shareViaTelegram(message)
+    shareInviteLink(code, companyName, BOT_USERNAME)
     hapticFeedback("success")
   }
 
@@ -186,6 +206,7 @@ export function TeamScreen() {
     setInviteRole("employee")
     setInviteDepartment("")
     setGeneratedCode(null)
+    setGeneratedLink(null)
     setInviteError(null)
   }
 
@@ -234,7 +255,7 @@ export function TeamScreen() {
               <DialogContent>
                 <DialogHeader>
                   <DialogTitle>Invite Team Member</DialogTitle>
-                  <DialogDescription>Create an invitation code for a new team member</DialogDescription>
+                  <DialogDescription>Create an invitation link for a new team member</DialogDescription>
                 </DialogHeader>
 
                 {!generatedCode ? (
@@ -285,7 +306,7 @@ export function TeamScreen() {
                       ) : (
                         <>
                           <Mail className="mr-2 h-4 w-4" />
-                          Generate Invitation Code
+                          Generate Invitation
                         </>
                       )}
                     </Button>
@@ -307,18 +328,32 @@ export function TeamScreen() {
                         ) : (
                           <>
                             <Copy className="mr-2 h-4 w-4" />
-                            Copy
+                            Copy Code
                           </>
                         )}
                       </Button>
-                      <Button className="flex-1" onClick={() => handleShareCode(generatedCode, company.name)}>
-                        <Send className="mr-2 h-4 w-4" />
-                        Share
+                      <Button className="flex-1 bg-transparent" variant="outline" onClick={copyLink}>
+                        {copiedLink ? (
+                          <>
+                            <Check className="mr-2 h-4 w-4" />
+                            Copied!
+                          </>
+                        ) : (
+                          <>
+                            <Link className="mr-2 h-4 w-4" />
+                            Copy Link
+                          </>
+                        )}
                       </Button>
                     </div>
 
+                    <Button className="w-full" onClick={() => handleShareCode(generatedCode, company.name)}>
+                      <Send className="mr-2 h-4 w-4" />
+                      Share via Telegram
+                    </Button>
+
                     <p className="text-center text-xs text-muted-foreground">
-                      Share this code with the employee. It expires in 7 days.
+                      Share the link or code with the employee. Expires in 7 days.
                     </p>
                   </div>
                 )}

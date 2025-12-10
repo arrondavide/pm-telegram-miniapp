@@ -198,7 +198,7 @@ const invitationSchema = new Schema<IInvitation>(
     role: { type: String, enum: ["admin", "manager", "employee"], default: "employee" },
     department: { type: String, default: "" },
     status: { type: String, enum: ["pending", "accepted", "rejected", "expired"], default: "pending" },
-    invitation_code: { type: String, unique: true, index: true },
+    invitation_code: { type: String, required: true, index: true },
     invitation_link: { type: String },
     expires_at: { type: Date, required: true },
     accepted_at: { type: Date },
