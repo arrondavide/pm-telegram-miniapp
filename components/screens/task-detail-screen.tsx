@@ -45,6 +45,7 @@ import { useAppStore, type Task } from "@/lib/store"
 import { useTelegram } from "@/hooks/use-telegram"
 import { taskApi, commentApi } from "@/lib/api"
 import { cn } from "@/lib/utils"
+import { formatDuration, formatHoursEstimate } from "@/lib/format-time"
 
 interface TaskDetailScreenProps {
   taskId: string
@@ -189,7 +190,8 @@ export function TaskDetailScreen({ taskId, onBack }: TaskDetailScreenProps) {
       return (a as any).id === currentUser.id || (a as any).telegramId === currentUser.telegramId
     })
   const totalTimeMinutes = timeLogs.reduce((sum, tl) => sum + (tl.durationMinutes || 0), 0)
-  const totalTimeHours = Math.round((totalTimeMinutes / 60) * 10) / 10
+  const formattedTimeSpent = formatDuration(totalTimeMinutes)
+  const formattedEstimate = formatHoursEstimate(task.estimatedHours)
 
   const handleStatusChange = async (status: Task["status"]) => {
     hapticFeedback("medium")
@@ -404,7 +406,7 @@ export function TaskDetailScreen({ taskId, onBack }: TaskDetailScreenProps) {
               <div>
                 <p className="font-body text-xs text-muted-foreground">Time Tracked</p>
                 <p className="font-body font-medium">
-                  {totalTimeHours}h / {task.estimatedHours}h
+                  {formattedTimeSpent} / {formattedEstimate}
                 </p>
               </div>
             </CardContent>

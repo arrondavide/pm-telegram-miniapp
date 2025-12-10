@@ -9,6 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useAppStore } from "@/lib/store"
 import { cn } from "@/lib/utils"
 import Image from "next/image"
+import { formatDuration } from "@/lib/format-time"
 
 export function StatsScreen() {
   const { getPersonalStats, getTeamStats, getUserRole, getActiveCompany } = useAppStore()
@@ -115,8 +116,8 @@ export function StatsScreen() {
                   <Clock className="h-6 w-6" />
                 </div>
                 <div>
-                  <p className="text-3xl font-bold">{personalStats.totalHoursWorked}h</p>
-                  <p className="text-sm text-muted-foreground">Total Hours Tracked</p>
+                  <p className="text-3xl font-bold">{formatDuration(personalStats.totalHoursWorked * 60)}</p>
+                  <p className="text-sm text-muted-foreground">Total Time Tracked</p>
                 </div>
               </CardContent>
             </Card>

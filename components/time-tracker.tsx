@@ -8,6 +8,7 @@ import { useAppStore } from "@/lib/store"
 import { useTelegram } from "@/hooks/use-telegram"
 import { timeApi } from "@/lib/api"
 import { cn } from "@/lib/utils"
+import { formatElapsedTime } from "@/lib/format-time"
 
 interface TimeTrackerProps {
   className?: string
@@ -41,17 +42,6 @@ export function TimeTracker({ className, taskId }: TimeTrackerProps) {
     const interval = setInterval(updateElapsed, 1000)
     return () => clearInterval(interval)
   }, [activeTimeLog])
-
-  const formatTime = (seconds: number) => {
-    const hours = Math.floor(seconds / 3600)
-    const minutes = Math.floor((seconds % 3600) / 60)
-    const secs = seconds % 60
-
-    if (hours > 0) {
-      return `${hours}:${minutes.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`
-    }
-    return `${minutes}:${secs.toString().padStart(2, "0")}`
-  }
 
   const handleClockIn = async () => {
     if (!taskId) return
@@ -118,7 +108,7 @@ export function TimeTracker({ className, taskId }: TimeTrackerProps) {
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <span className="font-mono text-lg font-bold tabular-nums">{formatTime(elapsed)}</span>
+            <span className="font-mono text-lg font-bold tabular-nums">{formatElapsedTime(elapsed)}</span>
             <Button size="sm" variant="destructive" onClick={handleClockOut} disabled={isClockingOut} className="gap-1">
               {isClockingOut ? <Loader2 className="h-3 w-3 animate-spin" /> : <Square className="h-3 w-3" />}
               Stop
