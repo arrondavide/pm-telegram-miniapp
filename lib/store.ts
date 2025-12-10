@@ -140,6 +140,7 @@ interface AppState {
   // Team management
   getCompanyMembers: () => User[]
   inviteEmployee: (username: string, role: "admin" | "manager" | "employee", department: string) => Invitation
+  addInvitation: (invitation: Invitation) => void
   acceptInvitation: (invitationCode: string) => boolean
   changeUserRole: (userId: string, newRole: "admin" | "manager" | "employee") => void
   getPendingInvitations: () => Invitation[]
@@ -551,6 +552,12 @@ export const useAppStore = create<AppState>()(
         }))
 
         return invitation
+      },
+
+      addInvitation: (invitation: Invitation) => {
+        set((state) => ({
+          invitations: [...state.invitations, invitation],
+        }))
       },
 
       acceptInvitation: (invitationCode) => {

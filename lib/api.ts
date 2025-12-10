@@ -92,12 +92,19 @@ export const companyApi = {
       headers: { "X-Telegram-Init-Data": initData },
     }),
 
-  inviteEmployee: (companyId: string, data: { username: string; role: string; department: string; initData: string }) =>
-    fetchApi<import("@/lib/store").Invitation>(`/companies/${companyId}/invite`, {
-      method: "POST",
-      body: JSON.stringify(data),
-      headers: { "X-Telegram-Init-Data": data.initData },
-    }),
+  createInvitation: (
+    companyId: string,
+    data: { username: string; role: string; department: string },
+    telegramId: string,
+  ) =>
+    fetchApi<{ invitation: { id: string; code: string; role: string; expiresAt: string } }>(
+      `/companies/${companyId}/invitations`,
+      {
+        method: "POST",
+        body: JSON.stringify(data),
+        headers: { "X-Telegram-Id": telegramId },
+      },
+    ),
 
   joinWithCode: (data: {
     invitationCode: string

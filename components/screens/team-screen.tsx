@@ -1,7 +1,7 @@
 "use client"
 
-import { useState } from "react"
-import { UserPlus, Crown, Briefcase, UserIcon, Copy, Check, Search, Trash2 } from "lucide-react"
+import { useState, useEffect } from "react"
+import { UserPlus, Crown, Briefcase, UserIcon, Copy, Check, Search, Trash2, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent } from "@/components/ui/card"
@@ -28,7 +28,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
-import { useAppStore, type User } from "@/lib/store"
+import { useAppStore, type User, type Invitation } from "@/lib/store"
 import { useTelegram } from "@/hooks/use-telegram"
 import { companyApi } from "@/lib/api"
 import { cn } from "@/lib/utils"
@@ -49,6 +49,7 @@ export function TeamScreen() {
     getUserRole,
     currentUser,
     deleteInvitation,
+    addInvitation,
   } = useAppStore()
   const { hapticFeedback } = useTelegram()
 
@@ -60,13 +61,51 @@ export function TeamScreen() {
   const [generatedCode, setGeneratedCode] = useState("")
   const [copied, setCopied] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [isCreatingInvite, setIsCreatingInvite] = useState(false)
+  const [inviteError, setInviteError] = useState<string | null>(null)
+  const [pendingInvitations, setPendingInvitations] = useState<Invitation[]>([])
+  const [isLoadingInvitations, setIsLoadingInvitations] = useState(false)
 
   const company = getActiveCompany()
   const members = getCompanyMembers()
-  const pendingInvitations = getPendingInvitations()
+  const localPendingInvitations = getPendingInvitations()
   const userRole = getUserRole()
   const isAdmin = userRole === "admin"
   const isAdminOrManager = userRole === "admin" || userRole === "manager"
+
+  useEffect(() => {
+    const loadInvitations = async () => {
+      if (!company || !currentUser || !isAdminOrManager) return
+
+      setIsLoadingInvitations(true)
+      try {
+        const response = await companyApi.getPendingInvitations(company.id, currentUser.telegramId)
+        if (response.success && response.data?.invitations) {
+          // Map API response to Invitation type
+          const mappedInvitations: Invitation[] = response.data.invitations.map((inv: any) => ({
+            id: inv.id,
+            companyId: company.id,
+            username: inv.username || "",
+            role: inv.role,
+            invitationCode: inv.code,
+            status: inv.status,
+            expiresAt: new Date(inv.expiresAt),
+            createdAt: new Date(inv.createdAt),
+          }))
+          setPendingInvitations(mappedInvitations)
+        } else {
+          // Fallback to local
+          setPendingInvitations(localPendingInvitations)
+        }
+      } catch {
+        setPendingInvitations(localPendingInvitations)
+      } finally {
+        setIsLoadingInvitations(false)
+      }
+    }
+
+    loadInvitations()
+  }, [company, currentUser, isAdminOrManager]) // Updated dependencies
 
   const filteredMembers = members.filter(
     (m) =>
@@ -85,13 +124,59 @@ export function TeamScreen() {
     (m) => m.companies.find((c) => c.companyId === currentUser?.activeCompanyId)?.role === "employee",
   )
 
-  const handleInvite = () => {
-    if (!inviteUsername.trim()) return
+  const handleInvite = async () => {
+    if (!company || !currentUser) return
 
+    setIsCreatingInvite(true)
+    setInviteError(null)
     hapticFeedback("medium")
-    const invitation = inviteEmployee(inviteUsername, inviteRole, inviteDepartment)
-    setGeneratedCode(invitation.invitationCode)
-    hapticFeedback("success")
+
+    try {
+      const response = await companyApi.createInvitation(
+        company.id,
+        {
+          username: inviteUsername.trim(),
+          role: inviteRole,
+          department: inviteDepartment.trim(),
+        },
+        currentUser.telegramId,
+      )
+
+      if (response.success && response.data?.invitation) {
+        const inv = response.data.invitation
+        setGeneratedCode(inv.code)
+
+        // Add to local state
+        const newInvitation: Invitation = {
+          id: inv.id,
+          companyId: company.id,
+          username: inviteUsername.trim(),
+          role: inviteRole as "admin" | "manager" | "employee",
+          invitationCode: inv.code,
+          status: "pending",
+          expiresAt: new Date(inv.expiresAt),
+          createdAt: new Date(),
+        }
+        setPendingInvitations((prev) => [newInvitation, ...prev])
+        addInvitation(newInvitation)
+
+        hapticFeedback("success")
+      } else {
+        // Fallback to local store
+        const localInvitation = inviteEmployee(inviteUsername, inviteRole, inviteDepartment)
+        setGeneratedCode(localInvitation.invitationCode)
+        setPendingInvitations((prev) => [localInvitation, ...prev])
+        hapticFeedback("success")
+      }
+    } catch (error) {
+      // Fallback to local store
+      const localInvitation = inviteEmployee(inviteUsername, inviteRole, inviteDepartment)
+      setGeneratedCode(localInvitation.invitationCode)
+      setPendingInvitations((prev) => [localInvitation, ...prev])
+      hapticFeedback("success")
+    } finally {
+      setIsCreatingInvite(false)
+    }
   }
 
   const handleCopyCode = async () => {
@@ -114,20 +199,20 @@ export function TeamScreen() {
     hapticFeedback("medium")
 
     try {
-      // Try API first
       const response = await companyApi.deleteInvitation(company.id, invitationId, currentUser.telegramId)
 
       if (response.success) {
         deleteInvitation(invitationId)
+        setPendingInvitations((prev) => prev.filter((i) => i.id !== invitationId))
         hapticFeedback("success")
       } else {
-        // Fallback to local store
         deleteInvitation(invitationId)
+        setPendingInvitations((prev) => prev.filter((i) => i.id !== invitationId))
         hapticFeedback("success")
       }
     } catch {
-      // Fallback to local store
       deleteInvitation(invitationId)
+      setPendingInvitations((prev) => prev.filter((i) => i.id !== invitationId))
       hapticFeedback("success")
     } finally {
       setDeletingId(null)
@@ -211,7 +296,7 @@ export function TeamScreen() {
             <h1 className="text-xl font-bold">Team</h1>
             <p className="text-sm text-muted-foreground">{company?.name}</p>
           </div>
-          {isAdmin && (
+          {isAdminOrManager && (
             <Dialog open={isInviteOpen} onOpenChange={setIsInviteOpen}>
               <DialogTrigger asChild>
                 <Button size="sm" className="gap-2">
@@ -228,7 +313,7 @@ export function TeamScreen() {
                 {!generatedCode ? (
                   <div className="space-y-4 py-4">
                     <div className="space-y-2">
-                      <Label>Telegram Username</Label>
+                      <Label>Telegram Username (optional)</Label>
                       <Input
                         placeholder="@username"
                         value={inviteUsername}
@@ -259,14 +344,23 @@ export function TeamScreen() {
                       />
                     </div>
 
-                    <Button className="w-full" onClick={handleInvite} disabled={!inviteUsername.trim()}>
-                      Generate Invitation Code
+                    {inviteError && <p className="text-sm text-destructive">{inviteError}</p>}
+
+                    <Button className="w-full" onClick={handleInvite} disabled={isCreatingInvite}>
+                      {isCreatingInvite ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Generating...
+                        </>
+                      ) : (
+                        "Generate Invitation Code"
+                      )}
                     </Button>
                   </div>
                 ) : (
                   <div className="space-y-4 py-4">
                     <div className="rounded-lg border bg-muted/50 p-4 text-center">
-                      <p className="text-sm text-muted-foreground mb-2">Invitation Code</p>
+                      <p className="mb-2 text-sm text-muted-foreground">Invitation Code</p>
                       <p className="font-mono text-2xl font-bold tracking-widest">{generatedCode}</p>
                     </div>
 
@@ -284,8 +378,10 @@ export function TeamScreen() {
                       )}
                     </Button>
 
-                    <p className="text-xs text-center text-muted-foreground">
-                      Share this code with @{inviteUsername}. It expires in 7 days.
+                    <p className="text-center text-xs text-muted-foreground">
+                      {inviteUsername
+                        ? `Share this code with @${inviteUsername}. It expires in 7 days.`
+                        : "Share this code with your team member. It expires in 7 days."}
                     </p>
 
                     <Button
@@ -375,7 +471,11 @@ export function TeamScreen() {
 
           {isAdminOrManager && (
             <TabsContent value="invitations" className="mt-4 space-y-3">
-              {pendingInvitations.length === 0 ? (
+              {isLoadingInvitations ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                </div>
+              ) : pendingInvitations.length === 0 ? (
                 <Card>
                   <CardContent className="py-8 text-center">
                     <UserPlus className="mx-auto mb-4 h-12 w-12 text-muted-foreground/50" />
@@ -388,7 +488,7 @@ export function TeamScreen() {
                   <Card key={invite.id}>
                     <CardContent className="flex items-center justify-between p-4">
                       <div className="flex-1">
-                        <p className="font-medium">{invite.username ? `@${invite.username}` : "Unnamed invite"}</p>
+                        <p className="font-medium">{invite.username ? `@${invite.username}` : "Open invite"}</p>
                         <p className="text-sm text-muted-foreground">
                           Role: {invite.role} • Code: <span className="font-mono">{invite.invitationCode}</span>
                         </p>
@@ -403,7 +503,7 @@ export function TeamScreen() {
                             <Button
                               variant="ghost"
                               size="icon"
-                              className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
+                              className="h-8 w-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
                               disabled={deletingId === invite.id}
                             >
                               <Trash2 className="h-4 w-4" />

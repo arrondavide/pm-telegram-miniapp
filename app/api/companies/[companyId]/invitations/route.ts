@@ -11,6 +11,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const { username, role = "employee", department = "" } = body
     const telegramId = request.headers.get("X-Telegram-Id")
 
+    console.log("[v0] Creating invitation:", { companyId, username, role, telegramId })
+
     if (!telegramId) {
       return NextResponse.json({ error: "Telegram ID required" }, { status: 400 })
     }
@@ -29,9 +31,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       return NextResponse.json({ error: "Not authorized to invite members" }, { status: 403 })
     }
 
-    // Generate invitation code
+    // Generate invitation code - 8 character alphanumeric
     const invitationCode = randomBytes(4).toString("hex").toUpperCase()
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 days
+
+    console.log("[v0] Generated invitation code:", invitationCode)
+    console.log("[v0] Expires at:", expiresAt)
 
     const invitation = await Invitation.create({
       company_id: new mongoose.Types.ObjectId(companyId),
@@ -44,6 +49,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       status: "pending",
     })
 
+    console.log("[v0] Invitation created:", invitation._id)
+
     return NextResponse.json({
       invitation: {
         id: invitation._id.toString(),
@@ -53,7 +60,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       },
     })
   } catch (error) {
-    console.error("Error creating invitation:", error)
+    console.error("[v0] Error creating invitation:", error)
     return NextResponse.json({ error: "Failed to create invitation" }, { status: 500 })
   }
 }
@@ -89,7 +96,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
     return NextResponse.json({ invitations: formattedInvitations })
   } catch (error) {
-    console.error("Error fetching invitations:", error)
+    console.error("[v0] Error fetching invitations:", error)
     return NextResponse.json({ error: "Failed to fetch invitations" }, { status: 500 })
   }
 }
