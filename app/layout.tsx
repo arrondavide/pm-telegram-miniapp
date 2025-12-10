@@ -1,15 +1,25 @@
 import type React from "react"
 import type { Metadata, Viewport } from "next"
-import { Geist, Geist_Mono } from "next/font/google"
+import { Montserrat, Poppins } from "next/font/google"
 import Script from "next/script"
 import "./globals.css"
 
-const _geist = Geist({ subsets: ["latin"] })
-const _geistMono = Geist_Mono({ subsets: ["latin"] })
+const montserrat = Montserrat({
+  subsets: ["latin"],
+  variable: "--font-heading",
+  display: "swap",
+})
+
+const poppins = Poppins({
+  subsets: ["latin"],
+  weight: ["300", "400", "500", "600", "700"],
+  variable: "--font-sans",
+  display: "swap",
+})
 
 export const metadata: Metadata = {
-  title: "WhatsTask - Telegram Mini App",
-  description: "Manage tasks with your team in Telegram",
+  title: "WhatsTask - Tasks Made Simple",
+  description: "All your tasks. One simple space.",
     generator: 'v0.app'
 }
 
@@ -20,7 +30,7 @@ export const viewport: Viewport = {
   userScalable: false,
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#ffffff" },
-    { media: "(prefers-color-scheme: dark)", color: "#000000" },
+    { media: "(prefers-color-scheme: dark)", color: "#040404" },
   ],
 }
 
@@ -30,7 +40,7 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" className={`${montserrat.variable} ${poppins.variable}`}>
       <head>
         <Script src="https://telegram.org/js/telegram-web-app.js" strategy="beforeInteractive" />
       </head>

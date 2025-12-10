@@ -9,6 +9,7 @@ import { TimeTracker } from "@/components/time-tracker"
 import { useAppStore } from "@/lib/store"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import Image from "next/image"
 
 interface TasksScreenProps {
   onTaskSelect: (taskId: string) => void
@@ -48,17 +49,25 @@ export function TasksScreen({ onTaskSelect, onCreateTask }: TasksScreenProps) {
 
   return (
     <div className="flex flex-col">
-      {/* Header */}
-      <header className="sticky top-0 z-40 border-b bg-background/95 px-4 py-4 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+      <header className="sticky top-0 z-40 border-b border-border/50 bg-background px-4 py-4">
         <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-bold">Tasks</h1>
-            <p className="text-sm text-muted-foreground">{company?.name || "No company"}</p>
+          <div className="flex items-center gap-3">
+            <div className="relative h-8 w-8">
+              <Image src="/logo.png" alt="WhatsTask" fill className="object-contain dark:invert" />
+            </div>
+            <div>
+              <h1 className="text-xl font-bold">Tasks</h1>
+              <p className="text-sm text-muted-foreground">{company?.name || "No company"}</p>
+            </div>
           </div>
           {isManagerOrAdmin && (
-            <Button size="sm" onClick={onCreateTask} className="gap-2">
+            <Button
+              size="sm"
+              onClick={onCreateTask}
+              className="gap-2 bg-foreground text-background hover:bg-foreground/90"
+            >
               <Plus className="h-4 w-4" />
-              New Task
+              New
             </Button>
           )}
         </div>
@@ -68,7 +77,7 @@ export function TasksScreen({ onTaskSelect, onCreateTask }: TasksScreenProps) {
 
         {/* Overdue Warning */}
         {overdueTasks.length > 0 && (
-          <div className="mt-4 flex items-center gap-2 rounded-lg bg-destructive/10 p-3 text-destructive">
+          <div className="mt-4 flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-destructive">
             <AlertTriangle className="h-4 w-4" />
             <span className="text-sm font-medium">
               {overdueTasks.length} overdue task{overdueTasks.length > 1 ? "s" : ""}
@@ -76,10 +85,9 @@ export function TasksScreen({ onTaskSelect, onCreateTask }: TasksScreenProps) {
           </div>
         )}
 
-        {/* Filters */}
         <div className="mt-4 flex gap-2">
           <Select value={filter} onValueChange={(v) => setFilter(v as typeof filter)}>
-            <SelectTrigger className="w-[130px]">
+            <SelectTrigger className="w-[130px] border-border/50">
               <Filter className="mr-2 h-4 w-4" />
               <SelectValue placeholder="Status" />
             </SelectTrigger>
@@ -92,15 +100,15 @@ export function TasksScreen({ onTaskSelect, onCreateTask }: TasksScreenProps) {
           </Select>
 
           <Select value={priorityFilter} onValueChange={setPriorityFilter}>
-            <SelectTrigger className="w-[130px]">
+            <SelectTrigger className="w-[130px] border-border/50">
               <SelectValue placeholder="Priority" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Priority</SelectItem>
-              <SelectItem value="urgent">🔴 Urgent</SelectItem>
-              <SelectItem value="high">🟠 High</SelectItem>
-              <SelectItem value="medium">🟡 Medium</SelectItem>
-              <SelectItem value="low">🟢 Low</SelectItem>
+              <SelectItem value="urgent">Urgent</SelectItem>
+              <SelectItem value="high">High</SelectItem>
+              <SelectItem value="medium">Medium</SelectItem>
+              <SelectItem value="low">Low</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -109,17 +117,17 @@ export function TasksScreen({ onTaskSelect, onCreateTask }: TasksScreenProps) {
       {/* Task Lists */}
       <div className="flex-1 p-4">
         <Tabs defaultValue="my-tasks">
-          <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="my-tasks" className="gap-2">
+          <TabsList className="grid w-full grid-cols-2 bg-muted">
+            <TabsTrigger value="my-tasks" className="gap-2 data-[state=active]:bg-background">
               My Tasks
-              <Badge variant="secondary" className="ml-1">
+              <Badge variant="secondary" className="ml-1 bg-foreground/10">
                 {filteredMyTasks.length}
               </Badge>
             </TabsTrigger>
             {isManagerOrAdmin && (
-              <TabsTrigger value="all-tasks" className="gap-2">
+              <TabsTrigger value="all-tasks" className="gap-2 data-[state=active]:bg-background">
                 All Tasks
-                <Badge variant="secondary" className="ml-1">
+                <Badge variant="secondary" className="ml-1 bg-foreground/10">
                   {filteredAllTasks.length}
                 </Badge>
               </TabsTrigger>
@@ -129,7 +137,7 @@ export function TasksScreen({ onTaskSelect, onCreateTask }: TasksScreenProps) {
           <TabsContent value="my-tasks" className="mt-4 space-y-3">
             {filteredMyTasks.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 text-center">
-                <Clock className="mb-4 h-12 w-12 text-muted-foreground/50" />
+                <Clock className="mb-4 h-12 w-12 text-muted-foreground/30" />
                 <h3 className="font-medium">No tasks found</h3>
                 <p className="text-sm text-muted-foreground">
                   {filter !== "all" ? "Try adjusting your filters" : "You have no assigned tasks"}
@@ -146,7 +154,7 @@ export function TasksScreen({ onTaskSelect, onCreateTask }: TasksScreenProps) {
             <TabsContent value="all-tasks" className="mt-4 space-y-3">
               {filteredAllTasks.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-12 text-center">
-                  <Clock className="mb-4 h-12 w-12 text-muted-foreground/50" />
+                  <Clock className="mb-4 h-12 w-12 text-muted-foreground/30" />
                   <h3 className="font-medium">No tasks found</h3>
                   <p className="text-sm text-muted-foreground">Create a new task to get started</p>
                 </div>

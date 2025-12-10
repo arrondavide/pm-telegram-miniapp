@@ -5,10 +5,11 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Building2, UserPlus, Briefcase, ArrowRight, User, Loader2 } from "lucide-react"
+import { Building2, UserPlus, ArrowRight, User, Loader2 } from "lucide-react"
 import { useAppStore } from "@/lib/store"
 import { useTelegram } from "@/hooks/use-telegram"
 import { companyApi } from "@/lib/api"
+import Image from "next/image"
 
 interface OnboardingScreenProps {
   pendingInviteCode?: string | null
@@ -92,8 +93,6 @@ export function OnboardingScreen({ pendingInviteCode, onCodeUsed }: OnboardingSc
         username,
       })
 
-      console.log("[v0] Join response:", response)
-
       if (response.success && response.data) {
         setCurrentUser(response.data.user)
         if (response.data.allCompanies) {
@@ -108,7 +107,6 @@ export function OnboardingScreen({ pendingInviteCode, onCodeUsed }: OnboardingSc
         hapticFeedback("error")
       }
     } catch (err) {
-      console.error("[v0] Join error:", err)
       setError("Failed to join company. Please try again.")
       hapticFeedback("error")
     } finally {
@@ -117,41 +115,43 @@ export function OnboardingScreen({ pendingInviteCode, onCodeUsed }: OnboardingSc
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-b from-background to-muted/30 p-4">
+    <div className="flex min-h-screen flex-col items-center justify-center bg-background p-4">
       <div className="mb-8 text-center">
-        <div className="mb-4 inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
-          <Briefcase className="h-8 w-8" />
+        <div className="mb-6 flex justify-center">
+          <div className="relative h-20 w-20">
+            <Image src="/logo.png" alt="WhatsTask" fill className="object-contain dark:invert" priority />
+          </div>
         </div>
         <h1 className="text-3xl font-bold tracking-tight">WhatsTask</h1>
-        <p className="mt-2 text-muted-foreground">Manage tasks with your team</p>
+        <p className="mt-2 text-muted-foreground">Tasks made simple.</p>
       </div>
 
-      <Card className="mb-4 w-full max-w-md">
+      <Card className="mb-4 w-full max-w-md border-border/50">
         <CardContent className="flex items-center gap-3 p-4">
-          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
-            <User className="h-5 w-5 text-primary" />
+          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-foreground text-background">
+            <User className="h-5 w-5" />
           </div>
           <div className="flex-1">
             <p className="font-medium">{fullName}</p>
             <p className="text-sm text-muted-foreground">@{username}</p>
           </div>
-          <div className="text-xs text-muted-foreground">Auto-detected</div>
+          <div className="rounded-full bg-muted px-2 py-1 text-xs text-muted-foreground">Auto-detected</div>
         </CardContent>
       </Card>
 
-      <Card className="w-full max-w-md">
+      <Card className="w-full max-w-md border-border/50">
         <CardHeader className="text-center">
           <CardTitle>Get Started</CardTitle>
           <CardDescription>Create a company or join an existing one</CardDescription>
         </CardHeader>
         <CardContent>
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="create" className="gap-2">
+            <TabsList className="grid w-full grid-cols-2 bg-muted">
+              <TabsTrigger value="create" className="gap-2 data-[state=active]:bg-background">
                 <Building2 className="h-4 w-4" />
                 Create
               </TabsTrigger>
-              <TabsTrigger value="join" className="gap-2">
+              <TabsTrigger value="join" className="gap-2 data-[state=active]:bg-background">
                 <UserPlus className="h-4 w-4" />
                 Join
               </TabsTrigger>
@@ -165,9 +165,14 @@ export function OnboardingScreen({ pendingInviteCode, onCodeUsed }: OnboardingSc
                   value={companyName}
                   onChange={(e) => setCompanyName(e.target.value)}
                   disabled={isLoading}
+                  className="border-border/50"
                 />
               </div>
-              <Button className="w-full gap-2" onClick={handleCreateCompany} disabled={isLoading}>
+              <Button
+                className="w-full gap-2 bg-foreground text-background hover:bg-foreground/90"
+                onClick={handleCreateCompany}
+                disabled={isLoading}
+              >
                 {isLoading ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -190,10 +195,14 @@ export function OnboardingScreen({ pendingInviteCode, onCodeUsed }: OnboardingSc
                   value={inviteCode}
                   onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
                   disabled={isLoading}
-                  className="font-mono uppercase tracking-widest"
+                  className="border-border/50 font-mono uppercase tracking-widest"
                 />
               </div>
-              <Button className="w-full gap-2" onClick={handleJoinWithCode} disabled={isLoading}>
+              <Button
+                className="w-full gap-2 bg-foreground text-background hover:bg-foreground/90"
+                onClick={handleJoinWithCode}
+                disabled={isLoading}
+              >
                 {isLoading ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -213,6 +222,8 @@ export function OnboardingScreen({ pendingInviteCode, onCodeUsed }: OnboardingSc
           {error && <p className="mt-4 text-center text-sm text-destructive">{error}</p>}
         </CardContent>
       </Card>
+
+      <p className="mt-8 text-center text-xs text-muted-foreground">All your tasks. One simple space.</p>
     </div>
   )
 }

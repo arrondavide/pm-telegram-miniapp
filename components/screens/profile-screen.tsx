@@ -30,6 +30,7 @@ import { useAppStore } from "@/lib/store"
 import { useTelegram } from "@/hooks/use-telegram"
 import { companyApi } from "@/lib/api"
 import { cn } from "@/lib/utils"
+import Image from "next/image"
 
 export function ProfileScreen() {
   const {
@@ -79,13 +80,6 @@ export function ProfileScreen() {
     setJoinError(null)
     hapticFeedback("medium")
 
-    console.log("[v0] Attempting to join with code:", inviteCode.trim())
-    console.log("[v0] Current user:", {
-      telegramId: currentUser.telegramId,
-      fullName: currentUser.fullName,
-      username: currentUser.username,
-    })
-
     try {
       const response = await companyApi.joinWithCode({
         invitationCode: inviteCode.trim(),
@@ -94,18 +88,13 @@ export function ProfileScreen() {
         username: currentUser.username,
       })
 
-      console.log("[v0] Join response:", response)
-
       if (response.success && response.data) {
         const { company, user, allCompanies } = response.data
-        console.log("[v0] Join successful:", { company, user, allCompanies })
 
-        // Update companies list
         if (allCompanies) {
           setCompanies(allCompanies)
         }
 
-        // Add the new company to user
         joinCompanyWithCode(company, {
           companyId: company.id,
           role: user.companies.find((c: any) => c.companyId === company.id)?.role || "employee",
@@ -117,12 +106,10 @@ export function ProfileScreen() {
         setIsJoinCompanyOpen(false)
         setInviteCode("")
       } else {
-        console.log("[v0] Join failed:", response.error)
         setJoinError(response.error || "Failed to join company")
         hapticFeedback("error")
       }
     } catch (error) {
-      console.error("[v0] Join exception:", error)
       setJoinError("Failed to join company. Please try again.")
       hapticFeedback("error")
     } finally {
@@ -170,16 +157,19 @@ export function ProfileScreen() {
 
   return (
     <div className="flex flex-col">
-      {/* Header */}
-      <header className="sticky top-0 z-40 border-b bg-background/95 px-4 py-4 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-        <h1 className="text-xl font-bold">Profile</h1>
+      <header className="sticky top-0 z-40 border-b border-border/50 bg-background px-4 py-4">
+        <div className="flex items-center gap-3">
+          <div className="relative h-8 w-8">
+            <Image src="/logo.png" alt="WhatsTask" fill className="object-contain dark:invert" />
+          </div>
+          <h1 className="text-xl font-bold">Profile</h1>
+        </div>
       </header>
 
       <div className="flex-1 space-y-4 p-4">
-        {/* User Info */}
-        <Card>
+        <Card className="border-border/50">
           <CardContent className="flex items-center gap-4 p-4">
-            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary text-xl font-bold text-primary-foreground">
+            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-foreground text-xl font-bold text-background">
               {currentUser.fullName
                 .split(" ")
                 .map((n) => n[0])
@@ -190,21 +180,21 @@ export function ProfileScreen() {
             <div className="flex-1">
               <h2 className="text-lg font-bold">{currentUser.fullName}</h2>
               <p className="text-sm text-muted-foreground">@{currentUser.username}</p>
-              <Badge variant="secondary" className="mt-1 capitalize">
+              <Badge variant="secondary" className="mt-1 capitalize bg-muted">
                 {userRole}
               </Badge>
             </div>
           </CardContent>
         </Card>
 
-        <Card className="border-dashed">
+        <Card className="border-dashed border-border/50">
           <CardContent className="flex items-center gap-3 p-4">
             <Settings className="h-5 w-5 text-muted-foreground" />
             <div className="flex-1">
               <p className="text-sm font-medium">Telegram ID</p>
               <p className="font-mono text-xs text-muted-foreground">{currentUser.telegramId}</p>
             </div>
-            <Badge variant="outline" className="text-xs">
+            <Badge variant="outline" className="text-xs border-border/50">
               Linked
             </Badge>
           </CardContent>
@@ -212,13 +202,13 @@ export function ProfileScreen() {
 
         {/* Active Company */}
         <Card
-          className="cursor-pointer transition-colors hover:bg-muted/50"
+          className="cursor-pointer border-border/50 transition-colors hover:bg-muted/50"
           onClick={() => setIsCompanySwitchOpen(true)}
         >
           <CardContent className="flex items-center justify-between p-4">
             <div className="flex items-center gap-3">
-              <div className="rounded-lg bg-primary/10 p-2">
-                <Building2 className="h-5 w-5 text-primary" />
+              <div className="rounded-lg bg-foreground/10 p-2">
+                <Building2 className="h-5 w-5" />
               </div>
               <div>
                 <p className="font-medium">{activeCompany?.name || "No company"}</p>
@@ -231,13 +221,17 @@ export function ProfileScreen() {
           </CardContent>
         </Card>
 
-        <Button variant="outline" className="w-full bg-transparent" onClick={() => setIsJoinCompanyOpen(true)}>
+        <Button
+          variant="outline"
+          className="w-full border-border/50 bg-transparent"
+          onClick={() => setIsJoinCompanyOpen(true)}
+        >
           <UserPlus className="mr-2 h-4 w-4" />
           Join Another Company
         </Button>
 
         {/* Settings */}
-        <Card>
+        <Card className="border-border/50">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium">Settings</CardTitle>
           </CardHeader>
@@ -275,14 +269,16 @@ export function ProfileScreen() {
           </CardContent>
         </Card>
 
-        <div className="rounded-lg border border-dashed p-4 text-center">
+        <div className="rounded-lg border border-dashed border-border/50 p-4 text-center">
           <p className="text-sm text-muted-foreground">
             Your session is managed by Telegram. Close the Mini App to exit.
           </p>
         </div>
 
-        {/* App Info */}
-        <p className="text-center text-xs text-muted-foreground">WhatsTask v1.0.0 - Telegram Mini App</p>
+        <div className="text-center space-y-1">
+          <p className="text-xs text-muted-foreground">WhatsTask v1.0.0</p>
+          <p className="text-xs text-muted-foreground/70">Tasks made simple.</p>
+        </div>
       </div>
 
       {/* Company Switch Dialog */}
@@ -299,7 +295,10 @@ export function ProfileScreen() {
               return (
                 <Card
                   key={uc.companyId}
-                  className={cn("transition-colors", isActive ? "border-primary bg-primary/5" : "hover:bg-muted/50")}
+                  className={cn(
+                    "border-border/50 transition-colors",
+                    isActive ? "border-foreground bg-foreground/5" : "hover:bg-muted/50",
+                  )}
                 >
                   <CardContent className="flex items-center justify-between p-4">
                     <div
@@ -310,7 +309,7 @@ export function ProfileScreen() {
                       <p className="text-sm text-muted-foreground capitalize">{uc.role}</p>
                     </div>
                     <div className="flex items-center gap-2">
-                      {isActive && <Check className="h-5 w-5 text-primary" />}
+                      {isActive && <Check className="h-5 w-5" />}
                       {isAdmin && (
                         <Button
                           variant="ghost"
@@ -350,16 +349,20 @@ export function ProfileScreen() {
                   setInviteCode(e.target.value.toUpperCase())
                   setJoinError(null)
                 }}
-                className="uppercase"
+                className="uppercase border-border/50"
               />
               {joinError && <p className="text-sm text-destructive">{joinError}</p>}
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsJoinCompanyOpen(false)}>
+            <Button variant="outline" onClick={() => setIsJoinCompanyOpen(false)} className="border-border/50">
               Cancel
             </Button>
-            <Button onClick={handleJoinCompany} disabled={!inviteCode.trim() || isJoining}>
+            <Button
+              onClick={handleJoinCompany}
+              disabled={!inviteCode.trim() || isJoining}
+              className="bg-foreground text-background hover:bg-foreground/90"
+            >
               {isJoining ? "Joining..." : "Join Company"}
             </Button>
           </DialogFooter>

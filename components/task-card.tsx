@@ -15,19 +15,19 @@ interface TaskCardProps {
 }
 
 const priorityConfig = {
-  low: { color: "bg-emerald-500", label: "Low", emoji: "🟢" },
-  medium: { color: "bg-amber-500", label: "Medium", emoji: "🟡" },
-  high: { color: "bg-orange-500", label: "High", emoji: "🟠" },
-  urgent: { color: "bg-red-500", label: "Urgent", emoji: "🔴" },
+  low: { color: "bg-muted-foreground/30", label: "Low", indicator: "L" },
+  medium: { color: "bg-muted-foreground/50", label: "Medium", indicator: "M" },
+  high: { color: "bg-foreground/70", label: "High", indicator: "H" },
+  urgent: { color: "bg-foreground", label: "Urgent", indicator: "!" },
 }
 
 const statusConfig = {
-  pending: { color: "bg-slate-500", label: "Pending" },
-  started: { color: "bg-blue-500", label: "Started" },
-  in_progress: { color: "bg-indigo-500", label: "In Progress" },
-  completed: { color: "bg-emerald-500", label: "Completed" },
-  blocked: { color: "bg-red-500", label: "Blocked" },
-  cancelled: { color: "bg-slate-400", label: "Cancelled" },
+  pending: { color: "bg-muted-foreground/40", label: "Pending" },
+  started: { color: "bg-muted-foreground/60", label: "Started" },
+  in_progress: { color: "bg-foreground/70", label: "In Progress" },
+  completed: { color: "bg-foreground", label: "Completed" },
+  blocked: { color: "bg-destructive", label: "Blocked" },
+  cancelled: { color: "bg-muted-foreground/30", label: "Cancelled" },
 }
 
 export function TaskCard({ task, onClick, showAssignees = false }: TaskCardProps) {
@@ -50,8 +50,8 @@ export function TaskCard({ task, onClick, showAssignees = false }: TaskCardProps
   return (
     <Card
       className={cn(
-        "cursor-pointer transition-all hover:shadow-md active:scale-[0.98]",
-        isOverdue && "border-destructive/50 bg-destructive/5",
+        "cursor-pointer border-border/50 transition-all hover:border-border hover:shadow-sm active:scale-[0.99]",
+        isOverdue && "border-destructive/30 bg-destructive/5",
       )}
       onClick={onClick}
     >
@@ -59,19 +59,29 @@ export function TaskCard({ task, onClick, showAssignees = false }: TaskCardProps
         <div className="flex items-start justify-between gap-3">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-1">
-              <span className="text-sm">{priority.emoji}</span>
+              <span
+                className={cn(
+                  "flex h-5 w-5 items-center justify-center rounded text-[10px] font-bold text-background",
+                  priority.color,
+                )}
+              >
+                {priority.indicator}
+              </span>
               <h3 className="font-semibold truncate">{task.title}</h3>
             </div>
 
             {task.description && <p className="text-sm text-muted-foreground line-clamp-1 mb-2">{task.description}</p>}
 
             <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="secondary" className="text-xs">
+              <Badge variant="secondary" className="text-xs bg-muted">
                 <span className={cn("mr-1.5 h-2 w-2 rounded-full", status.color)} />
                 {status.label}
               </Badge>
 
-              <Badge variant="outline" className={cn("text-xs", isOverdue && "border-destructive text-destructive")}>
+              <Badge
+                variant="outline"
+                className={cn("text-xs border-border/50", isOverdue && "border-destructive/50 text-destructive")}
+              >
                 <Calendar className="mr-1 h-3 w-3" />
                 {isOverdue
                   ? `${Math.abs(daysUntilDue)}d overdue`
@@ -83,7 +93,7 @@ export function TaskCard({ task, onClick, showAssignees = false }: TaskCardProps
               </Badge>
 
               {task.estimatedHours > 0 && (
-                <Badge variant="outline" className="text-xs">
+                <Badge variant="outline" className="text-xs border-border/50">
                   <Clock className="mr-1 h-3 w-3" />
                   {task.actualHours.toFixed(1)}/{task.estimatedHours}h
                 </Badge>
@@ -102,7 +112,7 @@ export function TaskCard({ task, onClick, showAssignees = false }: TaskCardProps
                     {completedSubtasks}/{task.subtasks.length}
                   </span>
                 </div>
-                <Progress value={subtaskProgress} className="h-1.5" />
+                <Progress value={subtaskProgress} className="h-1.5 bg-muted" />
               </div>
             )}
 
@@ -114,7 +124,7 @@ export function TaskCard({ task, onClick, showAssignees = false }: TaskCardProps
                   {assignees.map((user, i) => (
                     <div
                       key={user?.id || i}
-                      className="flex h-6 w-6 items-center justify-center rounded-full border-2 border-background bg-primary text-[10px] font-medium text-primary-foreground"
+                      className="flex h-6 w-6 items-center justify-center rounded-full border-2 border-background bg-foreground text-[10px] font-medium text-background"
                       title={user?.fullName}
                     >
                       {user?.fullName
@@ -138,7 +148,7 @@ export function TaskCard({ task, onClick, showAssignees = false }: TaskCardProps
             {task.tags.length > 0 && (
               <div className="mt-2 flex flex-wrap gap-1">
                 {task.tags.slice(0, 3).map((tag) => (
-                  <Badge key={tag} variant="outline" className="text-[10px] px-1.5 py-0">
+                  <Badge key={tag} variant="outline" className="text-[10px] px-1.5 py-0 border-border/50">
                     #{tag}
                   </Badge>
                 ))}
