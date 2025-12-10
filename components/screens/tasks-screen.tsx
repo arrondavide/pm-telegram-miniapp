@@ -43,34 +43,36 @@ export function TasksScreen({ onTaskSelect, onCreateTask }: TasksScreenProps) {
     if (company?.id && currentUser) {
       loadTasksFromApi()
     }
-  }, [company?.id, currentUser])
+  }, [company?.id, currentUser]) // Updated dependency to currentUser
 
   const loadTasksFromApi = async () => {
-    if (!company?.id) return
+    if (!company?.id || !currentUser) return
 
     setIsLoading(true)
     try {
       const initData = webApp?.initData || ""
+      console.log("[v0] Loading tasks for company:", company.id, "user:", currentUser.telegramId)
+
       const response = await taskApi.getAll(company.id, initData)
 
-      console.log("[v0] Task API response:", response)
-
       if (response.success && response.data) {
-        // Transform API response to match our Task type
         const tasks = (response.data as any).tasks || response.data
-        console.log("[v0] Raw tasks from API:", tasks)
+        console.log("[v0] API returned tasks:", tasks.length)
 
         const formattedTasks = Array.isArray(tasks)
           ? tasks.map((t: any) => {
-              const assignedToIds = (t.assignedTo || [])
-                .map((a: any) => {
-                  if (typeof a === "string") return a
-                  // Keep both id and telegramId for matching
-                  return a.telegramId?.toString() || a.id || a._id?.toString()
-                })
-                .filter(Boolean)
+              // Build assignedTo with all possible ID formats for matching
+              const assignedToData = (t.assignedTo || []).map((a: any) => {
+                if (typeof a === "string") return a
+                // Return the full object so we can match against any ID
+                return {
+                  id: a.id || a._id,
+                  telegramId: a.telegramId?.toString(),
+                  fullName: a.fullName,
+                }
+              })
 
-              console.log("[v0] Task:", t.title, "assignedTo:", assignedToIds)
+              console.log("[v0] Task:", t.title, "assignedTo:", JSON.stringify(assignedToData))
 
               return {
                 id: t.id,
@@ -79,8 +81,8 @@ export function TasksScreen({ onTaskSelect, onCreateTask }: TasksScreenProps) {
                 dueDate: new Date(t.dueDate),
                 status: t.status,
                 priority: t.priority,
-                companyId: company.id,
-                assignedTo: assignedToIds,
+                companyId: company.id, // Use current company ID to ensure match
+                assignedTo: assignedToData,
                 createdBy: t.createdBy?.id || t.createdBy || currentUser?.id || "",
                 category: t.category || "",
                 tags: t.tags || [],
@@ -100,10 +102,12 @@ export function TasksScreen({ onTaskSelect, onCreateTask }: TasksScreenProps) {
           : []
 
         console.log("[v0] Formatted tasks:", formattedTasks.length)
+        console.log("[v0] Current user telegramId:", currentUser.telegramId)
+
         loadTasks(formattedTasks)
       }
     } catch (error) {
-      console.error("Failed to load tasks:", error)
+      console.error("[v0] Failed to load tasks:", error)
     } finally {
       setIsLoading(false)
     }
@@ -111,6 +115,8 @@ export function TasksScreen({ onTaskSelect, onCreateTask }: TasksScreenProps) {
 
   const myTasks = getTasksForUser()
   const allTasks = isManagerOrAdmin ? getAllCompanyTasks() : myTasks
+
+  console.log("[v0] myTasks count:", myTasks.length, "allTasks count:", allTasks.length)
 
   const filterTasks = (tasks: typeof myTasks) => {
     return tasks.filter((task) => {

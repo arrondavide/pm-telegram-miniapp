@@ -44,7 +44,7 @@ export interface Task {
   dueDate: Date
   status: "pending" | "started" | "in_progress" | "completed" | "blocked" | "cancelled"
   priority: "low" | "medium" | "high" | "urgent"
-  assignedTo: (string | { id: string; telegramId?: string; _id?: string })[]
+  assignedTo: (string | { id: string; telegramId?: string; _id?: string; fullName?: string })[]
   createdBy: string
   companyId: string
   category: string
@@ -213,18 +213,8 @@ export const useAppStore = create<AppState>()(
       },
 
       loadTasks: (tasks) => {
-        set((state) => {
-          const existingTaskIds = new Set(state.tasks.map((t) => t.id))
-          const apiTaskIds = new Set(tasks.map((t) => t.id))
-
-          // Keep local tasks that don't exist in API (newly created)
-          const localOnlyTasks = state.tasks.filter((t) => !apiTaskIds.has(t.id))
-
-          // Merge API tasks with local only tasks
-          return {
-            tasks: [...tasks, ...localOnlyTasks],
-          }
-        })
+        console.log("[v0] loadTasks called with:", tasks.length, "tasks")
+        set({ tasks })
       },
 
       addNotification: (notification) => {
@@ -331,6 +321,7 @@ export const useAppStore = create<AppState>()(
         set((state) => ({
           currentUser: updatedUser,
           users: state.users.map((u) => (u.id === currentUser.id ? updatedUser : u)),
+          tasks: [], // Clear tasks when switching company to force reload
         }))
       },
 
@@ -382,6 +373,7 @@ export const useAppStore = create<AppState>()(
           companies: companyExists ? state.companies : [...state.companies, company],
           currentUser: updatedUser,
           users: state.users.map((u) => (u.id === currentUser.id ? updatedUser : u)),
+          tasks: [], // Clear tasks when joining new company to force reload
         }))
       },
 
@@ -450,50 +442,70 @@ export const useAppStore = create<AppState>()(
 
       getTasksForUser: () => {
         const { currentUser, tasks } = get()
-        if (!currentUser?.activeCompanyId) return []
+        if (!currentUser?.activeCompanyId) {
+          console.log("[v0] getTasksForUser - no activeCompanyId")
+          return []
+        }
 
-        console.log("[v0] getTasksForUser - currentUser:", currentUser.id, currentUser.telegramId)
-        console.log("[v0] getTasksForUser - tasks count:", tasks.length)
+        const userTelegramId = currentUser.telegramId?.toString()
+        const userId = currentUser.id
 
-        return tasks
-          .filter((t) => {
-            if (t.companyId !== currentUser.activeCompanyId) return false
+        console.log("[v0] getTasksForUser checking - userId:", userId, "telegramId:", userTelegramId)
+        console.log("[v0] getTasksForUser - activeCompanyId:", currentUser.activeCompanyId)
+        console.log("[v0] getTasksForUser - total tasks:", tasks.length)
 
-            // Check if user is assigned - match by multiple ID formats
-            const isAssigned = t.assignedTo.some((assignee) => {
-              // assignee could be: string ID, or object with id/telegramId
-              if (typeof assignee === "string") {
-                return (
-                  assignee === currentUser.id ||
-                  assignee === currentUser.telegramId ||
-                  assignee === currentUser.telegramId?.toString()
-                )
-              }
-              if (typeof assignee === "object" && assignee !== null) {
-                const a = assignee as any
-                return (
-                  a.id === currentUser.id ||
-                  a.telegramId === currentUser.telegramId ||
-                  a.telegramId?.toString() === currentUser.telegramId?.toString() ||
-                  a._id === currentUser.id
-                )
-              }
-              return false
-            })
+        const userTasks = tasks.filter((t) => {
+          const companyMatch = t.companyId === currentUser.activeCompanyId
 
-            if (isAssigned) {
-              console.log("[v0] Task matched for user:", t.title)
+          if (!companyMatch) {
+            return false
+          }
+
+          const isAssigned = t.assignedTo.some((assignee) => {
+            // Handle string ID
+            if (typeof assignee === "string") {
+              return assignee === userId || assignee === userTelegramId
             }
 
-            return isAssigned
+            // Handle object with various ID formats
+            if (typeof assignee === "object" && assignee !== null) {
+              const a = assignee as { id?: string; _id?: string; telegramId?: string }
+              const assigneeTelegramId = a.telegramId?.toString()
+
+              // Check all possible matches
+              const matches =
+                a.id === userId ||
+                a.id === userTelegramId ||
+                a._id === userId ||
+                a._id === userTelegramId ||
+                assigneeTelegramId === userTelegramId ||
+                assigneeTelegramId === userId
+
+              return matches
+            }
+            return false
           })
-          .sort((a, b) => {
-            const priorityOrder = { urgent: 0, high: 1, medium: 2, low: 3 }
-            return (
-              priorityOrder[a.priority] - priorityOrder[b.priority] ||
-              new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime()
-            )
-          })
+
+          if (isAssigned) {
+            console.log("[v0] Task matched:", t.title)
+          }
+
+          return isAssigned
+        })
+
+        console.log("[v0] getTasksForUser result:", userTasks.length, "tasks")
+
+        return userTasks.sort((a, b) => {
+          const priorityOrder = { urgent: 0, high: 1, medium: 2, low: 3 }
+          const statusOrder = { in_progress: 0, started: 1, pending: 2, blocked: 3, completed: 4, cancelled: 5 }
+          if (statusOrder[a.status] !== statusOrder[b.status]) {
+            return statusOrder[a.status] - statusOrder[b.status]
+          }
+          if (priorityOrder[a.priority] !== priorityOrder[b.priority]) {
+            return priorityOrder[a.priority] - priorityOrder[b.priority]
+          }
+          return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime()
+        })
       },
 
       getAllCompanyTasks: () => {

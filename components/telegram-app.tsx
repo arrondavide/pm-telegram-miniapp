@@ -55,28 +55,42 @@ export function TelegramApp() {
       const persistedActiveCompanyId = persistedUser?.activeCompanyId
 
       console.log("[v0] Hydrated. Persisted activeCompanyId:", persistedActiveCompanyId)
+      console.log("[v0] Telegram user:", user.id, user.first_name)
 
       try {
         const response = await userApi.getByTelegramId(user.id.toString(), initData)
 
+        console.log("[v0] API response:", response)
+
         if (response.success && response.data) {
           if (response.data.user) {
             const apiUser = response.data.user
-            const finalActiveCompanyId =
-              persistedActiveCompanyId || apiUser.activeCompanyId || response.data.companies?.[0]?.id
+            const apiCompanies = response.data.companies || []
 
+            const finalActiveCompanyId = persistedActiveCompanyId || apiUser.activeCompanyId || apiCompanies[0]?.id
+
+            console.log("[v0] API User:", apiUser)
+            console.log("[v0] API Companies:", apiCompanies)
             console.log("[v0] Setting activeCompanyId to:", finalActiveCompanyId)
 
-            setCurrentUser({
+            const userWithTelegramId = {
               ...apiUser,
+              telegramId: apiUser.telegramId || user.id.toString(),
               activeCompanyId: finalActiveCompanyId,
-            })
-            setCompanies(response.data.companies)
+            }
+
+            console.log("[v0] Final user object:", userWithTelegramId)
+
+            setCurrentUser(userWithTelegramId)
+            setCompanies(apiCompanies)
           }
         } else {
           initialize()
           if (persistedUser) {
-            setCurrentUser(persistedUser)
+            setCurrentUser({
+              ...persistedUser,
+              telegramId: persistedUser.telegramId || user.id.toString(),
+            })
           } else {
             const existingUser = useAppStore.getState().getUserByTelegramId(user.id.toString())
             if (existingUser) {
@@ -85,10 +99,13 @@ export function TelegramApp() {
           }
         }
       } catch (error) {
-        console.error("Failed to load user data:", error)
+        console.error("[v0] Failed to load user data:", error)
         initialize()
         if (persistedUser) {
-          setCurrentUser(persistedUser)
+          setCurrentUser({
+            ...persistedUser,
+            telegramId: persistedUser.telegramId || user.id.toString(),
+          })
         } else {
           const existingUser = useAppStore.getState().getUserByTelegramId(user.id.toString())
           if (existingUser) {
