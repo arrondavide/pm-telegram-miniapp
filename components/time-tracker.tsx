@@ -1,11 +1,12 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Play, Square, Clock } from "lucide-react"
+import { Play, Square, Clock, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { useAppStore } from "@/lib/store"
 import { useTelegram } from "@/hooks/use-telegram"
+import { timeApi } from "@/lib/api"
 import { cn } from "@/lib/utils"
 
 interface TimeTrackerProps {
@@ -15,8 +16,10 @@ interface TimeTrackerProps {
 
 export function TimeTracker({ className, taskId }: TimeTrackerProps) {
   const { activeTimeLog, clockIn, clockOut, getTaskById } = useAppStore()
-  const { hapticFeedback } = useTelegram()
+  const { hapticFeedback, webApp, user } = useTelegram()
   const [elapsed, setElapsed] = useState(0)
+  const [isClockingIn, setIsClockingIn] = useState(false)
+  const [isClockingOut, setIsClockingOut] = useState(false)
 
   const activeTask = activeTimeLog ? getTaskById(activeTimeLog.taskId) : null
   const isTracking = !!activeTimeLog
@@ -50,39 +53,74 @@ export function TimeTracker({ className, taskId }: TimeTrackerProps) {
     return `${minutes}:${secs.toString().padStart(2, "0")}`
   }
 
-  const handleClockIn = () => {
+  const handleClockIn = async () => {
     if (!taskId) return
     hapticFeedback("medium")
-    clockIn(taskId)
-    hapticFeedback("success")
+    setIsClockingIn(true)
+
+    try {
+      const initData = webApp?.initData || ""
+      const response = await timeApi.clockIn(taskId, user?.id?.toString() || "", initData)
+
+      if (response.success) {
+        clockIn(taskId)
+        hapticFeedback("success")
+      } else {
+        // Fallback to local
+        clockIn(taskId)
+        hapticFeedback("success")
+      }
+    } catch (error) {
+      console.error("Failed to clock in:", error)
+      // Fallback to local
+      clockIn(taskId)
+      hapticFeedback("success")
+    } finally {
+      setIsClockingIn(false)
+    }
   }
 
-  const handleClockOut = () => {
+  const handleClockOut = async () => {
     hapticFeedback("medium")
-    const log = clockOut()
-    if (log) {
-      hapticFeedback("success")
+    setIsClockingOut(true)
+
+    try {
+      const initData = webApp?.initData || ""
+      await timeApi.clockOut(activeTimeLog?.id || "", "", initData)
+      const log = clockOut()
+      if (log) {
+        hapticFeedback("success")
+      }
+    } catch (error) {
+      console.error("Failed to clock out:", error)
+      // Fallback to local
+      const log = clockOut()
+      if (log) {
+        hapticFeedback("success")
+      }
+    } finally {
+      setIsClockingOut(false)
     }
   }
 
   if (isTracking && activeTask) {
     return (
-      <Card className={cn("border-primary/50 bg-primary/5", className)}>
+      <Card className={cn("border-foreground/20 bg-foreground/5", className)}>
         <CardContent className="flex items-center justify-between p-3">
           <div className="flex items-center gap-3">
             <div className="relative">
-              <Clock className="h-5 w-5 text-primary" />
-              <span className="absolute -right-0.5 -top-0.5 h-2 w-2 animate-pulse rounded-full bg-primary" />
+              <Clock className="h-5 w-5 text-foreground" />
+              <span className="absolute -right-0.5 -top-0.5 h-2 w-2 animate-pulse rounded-full bg-foreground" />
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">Tracking time on</p>
-              <p className="font-medium text-sm line-clamp-1">{activeTask.title}</p>
+              <p className="font-body text-xs text-muted-foreground">Tracking time on</p>
+              <p className="font-body text-sm font-medium line-clamp-1">{activeTask.title}</p>
             </div>
           </div>
           <div className="flex items-center gap-3">
             <span className="font-mono text-lg font-bold tabular-nums">{formatTime(elapsed)}</span>
-            <Button size="sm" variant="destructive" onClick={handleClockOut} className="gap-1">
-              <Square className="h-3 w-3" />
+            <Button size="sm" variant="destructive" onClick={handleClockOut} disabled={isClockingOut} className="gap-1">
+              {isClockingOut ? <Loader2 className="h-3 w-3 animate-spin" /> : <Square className="h-3 w-3" />}
               Stop
             </Button>
           </div>
@@ -93,8 +131,14 @@ export function TimeTracker({ className, taskId }: TimeTrackerProps) {
 
   if (taskId && canTrack) {
     return (
-      <Button size="sm" variant="outline" onClick={handleClockIn} className={cn("gap-2", className)}>
-        <Play className="h-4 w-4" />
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={handleClockIn}
+        disabled={isClockingIn}
+        className={cn("gap-2", className)}
+      >
+        {isClockingIn ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
         Start Timer
       </Button>
     )

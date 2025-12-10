@@ -90,6 +90,16 @@ export interface Invitation {
   createdAt: Date
 }
 
+export interface Notification {
+  id: string
+  type: "task_assigned" | "task_updated" | "task_completed" | "comment" | "reminder" | "general"
+  title: string
+  message: string
+  taskId?: string
+  read: boolean
+  createdAt: Date
+}
+
 interface AppState {
   // Data
   users: User[]
@@ -100,12 +110,19 @@ interface AppState {
   invitations: Invitation[]
   currentUser: User | null
   activeTimeLog: TimeLog | null
+  notifications: Notification[]
 
   // Actions
   initialize: () => void
   setCurrentUser: (user: User | null) => void
   setCompanies: (companies: Company[]) => void
   getUserByTelegramId: (telegramId: string) => User | null
+  loadTasks: (tasks: Task[]) => void
+  addNotification: (notification: Omit<Notification, "id" | "read" | "createdAt">) => void
+  markNotificationRead: (notificationId: string) => void
+  markAllNotificationsRead: () => void
+  clearNotifications: () => void
+  getUnreadNotificationCount: () => number
 
   // Company actions
   createCompany: (name: string, creatorTelegramId: string, creatorName: string, creatorUsername: string) => Company
@@ -181,6 +198,7 @@ export const useAppStore = create<AppState>()(
       invitations: [],
       currentUser: null,
       activeTimeLog: null,
+      notifications: [],
 
       initialize: () => {
         // Demo data only loads if no companies exist and user creates one locally
@@ -192,6 +210,53 @@ export const useAppStore = create<AppState>()(
 
       getUserByTelegramId: (telegramId) => {
         return get().users.find((u) => u.telegramId === telegramId) || null
+      },
+
+      loadTasks: (tasks) => {
+        set((state) => {
+          const existingTaskIds = new Set(state.tasks.map((t) => t.id))
+          const apiTaskIds = new Set(tasks.map((t) => t.id))
+
+          // Keep local tasks that don't exist in API (newly created)
+          const localOnlyTasks = state.tasks.filter((t) => !apiTaskIds.has(t.id))
+
+          // Merge API tasks with local only tasks
+          return {
+            tasks: [...tasks, ...localOnlyTasks],
+          }
+        })
+      },
+
+      addNotification: (notification) => {
+        const newNotification: Notification = {
+          ...notification,
+          id: `notif-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          read: false,
+          createdAt: new Date(),
+        }
+        set((state) => ({
+          notifications: [newNotification, ...state.notifications].slice(0, 50), // Keep last 50
+        }))
+      },
+
+      markNotificationRead: (notificationId) => {
+        set((state) => ({
+          notifications: state.notifications.map((n) => (n.id === notificationId ? { ...n, read: true } : n)),
+        }))
+      },
+
+      markAllNotificationsRead: () => {
+        set((state) => ({
+          notifications: state.notifications.map((n) => ({ ...n, read: true })),
+        }))
+      },
+
+      clearNotifications: () => {
+        set({ notifications: [] })
+      },
+
+      getUnreadNotificationCount: () => {
+        return get().notifications.filter((n) => !n.read).length
       },
 
       createCompany: (name, creatorTelegramId, creatorName, creatorUsername) => {
@@ -741,6 +806,8 @@ export const useAppStore = create<AppState>()(
         comments: state.comments,
         invitations: state.invitations,
         activeTimeLog: state.activeTimeLog,
+        notifications: state.notifications,
+        currentUser: state.currentUser,
       }),
     },
   ),

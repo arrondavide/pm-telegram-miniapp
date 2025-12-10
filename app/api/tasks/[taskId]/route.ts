@@ -72,7 +72,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       return NextResponse.json({ error: "User not found" }, { status: 404 })
     }
 
-    const task = await Task.findById(taskId)
+    const task = await Task.findById(taskId).populate("assigned_to", "telegram_id full_name")
     if (!task) {
       return NextResponse.json({ error: "Task not found" }, { status: 404 })
     }
@@ -106,6 +106,37 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         new_value: body.status,
         message: `Status changed from ${oldStatus} to ${body.status}`,
       })
+
+      const BOT_TOKEN = process.env.BOT_TOKEN
+      if (BOT_TOKEN) {
+        const assignedUsers = task.assigned_to as any[]
+
+        for (const assignedUser of assignedUsers) {
+          // Don't notify the user who made the change
+          if (assignedUser.telegram_id === telegramId) continue
+
+          let message = ""
+          if (body.status === "completed") {
+            message = `✅ <b>Task Completed</b>\n\n<b>${task.title}</b>\n\nCompleted by: ${user.full_name}`
+          } else {
+            message = `🔄 <b>Task Updated</b>\n\n<b>${task.title}</b>\n\nStatus: ${oldStatus} → ${body.status}\nUpdated by: ${user.full_name}`
+          }
+
+          try {
+            await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                chat_id: assignedUser.telegram_id,
+                text: message,
+                parse_mode: "HTML",
+              }),
+            })
+          } catch (notifError) {
+            console.error("Failed to send notification:", notifError)
+          }
+        }
+      }
     }
 
     return NextResponse.json({ success: true })

@@ -3,6 +3,132 @@ import { connectToDatabase } from "@/lib/mongodb"
 import { Task, User, Update } from "@/lib/models"
 import mongoose from "mongoose"
 
+// ... existing GET code ...
+
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json()
+    const {
+      companyId,
+      title,
+      description,
+      dueDate,
+      priority,
+      assignedTo,
+      category,
+      tags,
+      department,
+      subtasks,
+      estimatedHours,
+    } = body
+    const telegramId = request.headers.get("X-Telegram-Id")
+
+    if (!telegramId) {
+      return NextResponse.json({ error: "Telegram ID required" }, { status: 400 })
+    }
+
+    await connectToDatabase()
+
+    const user = await User.findOne({ telegram_id: telegramId })
+    if (!user) {
+      return NextResponse.json({ error: "User not found" }, { status: 404 })
+    }
+
+    const assignedUserIds: mongoose.Types.ObjectId[] = []
+    const assignedUsers: any[] = []
+
+    if (assignedTo && Array.isArray(assignedTo)) {
+      for (const id of assignedTo) {
+        let foundUser = null
+        if (mongoose.Types.ObjectId.isValid(id)) {
+          foundUser = await User.findById(id)
+        }
+        if (!foundUser) {
+          foundUser = await User.findOne({ telegram_id: id.toString() })
+        }
+        if (foundUser) {
+          assignedUserIds.push(foundUser._id)
+          assignedUsers.push(foundUser)
+        }
+      }
+    }
+
+    const task = await Task.create({
+      title,
+      description: description || "",
+      due_date: new Date(dueDate),
+      status: "pending",
+      priority: priority || "medium",
+      assigned_to: assignedUserIds,
+      created_by: user._id,
+      company_id: new mongoose.Types.ObjectId(companyId),
+      category: category || "",
+      tags: tags || [],
+      department: department || "",
+      subtasks: (subtasks || []).map((st: any) => ({
+        title: st.title || st,
+        completed: false,
+      })),
+      estimated_hours: estimatedHours || 0,
+    })
+
+    // Create activity log
+    await Update.create({
+      task_id: task._id,
+      user_id: user._id,
+      action: "created",
+      message: `Task "${title}" created`,
+    })
+
+    const BOT_TOKEN = process.env.BOT_TOKEN
+    if (BOT_TOKEN && assignedUsers.length > 0) {
+      const formattedDate = new Date(dueDate).toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      })
+
+      for (const assignedUser of assignedUsers) {
+        // Don't notify the creator if they assigned themselves
+        if (assignedUser.telegram_id === telegramId) continue
+
+        const message = `📋 <b>New Task Assigned</b>\n\n<b>${title}</b>\n\nAssigned by: ${user.full_name}\nDue: ${formattedDate}\nPriority: ${priority || "medium"}\n\nOpen the app to view details.`
+
+        try {
+          await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              chat_id: assignedUser.telegram_id,
+              text: message,
+              parse_mode: "HTML",
+            }),
+          })
+        } catch (notifError) {
+          console.error("Failed to send notification:", notifError)
+        }
+      }
+    }
+
+    return NextResponse.json({
+      task: {
+        id: task._id.toString(),
+        title: task.title,
+        description: task.description,
+        dueDate: task.due_date,
+        status: task.status,
+        priority: task.priority,
+        assignedTo: assignedUserIds.map((id) => id.toString()),
+        createdAt: task.createdAt,
+      },
+    })
+  } catch (error) {
+    console.error("Error creating task:", error)
+    return NextResponse.json({ error: "Failed to create task" }, { status: 500 })
+  }
+}
+
+// ... existing GET code stays the same ...
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
@@ -39,12 +165,13 @@ export async function GET(request: NextRequest) {
       category: task.category,
       tags: task.tags,
       department: task.department,
-      subtasks: task.subtasks.map((st: any) => ({
+      subtasks: (task.subtasks || []).map((st: any, idx: number) => ({
+        id: st._id?.toString() || `subtask-${idx}`,
         title: st.title,
         completed: st.completed,
         completedAt: st.completed_at,
       })),
-      assignedTo: task.assigned_to.map((u: any) => ({
+      assignedTo: (task.assigned_to || []).map((u: any) => ({
         id: u._id.toString(),
         fullName: u.full_name,
         username: u.username,
@@ -68,88 +195,5 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error("Error fetching tasks:", error)
     return NextResponse.json({ error: "Failed to fetch tasks" }, { status: 500 })
-  }
-}
-
-export async function POST(request: NextRequest) {
-  try {
-    const body = await request.json()
-    const {
-      companyId,
-      title,
-      description,
-      dueDate,
-      priority,
-      assignedTo,
-      category,
-      tags,
-      department,
-      subtasks,
-      estimatedHours,
-    } = body
-    const telegramId = request.headers.get("X-Telegram-Id")
-
-    if (!telegramId) {
-      return NextResponse.json({ error: "Telegram ID required" }, { status: 400 })
-    }
-
-    await connectToDatabase()
-
-    const user = await User.findOne({ telegram_id: telegramId })
-    if (!user) {
-      return NextResponse.json({ error: "User not found" }, { status: 404 })
-    }
-
-    const assignedUserIds = assignedTo
-      ? await Promise.all(
-          assignedTo.map(async (id: string) => {
-            if (mongoose.Types.ObjectId.isValid(id)) {
-              return new mongoose.Types.ObjectId(id)
-            }
-            // Try to find by telegram_id
-            const u = await User.findOne({ telegram_id: id })
-            return u?._id
-          }),
-        )
-      : []
-
-    const task = await Task.create({
-      title,
-      description: description || "",
-      due_date: new Date(dueDate),
-      status: "pending",
-      priority: priority || "medium",
-      assigned_to: assignedUserIds.filter(Boolean),
-      created_by: user._id,
-      company_id: new mongoose.Types.ObjectId(companyId),
-      category: category || "",
-      tags: tags || [],
-      department: department || "",
-      subtasks: (subtasks || []).map((st: any) => ({ title: st.title || st, completed: false })),
-      estimated_hours: estimatedHours || 0,
-    })
-
-    // Create activity log
-    await Update.create({
-      task_id: task._id,
-      user_id: user._id,
-      action: "created",
-      message: `Task "${title}" created`,
-    })
-
-    return NextResponse.json({
-      task: {
-        id: task._id.toString(),
-        title: task.title,
-        description: task.description,
-        dueDate: task.due_date,
-        status: task.status,
-        priority: task.priority,
-        createdAt: task.createdAt,
-      },
-    })
-  } catch (error) {
-    console.error("Error creating task:", error)
-    return NextResponse.json({ error: "Failed to create task" }, { status: 500 })
   }
 }

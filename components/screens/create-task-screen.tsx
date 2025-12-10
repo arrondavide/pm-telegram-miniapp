@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { ArrowLeft, Plus, X, CalendarIcon } from "lucide-react"
+import { ArrowLeft, Plus, X, CalendarIcon, Loader2, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
@@ -12,6 +12,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useAppStore, type Task } from "@/lib/store"
 import { useTelegram } from "@/hooks/use-telegram"
+import { taskApi, companyApi } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import { format } from "date-fns"
 
@@ -21,8 +22,8 @@ interface CreateTaskScreenProps {
 }
 
 export function CreateTaskScreen({ onBack, onSuccess }: CreateTaskScreenProps) {
-  const { createTask, getCompanyMembers, currentUser } = useAppStore()
-  const { hapticFeedback, showBackButton, hideBackButton } = useTelegram()
+  const { createTask, getCompanyMembers, currentUser, loadMembers } = useAppStore()
+  const { hapticFeedback, showBackButton, hideBackButton, webApp, user } = useTelegram()
 
   const [title, setTitle] = useState("")
   const [description, setDescription] = useState("")
@@ -36,6 +37,7 @@ export function CreateTaskScreen({ onBack, onSuccess }: CreateTaskScreenProps) {
   const [newSubtask, setNewSubtask] = useState("")
   const [estimatedHours, setEstimatedHours] = useState("4")
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isLoadingMembers, setIsLoadingMembers] = useState(false)
 
   const members = getCompanyMembers()
 
@@ -43,6 +45,24 @@ export function CreateTaskScreen({ onBack, onSuccess }: CreateTaskScreenProps) {
     showBackButton(onBack)
     return () => hideBackButton()
   }, [showBackButton, hideBackButton, onBack])
+
+  useEffect(() => {
+    const loadMembersFromApi = async () => {
+      if (!currentUser?.activeCompanyId) return
+      setIsLoadingMembers(true)
+      try {
+        const response = await companyApi.getMembers(currentUser.activeCompanyId, user?.id?.toString() || "")
+        if (response.success && response.data?.members) {
+          loadMembers(response.data.members)
+        }
+      } catch (error) {
+        console.error("Failed to load members:", error)
+      } finally {
+        setIsLoadingMembers(false)
+      }
+    }
+    loadMembersFromApi()
+  }, [currentUser?.activeCompanyId])
 
   const handleAddTag = () => {
     if (newTag.trim() && !tags.includes(newTag.trim())) {
@@ -85,29 +105,85 @@ export function CreateTaskScreen({ onBack, onSuccess }: CreateTaskScreenProps) {
     hapticFeedback("medium")
 
     try {
-      createTask({
-        title: title.trim(),
-        description: description.trim(),
-        dueDate,
-        priority,
-        status: "pending",
-        assignedTo,
-        createdBy: currentUser.id,
-        companyId: currentUser.activeCompanyId,
-        category: category.trim(),
-        tags,
-        department: "",
-        subtasks: subtasks.map((st, i) => ({
-          id: `st-${Date.now()}-${i}`,
-          title: st,
-          completed: false,
-          completedAt: null,
-        })),
-        estimatedHours: Number.parseFloat(estimatedHours) || 0,
-      })
+      const initData = webApp?.initData || ""
 
-      hapticFeedback("success")
-      onSuccess()
+      // Try API first
+      const response = await taskApi.create(
+        {
+          companyId: currentUser.activeCompanyId,
+          title: title.trim(),
+          description: description.trim(),
+          dueDate,
+          priority,
+          status: "pending",
+          assignedTo,
+          createdBy: currentUser.id,
+          category: category.trim(),
+          tags,
+          department: "",
+          subtasks: subtasks.map((st, i) => ({
+            id: `st-${Date.now()}-${i}`,
+            title: st,
+            completed: false,
+            completedAt: null,
+          })),
+          estimatedHours: Number.parseFloat(estimatedHours) || 0,
+          actualHours: 0,
+          completedAt: null,
+          createdAt: new Date(),
+        } as any,
+        initData,
+      )
+
+      if (response.success) {
+        // Also create locally for immediate UI update
+        createTask({
+          title: title.trim(),
+          description: description.trim(),
+          dueDate,
+          priority,
+          status: "pending",
+          assignedTo,
+          createdBy: currentUser.id,
+          companyId: currentUser.activeCompanyId,
+          category: category.trim(),
+          tags,
+          department: "",
+          subtasks: subtasks.map((st, i) => ({
+            id: `st-${Date.now()}-${i}`,
+            title: st,
+            completed: false,
+            completedAt: null,
+          })),
+          estimatedHours: Number.parseFloat(estimatedHours) || 0,
+        })
+        hapticFeedback("success")
+        onSuccess()
+      } else {
+        // Fallback to local only
+        createTask({
+          title: title.trim(),
+          description: description.trim(),
+          dueDate,
+          priority,
+          status: "pending",
+          assignedTo,
+          createdBy: currentUser.id,
+          companyId: currentUser.activeCompanyId,
+          category: category.trim(),
+          tags,
+          department: "",
+          subtasks: subtasks.map((st, i) => ({
+            id: `st-${Date.now()}-${i}`,
+            title: st,
+            completed: false,
+            completedAt: null,
+          })),
+          estimatedHours: Number.parseFloat(estimatedHours) || 0,
+        })
+        hapticFeedback("success")
+        onSuccess()
+      }
     } catch {
       hapticFeedback("error")
     } finally {
@@ -124,9 +200,14 @@ export function CreateTaskScreen({ onBack, onSuccess }: CreateTaskScreenProps) {
             <ArrowLeft className="h-4 w-4" />
             Cancel
           </Button>
-          <h1 className="font-semibold">New Task</h1>
-          <Button size="sm" onClick={handleSubmit} disabled={isSubmitting || !title.trim() || assignedTo.length === 0}>
-            Create
+          <h1 className="font-heading font-semibold">New Task</h1>
+          <Button
+            size="sm"
+            onClick={handleSubmit}
+            disabled={isSubmitting || !title.trim() || assignedTo.length === 0}
+            className="bg-foreground text-background hover:bg-foreground/90"
+          >
+            {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : "Create"}
           </Button>
         </div>
       </header>
@@ -134,13 +215,17 @@ export function CreateTaskScreen({ onBack, onSuccess }: CreateTaskScreenProps) {
       <div className="flex-1 space-y-6 p-4">
         {/* Title */}
         <div className="space-y-2">
-          <Label htmlFor="title">Task Title *</Label>
+          <Label htmlFor="title" className="font-body">
+            Task Title *
+          </Label>
           <Input id="title" placeholder="Enter task title" value={title} onChange={(e) => setTitle(e.target.value)} />
         </div>
 
         {/* Description */}
         <div className="space-y-2">
-          <Label htmlFor="description">Description</Label>
+          <Label htmlFor="description" className="font-body">
+            Description
+          </Label>
           <Textarea
             id="description"
             placeholder="Add task description..."
@@ -152,7 +237,7 @@ export function CreateTaskScreen({ onBack, onSuccess }: CreateTaskScreenProps) {
 
         {/* Due Date */}
         <div className="space-y-2">
-          <Label>Due Date *</Label>
+          <Label className="font-body">Due Date *</Label>
           <Popover>
             <PopoverTrigger asChild>
               <Button
@@ -177,31 +262,37 @@ export function CreateTaskScreen({ onBack, onSuccess }: CreateTaskScreenProps) {
 
         {/* Priority */}
         <div className="space-y-2">
-          <Label>Priority</Label>
+          <Label className="font-body">Priority</Label>
           <Select value={priority} onValueChange={(v) => setPriority(v as Task["priority"])}>
             <SelectTrigger>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="low">🟢 Low</SelectItem>
-              <SelectItem value="medium">🟡 Medium</SelectItem>
-              <SelectItem value="high">🟠 High</SelectItem>
-              <SelectItem value="urgent">🔴 Urgent</SelectItem>
+              <SelectItem value="low">Low</SelectItem>
+              <SelectItem value="medium">Medium</SelectItem>
+              <SelectItem value="high">High</SelectItem>
+              <SelectItem value="urgent">Urgent</SelectItem>
             </SelectContent>
           </Select>
         </div>
 
         {/* Assign To */}
         <div className="space-y-2">
-          <Label>Assign To *</Label>
+          <div className="flex items-center justify-between">
+            <Label className="font-body">Assign To *</Label>
+            {isLoadingMembers && <RefreshCw className="h-4 w-4 animate-spin text-muted-foreground" />}
+          </div>
           <div className="flex flex-wrap gap-2">
+            {members.length === 0 && !isLoadingMembers && (
+              <p className="text-sm text-muted-foreground">No team members found</p>
+            )}
             {members.map((member) => {
               const isSelected = assignedTo.includes(member.id)
               return (
                 <Badge
                   key={member.id}
                   variant={isSelected ? "default" : "outline"}
-                  className="cursor-pointer py-1.5"
+                  className={cn("cursor-pointer py-1.5 font-body", isSelected && "bg-foreground text-background")}
                   onClick={() => toggleAssignee(member.id)}
                 >
                   {member.fullName}
@@ -214,7 +305,9 @@ export function CreateTaskScreen({ onBack, onSuccess }: CreateTaskScreenProps) {
 
         {/* Category */}
         <div className="space-y-2">
-          <Label htmlFor="category">Category</Label>
+          <Label htmlFor="category" className="font-body">
+            Category
+          </Label>
           <Input
             id="category"
             placeholder="e.g., Development, Design, Marketing"
@@ -225,7 +318,9 @@ export function CreateTaskScreen({ onBack, onSuccess }: CreateTaskScreenProps) {
 
         {/* Estimated Hours */}
         <div className="space-y-2">
-          <Label htmlFor="hours">Estimated Hours</Label>
+          <Label htmlFor="hours" className="font-body">
+            Estimated Hours
+          </Label>
           <Input
             id="hours"
             type="number"
@@ -239,7 +334,7 @@ export function CreateTaskScreen({ onBack, onSuccess }: CreateTaskScreenProps) {
 
         {/* Tags */}
         <div className="space-y-2">
-          <Label>Tags</Label>
+          <Label className="font-body">Tags</Label>
           <div className="flex gap-2">
             <Input
               placeholder="Add a tag"
@@ -254,7 +349,7 @@ export function CreateTaskScreen({ onBack, onSuccess }: CreateTaskScreenProps) {
           {tags.length > 0 && (
             <div className="flex flex-wrap gap-2 mt-2">
               {tags.map((tag) => (
-                <Badge key={tag} variant="secondary" className="gap-1">
+                <Badge key={tag} variant="secondary" className="gap-1 font-body">
                   #{tag}
                   <X className="h-3 w-3 cursor-pointer" onClick={() => handleRemoveTag(tag)} />
                 </Badge>
@@ -265,7 +360,7 @@ export function CreateTaskScreen({ onBack, onSuccess }: CreateTaskScreenProps) {
 
         {/* Subtasks */}
         <div className="space-y-2">
-          <Label>Subtasks</Label>
+          <Label className="font-body">Subtasks</Label>
           <div className="flex gap-2">
             <Input
               placeholder="Add a subtask"
@@ -281,7 +376,7 @@ export function CreateTaskScreen({ onBack, onSuccess }: CreateTaskScreenProps) {
             <div className="space-y-2 mt-2">
               {subtasks.map((subtask, index) => (
                 <div key={index} className="flex items-center gap-2 rounded-lg border p-3">
-                  <span className="flex-1 text-sm">{subtask}</span>
+                  <span className="flex-1 text-sm font-body">{subtask}</span>
                   <Button
                     type="button"
                     variant="ghost"

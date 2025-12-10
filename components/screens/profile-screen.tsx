@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { Building2, Bell, Clock, ChevronRight, Check, Moon, Sun, Settings, Trash2, UserPlus } from "lucide-react"
+import { Building2, Bell, Clock, ChevronRight, Check, Moon, Sun, Settings, Trash2, UserPlus, Plus } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Switch } from "@/components/ui/switch"
 import { Badge } from "@/components/ui/badge"
@@ -42,11 +42,18 @@ export function ProfileScreen() {
     deleteCompany,
     joinCompanyWithCode,
     setCompanies,
+    createCompany,
+    setCurrentUser,
   } = useAppStore()
-  const { hapticFeedback, webApp } = useTelegram()
+  const { hapticFeedback, webApp, initData } = useTelegram()
 
   const [isCompanySwitchOpen, setIsCompanySwitchOpen] = useState(false)
   const [isJoinCompanyOpen, setIsJoinCompanyOpen] = useState(false)
+  const [isCreateCompanyOpen, setIsCreateCompanyOpen] = useState(false)
+  const [newCompanyName, setNewCompanyName] = useState("")
+  const [isCreating, setIsCreating] = useState(false)
+  const [createError, setCreateError] = useState<string | null>(null)
+
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false)
   const [companyToDelete, setCompanyToDelete] = useState<string | null>(null)
   const [inviteCode, setInviteCode] = useState("")
@@ -114,6 +121,54 @@ export function ProfileScreen() {
       hapticFeedback("error")
     } finally {
       setIsJoining(false)
+    }
+  }
+
+  const handleCreateCompany = async () => {
+    if (!newCompanyName.trim() || !currentUser) return
+
+    setIsCreating(true)
+    setCreateError(null)
+    hapticFeedback("medium")
+
+    try {
+      const response = await companyApi.create({
+        name: newCompanyName.trim(),
+        telegramId: currentUser.telegramId,
+        fullName: currentUser.fullName,
+        username: currentUser.username,
+        initData: initData,
+      })
+
+      if (response.success && response.data) {
+        const { company, user } = response.data
+
+        // Update local state
+        setCompanies([...companies, company])
+        setCurrentUser(user)
+        switchCompany(company.id)
+
+        hapticFeedback("success")
+        setIsCreateCompanyOpen(false)
+        setNewCompanyName("")
+      } else {
+        setCreateError(response.error || "Failed to create company")
+        hapticFeedback("error")
+      }
+    } catch (error) {
+      // Fallback to local creation
+      const company = createCompany(
+        newCompanyName.trim(),
+        currentUser.telegramId,
+        currentUser.fullName,
+        currentUser.username,
+      )
+      switchCompany(company.id)
+      hapticFeedback("success")
+      setIsCreateCompanyOpen(false)
+      setNewCompanyName("")
+    } finally {
+      setIsCreating(false)
     }
   }
 
@@ -221,14 +276,24 @@ export function ProfileScreen() {
           </CardContent>
         </Card>
 
-        <Button
-          variant="outline"
-          className="w-full border-border/50 bg-transparent"
-          onClick={() => setIsJoinCompanyOpen(true)}
-        >
-          <UserPlus className="mr-2 h-4 w-4" />
-          Join Another Company
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            className="flex-1 border-border/50 bg-transparent"
+            onClick={() => setIsJoinCompanyOpen(true)}
+          >
+            <UserPlus className="mr-2 h-4 w-4" />
+            Join Company
+          </Button>
+          <Button
+            variant="outline"
+            className="flex-1 border-border/50 bg-transparent"
+            onClick={() => setIsCreateCompanyOpen(true)}
+          >
+            <Plus className="mr-2 h-4 w-4" />
+            Create Company
+          </Button>
+        </div>
 
         {/* Settings */}
         <Card className="border-border/50">
@@ -332,6 +397,7 @@ export function ProfileScreen() {
         </DialogContent>
       </Dialog>
 
+      {/* Join Company Dialog */}
       <Dialog open={isJoinCompanyOpen} onOpenChange={setIsJoinCompanyOpen}>
         <DialogContent>
           <DialogHeader>
@@ -369,23 +435,68 @@ export function ProfileScreen() {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={isCreateCompanyOpen} onOpenChange={setIsCreateCompanyOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create a Company</DialogTitle>
+            <DialogDescription>Start a new company and become its admin</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="companyName">Company Name</Label>
+              <Input
+                id="companyName"
+                placeholder="Enter company name"
+                value={newCompanyName}
+                onChange={(e) => {
+                  setNewCompanyName(e.target.value)
+                  setCreateError(null)
+                }}
+                className="border-border/50"
+              />
+              {createError && <p className="text-sm text-destructive">{createError}</p>}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsCreateCompanyOpen(false)} className="border-border/50">
+              Cancel
+            </Button>
+            <Button
+              onClick={handleCreateCompany}
+              disabled={!newCompanyName.trim() || isCreating}
+              className="bg-foreground text-background hover:bg-foreground/90"
+            >
+              {isCreating ? "Creating..." : "Create Company"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Company Confirmation */}
       <AlertDialog open={isDeleteConfirmOpen} onOpenChange={setIsDeleteConfirmOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete Company</AlertDialogTitle>
+            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete this company? This action cannot be undone. All tasks, invitations, and
-              data will be permanently deleted.
+              This action cannot be undone. This will permanently delete the company and all associated data including:
+              <ul className="mt-2 list-disc list-inside space-y-1">
+                <li>All tasks and subtasks</li>
+                <li>All team members will lose access</li>
+                <li>All time logs and comments</li>
+                <li>All pending invitations</li>
+              </ul>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogCancel disabled={isDeleting} className="border-border/50">
+              Cancel
+            </AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDeleteCompany}
               disabled={isDeleting}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              {isDeleting ? "Deleting..." : "Delete Company"}
+              {isDeleting ? "Deleting..." : "Yes, Delete Company"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

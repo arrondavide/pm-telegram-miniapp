@@ -41,12 +41,7 @@ export const userApi = {
       headers: { "X-Telegram-Init-Data": initData },
     }),
 
-  register: (data: {
-    telegramId: string
-    fullName: string
-    username: string
-    initData: string
-  }) =>
+  register: (data: { telegramId: string; fullName: string; username: string; initData: string }) =>
     fetchApi<import("@/lib/store").User>("/users/register", {
       method: "POST",
       body: JSON.stringify(data),
@@ -67,13 +62,7 @@ export const userApi = {
 
 // Company APIs
 export const companyApi = {
-  create: (data: {
-    name: string
-    telegramId: string
-    fullName: string
-    username: string
-    initData: string
-  }) =>
+  create: (data: { name: string; telegramId: string; fullName: string; username: string; initData: string }) =>
     fetchApi<{ company: import("@/lib/store").Company; user: import("@/lib/store").User }>("/companies", {
       method: "POST",
       body: JSON.stringify(data),
@@ -106,12 +95,7 @@ export const companyApi = {
       },
     ),
 
-  joinWithCode: (data: {
-    invitationCode: string
-    telegramId: string
-    fullName: string
-    username: string
-  }) =>
+  joinWithCode: (data: { invitationCode: string; telegramId: string; fullName: string; username: string }) =>
     fetchApi<{
       company: import("@/lib/store").Company
       user: import("@/lib/store").User
@@ -162,20 +146,20 @@ export const taskApi = {
     }),
 
   create: (
-    task: Omit<import("@/lib/store").Task, "id" | "createdAt" | "completedAt" | "actualHours">,
+    task: Omit<import("@/lib/store").Task, "id" | "createdAt" | "completedAt" | "actualHours"> & { companyId: string },
     initData: string,
   ) =>
     fetchApi<import("@/lib/store").Task>("/tasks", {
       method: "POST",
       body: JSON.stringify(task),
-      headers: { "X-Telegram-Init-Data": initData },
+      headers: { "X-Telegram-Id": initData },
     }),
 
-  update: (taskId: string, updates: Partial<import("@/lib/store").Task>, initData: string) =>
+  update: (taskId: string, updates: Partial<import("@/lib/store").Task>, telegramId: string) =>
     fetchApi<import("@/lib/store").Task>(`/tasks/${taskId}`, {
       method: "PATCH",
       body: JSON.stringify(updates),
-      headers: { "X-Telegram-Init-Data": initData },
+      headers: { "X-Telegram-Id": telegramId },
     }),
 
   updateStatus: (taskId: string, status: string, initData: string) =>
@@ -200,18 +184,18 @@ export const taskApi = {
 
 // Time tracking APIs
 export const timeApi = {
-  clockIn: (taskId: string, userId: string, initData: string) =>
+  clockIn: (taskId: string, userId: string, telegramId: string) =>
     fetchApi<import("@/lib/store").TimeLog>("/time/clock-in", {
       method: "POST",
       body: JSON.stringify({ taskId, userId }),
-      headers: { "X-Telegram-Init-Data": initData },
+      headers: { "X-Telegram-Id": telegramId },
     }),
 
-  clockOut: (timeLogId: string, note: string, initData: string) =>
+  clockOut: (timeLogId: string, note: string, telegramId: string) =>
     fetchApi<import("@/lib/store").TimeLog>("/time/clock-out", {
       method: "POST",
       body: JSON.stringify({ timeLogId, note }),
-      headers: { "X-Telegram-Init-Data": initData },
+      headers: { "X-Telegram-Id": telegramId },
     }),
 
   getActive: (userId: string, initData: string) =>
@@ -230,16 +214,16 @@ export const timeApi = {
 // Comment APIs
 export const commentApi = {
   getForTask: (taskId: string, initData: string) =>
-    fetchApi<import("@/lib/store").Comment[]>(`/comments?taskId=${taskId}`, {
+    fetchApi<import("@/lib/store").Comment[]>(`/tasks/${taskId}/comments`, {
       method: "GET",
       headers: { "X-Telegram-Init-Data": initData },
     }),
 
-  create: (taskId: string, userId: string, message: string, initData: string) =>
-    fetchApi<import("@/lib/store").Comment>("/comments", {
+  create: (taskId: string, userId: string, message: string, telegramId: string) =>
+    fetchApi<import("@/lib/store").Comment>(`/tasks/${taskId}/comments`, {
       method: "POST",
       body: JSON.stringify({ taskId, userId, message }),
-      headers: { "X-Telegram-Init-Data": initData },
+      headers: { "X-Telegram-Id": telegramId },
     }),
 }
 
@@ -269,5 +253,14 @@ export const statsApi = {
     }>(`/stats/team?companyId=${companyId}`, {
       method: "GET",
       headers: { "X-Telegram-Init-Data": initData },
+    }),
+}
+
+// Notification API
+export const notificationApi = {
+  send: (telegramId: string, message: string, type: string) =>
+    fetchApi<{ success: boolean }>("/notifications/send", {
+      method: "POST",
+      body: JSON.stringify({ telegramId, message, type }),
     }),
 }
