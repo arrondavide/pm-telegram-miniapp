@@ -16,166 +16,117 @@ export async function GET(request: NextRequest) {
     await connectToDatabase()
 
     const user = await User.findOne({ telegram_id: telegramId })
-    if (!user) {
-      return NextResponse.json({
-        company: {
-          totalTasks: 0,
-          completedTasks: 0,
-          pendingTasks: 0,
-          overdueTasks: 0,
-          completionRate: 0,
-        },
-        personal: {
-          totalTasks: 0,
-          completedTasks: 0,
-          pendingTasks: 0,
-          overdueTasks: 0,
-          totalSecondsWorked: 0,
-          totalHoursWorked: 0,
-          completionRate: 0,
-        },
-        topPerformers: [],
-      })
-    }
 
     let companyObjectId: mongoose.Types.ObjectId | null = null
+    let companyQuery: any = { company_id: companyId }
+
     try {
       if (mongoose.Types.ObjectId.isValid(companyId)) {
         companyObjectId = new mongoose.Types.ObjectId(companyId)
+        companyQuery = { company_id: companyObjectId }
       }
     } catch {
-      // Invalid ObjectId, continue with null
+      // Use string companyId
     }
 
-    if (!companyObjectId) {
-      return NextResponse.json({
-        company: {
-          totalTasks: 0,
-          completedTasks: 0,
-          pendingTasks: 0,
-          overdueTasks: 0,
-          completionRate: 0,
-        },
-        personal: {
-          totalTasks: 0,
-          completedTasks: 0,
-          pendingTasks: 0,
-          overdueTasks: 0,
-          totalSecondsWorked: 0,
-          totalHoursWorked: 0,
-          completionRate: 0,
-        },
-        topPerformers: [],
+    // Get all company tasks - try with ObjectId first, then string
+    let allTasks = await Task.find(companyQuery).lean()
+
+    // If no tasks found with ObjectId, try string match
+    if (allTasks.length === 0 && companyObjectId) {
+      allTasks = await Task.find({ company_id: companyId }).lean()
+    }
+
+    const totalTasks = allTasks.length
+    const completedTasks = allTasks.filter((t: any) => t.status === "completed").length
+    const pendingTasks = allTasks.filter((t: any) => ["pending", "started", "in_progress"].includes(t.status)).length
+    const overdueTasks = allTasks.filter(
+      (t: any) => !["completed", "cancelled"].includes(t.status) && t.due_date && new Date(t.due_date) < new Date(),
+    ).length
+
+    let userTasks: any[] = []
+
+    if (user) {
+      userTasks = allTasks.filter((task: any) => {
+        const assignedTo = task.assigned_to || []
+        return assignedTo.some((assignee: any) => {
+          const assigneeStr = assignee?.toString() || ""
+          const userIdStr = user._id?.toString() || ""
+          const userTelegramId = user.telegram_id || telegramId
+
+          // Check if assignee matches user's ObjectId, telegramId, or string representation
+          return assigneeStr === userIdStr || assigneeStr === userTelegramId || assigneeStr === telegramId
+        })
       })
     }
 
-    // Get all company tasks
-    const [totalTasks, completedTasks, pendingTasks, overdueTasks] = await Promise.all([
-      Task.countDocuments({ company_id: companyObjectId }),
-      Task.countDocuments({ company_id: companyObjectId, status: "completed" }),
-      Task.countDocuments({ company_id: companyObjectId, status: { $in: ["pending", "started", "in_progress"] } }),
-      Task.countDocuments({
-        company_id: companyObjectId,
-        status: { $nin: ["completed", "cancelled"] },
-        due_date: { $lt: new Date() },
-      }),
-    ])
-
-    // Get user-specific stats - check both user._id and telegram_id in assigned_to
-    const userTasksById = await Task.find({
-      company_id: companyObjectId,
-      assigned_to: user._id,
-    }).lean()
-
-    // Also check if tasks were assigned using telegramId string
-    const userTasksByTelegramId = await Task.find({
-      company_id: companyObjectId,
-      assigned_to: telegramId,
-    }).lean()
-
-    // Merge and deduplicate
-    const allUserTasks = [
-      ...userTasksById,
-      ...userTasksByTelegramId.filter(
-        (t: any) => !userTasksById.some((ut: any) => ut._id.toString() === t._id.toString()),
-      ),
-    ]
-
-    const userTotalTasks = allUserTasks.length
-    const userCompletedTasks = allUserTasks.filter((t: any) => t.status === "completed").length
-    const userPendingTasks = allUserTasks.filter((t: any) => !["completed", "cancelled"].includes(t.status)).length
-    const userOverdueTasks = allUserTasks.filter(
+    const userTotalTasks = userTasks.length
+    const userCompletedTasks = userTasks.filter((t: any) => t.status === "completed").length
+    const userPendingTasks = userTasks.filter((t: any) => !["completed", "cancelled"].includes(t.status)).length
+    const userOverdueTasks = userTasks.filter(
       (t: any) => !["completed", "cancelled"].includes(t.status) && t.due_date && new Date(t.due_date) < new Date(),
     ).length
 
     // Get user's total time logged
-    const userTimeLogs = await TimeLog.find({
-      user_id: user._id,
-      end_time: { $ne: null },
-    }).lean()
-
-    // Calculate total seconds from all time logs
     let totalSeconds = 0
-    for (const log of userTimeLogs as any[]) {
-      if (log.duration_seconds) {
-        totalSeconds += log.duration_seconds
-      } else if (log.duration_minutes) {
-        totalSeconds += log.duration_minutes * 60
-      } else if (log.start_time && log.end_time) {
-        const start = new Date(log.start_time).getTime()
-        const end = new Date(log.end_time).getTime()
-        totalSeconds += Math.round((end - start) / 1000)
+    if (user) {
+      const userTimeLogs = await TimeLog.find({
+        user_id: user._id,
+        end_time: { $ne: null },
+      }).lean()
+
+      for (const log of userTimeLogs as any[]) {
+        if (log.duration_seconds) {
+          totalSeconds += log.duration_seconds
+        } else if (log.duration_minutes) {
+          totalSeconds += log.duration_minutes * 60
+        } else if (log.start_time && log.end_time) {
+          const start = new Date(log.start_time).getTime()
+          const end = new Date(log.end_time).getTime()
+          totalSeconds += Math.round((end - start) / 1000)
+        }
       }
     }
 
-    // Get top performers
-    const topPerformers = await Task.aggregate([
-      {
-        $match: {
-          company_id: companyObjectId,
-          status: "completed",
-        },
-      },
-      { $unwind: "$assigned_to" },
-      {
-        $group: {
-          _id: "$assigned_to",
-          completedCount: { $sum: 1 },
-        },
-      },
-      { $sort: { completedCount: -1 } },
-      { $limit: 5 },
-      {
-        $lookup: {
-          from: "users",
-          localField: "_id",
-          foreignField: "_id",
-          as: "userById",
-        },
-      },
-    ])
+    // Get top performers from completed tasks
+    const performerMap = new Map<string, { user: any; count: number }>()
 
-    // Format top performers
-    const formattedPerformers = []
-    for (const p of topPerformers) {
-      let userData = p.userById?.[0]
-
-      if (!userData && typeof p._id === "string") {
-        userData = await User.findOne({ telegram_id: p._id }).lean()
-      }
-
-      if (userData) {
-        formattedPerformers.push({
-          user: {
-            id: userData._id.toString(),
-            fullName: userData.full_name || "Unknown",
-            username: userData.username || "",
-            telegramId: userData.telegram_id,
-          },
-          completedCount: p.completedCount,
-        })
+    for (const task of allTasks.filter((t: any) => t.status === "completed")) {
+      const assignedTo = (task as any).assigned_to || []
+      for (const assignee of assignedTo) {
+        const assigneeStr = assignee?.toString() || ""
+        if (!performerMap.has(assigneeStr)) {
+          // Try to find user
+          let userData = null
+          if (mongoose.Types.ObjectId.isValid(assigneeStr)) {
+            userData = await User.findById(assigneeStr).lean()
+          }
+          if (!userData) {
+            userData = await User.findOne({ telegram_id: assigneeStr }).lean()
+          }
+          if (userData) {
+            performerMap.set(assigneeStr, { user: userData, count: 0 })
+          }
+        }
+        const performer = performerMap.get(assigneeStr)
+        if (performer) {
+          performer.count++
+        }
       }
     }
+
+    const topPerformers = Array.from(performerMap.values())
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5)
+      .map((p) => ({
+        user: {
+          id: p.user._id.toString(),
+          fullName: p.user.full_name || "Unknown",
+          username: p.user.username || "",
+          telegramId: p.user.telegram_id,
+        },
+        completedCount: p.count,
+      }))
 
     return NextResponse.json({
       company: {
@@ -190,11 +141,11 @@ export async function GET(request: NextRequest) {
         completedTasks: userCompletedTasks,
         pendingTasks: userPendingTasks,
         overdueTasks: userOverdueTasks,
-        totalSecondsWorked: totalSeconds,
-        totalHoursWorked: Math.round((totalSeconds / 3600) * 10) / 10,
+        totalSecondsWorked: totalSeconds || 0,
+        totalHoursWorked: Math.round((totalSeconds / 3600) * 10) / 10 || 0,
         completionRate: userTotalTasks > 0 ? Math.round((userCompletedTasks / userTotalTasks) * 100) : 0,
       },
-      topPerformers: formattedPerformers,
+      topPerformers,
     })
   } catch (error) {
     console.error("Error fetching stats:", error)
