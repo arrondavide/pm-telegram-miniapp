@@ -53,38 +53,53 @@ export function TasksScreen({ onTaskSelect, onCreateTask }: TasksScreenProps) {
       const initData = webApp?.initData || ""
       const response = await taskApi.getAll(company.id, initData)
 
+      console.log("[v0] Task API response:", response)
+
       if (response.success && response.data) {
         // Transform API response to match our Task type
         const tasks = (response.data as any).tasks || response.data
+        console.log("[v0] Raw tasks from API:", tasks)
+
         const formattedTasks = Array.isArray(tasks)
-          ? tasks.map((t: any) => ({
-              id: t.id,
-              title: t.title,
-              description: t.description || "",
-              dueDate: new Date(t.dueDate),
-              status: t.status,
-              priority: t.priority,
-              companyId: company.id,
-              assignedTo: (t.assignedTo || [])
-                .map((a: any) => (typeof a === "string" ? a : a.id || a.telegramId || a._id?.toString()))
-                .filter(Boolean),
-              createdBy: t.createdBy?.id || t.createdBy || currentUser?.id || "",
-              category: t.category || "",
-              tags: t.tags || [],
-              department: t.department || "",
-              subtasks: (t.subtasks || []).map((st: any, idx: number) => ({
-                id: st.id || `subtask-${idx}`,
-                title: st.title,
-                completed: st.completed || false,
-                completedAt: st.completedAt ? new Date(st.completedAt) : null,
-              })),
-              estimatedHours: t.estimatedHours || 0,
-              actualHours: t.actualHours || 0,
-              completedAt: t.completedAt ? new Date(t.completedAt) : null,
-              createdAt: new Date(t.createdAt),
-            }))
+          ? tasks.map((t: any) => {
+              const assignedToIds = (t.assignedTo || [])
+                .map((a: any) => {
+                  if (typeof a === "string") return a
+                  // Keep both id and telegramId for matching
+                  return a.telegramId?.toString() || a.id || a._id?.toString()
+                })
+                .filter(Boolean)
+
+              console.log("[v0] Task:", t.title, "assignedTo:", assignedToIds)
+
+              return {
+                id: t.id,
+                title: t.title,
+                description: t.description || "",
+                dueDate: new Date(t.dueDate),
+                status: t.status,
+                priority: t.priority,
+                companyId: company.id,
+                assignedTo: assignedToIds,
+                createdBy: t.createdBy?.id || t.createdBy || currentUser?.id || "",
+                category: t.category || "",
+                tags: t.tags || [],
+                department: t.department || "",
+                subtasks: (t.subtasks || []).map((st: any, idx: number) => ({
+                  id: st.id || `subtask-${idx}`,
+                  title: st.title,
+                  completed: st.completed || false,
+                  completedAt: st.completedAt ? new Date(st.completedAt) : null,
+                })),
+                estimatedHours: t.estimatedHours || 0,
+                actualHours: t.actualHours || 0,
+                completedAt: t.completedAt ? new Date(t.completedAt) : null,
+                createdAt: new Date(t.createdAt),
+              }
+            })
           : []
 
+        console.log("[v0] Formatted tasks:", formattedTasks.length)
         loadTasks(formattedTasks)
       }
     } catch (error) {

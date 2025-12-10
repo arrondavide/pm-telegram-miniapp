@@ -86,11 +86,12 @@ export function CreateTaskScreen({ onBack, onSuccess }: CreateTaskScreenProps) {
     setSubtasks(subtasks.filter((_, i) => i !== index))
   }
 
-  const toggleAssignee = (userId: string) => {
-    if (assignedTo.includes(userId)) {
-      setAssignedTo(assignedTo.filter((id) => id !== userId))
+  const toggleAssignee = (memberId: string, memberTelegramId?: string) => {
+    const idToUse = memberTelegramId || memberId
+    if (assignedTo.includes(idToUse)) {
+      setAssignedTo(assignedTo.filter((id) => id !== idToUse))
     } else {
-      setAssignedTo([...assignedTo, userId])
+      setAssignedTo([...assignedTo, idToUse])
     }
     hapticFeedback("selection")
   }
@@ -287,13 +288,14 @@ export function CreateTaskScreen({ onBack, onSuccess }: CreateTaskScreenProps) {
               <p className="text-sm text-muted-foreground">No team members found</p>
             )}
             {members.map((member) => {
-              const isSelected = assignedTo.includes(member.id)
+              const memberIdToCheck = member.telegramId || member.id
+              const isSelected = assignedTo.includes(memberIdToCheck)
               return (
                 <Badge
                   key={member.id}
                   variant={isSelected ? "default" : "outline"}
                   className={cn("cursor-pointer py-1.5 font-body", isSelected && "bg-foreground text-background")}
-                  onClick={() => toggleAssignee(member.id)}
+                  onClick={() => toggleAssignee(member.id, member.telegramId)}
                 >
                   {member.fullName}
                   {isSelected && <X className="ml-1 h-3 w-3" />}

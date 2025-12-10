@@ -44,7 +44,7 @@ export interface Task {
   dueDate: Date
   status: "pending" | "started" | "in_progress" | "completed" | "blocked" | "cancelled"
   priority: "low" | "medium" | "high" | "urgent"
-  assignedTo: string[]
+  assignedTo: (string | { id: string; telegramId?: string; _id?: string })[]
   createdBy: string
   companyId: string
   category: string
@@ -452,21 +452,39 @@ export const useAppStore = create<AppState>()(
         const { currentUser, tasks } = get()
         if (!currentUser?.activeCompanyId) return []
 
+        console.log("[v0] getTasksForUser - currentUser:", currentUser.id, currentUser.telegramId)
+        console.log("[v0] getTasksForUser - tasks count:", tasks.length)
+
         return tasks
           .filter((t) => {
             if (t.companyId !== currentUser.activeCompanyId) return false
 
-            // Check if user is assigned - match by id or telegramId
-            const isAssigned = t.assignedTo.some(
-              (assigneeId) =>
-                assigneeId === currentUser.id ||
-                assigneeId === currentUser.telegramId ||
-                // Also check if assignedTo contains objects with id/telegramId
-                (typeof assigneeId === "object" &&
-                  assigneeId !== null &&
-                  ((assigneeId as any).id === currentUser.id ||
-                    (assigneeId as any).telegramId === currentUser.telegramId)),
-            )
+            // Check if user is assigned - match by multiple ID formats
+            const isAssigned = t.assignedTo.some((assignee) => {
+              // assignee could be: string ID, or object with id/telegramId
+              if (typeof assignee === "string") {
+                return (
+                  assignee === currentUser.id ||
+                  assignee === currentUser.telegramId ||
+                  assignee === currentUser.telegramId?.toString()
+                )
+              }
+              if (typeof assignee === "object" && assignee !== null) {
+                const a = assignee as any
+                return (
+                  a.id === currentUser.id ||
+                  a.telegramId === currentUser.telegramId ||
+                  a.telegramId?.toString() === currentUser.telegramId?.toString() ||
+                  a._id === currentUser.id
+                )
+              }
+              return false
+            })
+
+            if (isAssigned) {
+              console.log("[v0] Task matched for user:", t.title)
+            }
+
             return isAssigned
           })
           .sort((a, b) => {

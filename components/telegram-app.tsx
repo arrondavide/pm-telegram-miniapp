@@ -13,6 +13,21 @@ export function TelegramApp() {
   const { currentUser, setCurrentUser, initialize, setCompanies } = useAppStore()
   const [isLoading, setIsLoading] = useState(true)
   const [pendingInviteCode, setPendingInviteCode] = useState<string | null>(null)
+  const [isHydrated, setIsHydrated] = useState(false)
+
+  useEffect(() => {
+    const unsubscribe = useAppStore.persist.onFinishHydration(() => {
+      setIsHydrated(true)
+    })
+
+    if (useAppStore.persist.hasHydrated()) {
+      setIsHydrated(true)
+    }
+
+    return () => {
+      unsubscribe()
+    }
+  }, [])
 
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search)
@@ -33,10 +48,13 @@ export function TelegramApp() {
 
   useEffect(() => {
     async function loadUserData() {
-      if (!isReady || !user) return
+      if (!isReady || !user || !isHydrated) return
 
-      const persistedUser = useAppStore.getState().currentUser
+      const persistedState = useAppStore.getState()
+      const persistedUser = persistedState.currentUser
       const persistedActiveCompanyId = persistedUser?.activeCompanyId
+
+      console.log("[v0] Hydrated. Persisted activeCompanyId:", persistedActiveCompanyId)
 
       try {
         const response = await userApi.getByTelegramId(user.id.toString(), initData)
@@ -47,6 +65,8 @@ export function TelegramApp() {
             const finalActiveCompanyId =
               persistedActiveCompanyId || apiUser.activeCompanyId || response.data.companies?.[0]?.id
 
+            console.log("[v0] Setting activeCompanyId to:", finalActiveCompanyId)
+
             setCurrentUser({
               ...apiUser,
               activeCompanyId: finalActiveCompanyId,
@@ -55,9 +75,13 @@ export function TelegramApp() {
           }
         } else {
           initialize()
-          const existingUser = useAppStore.getState().getUserByTelegramId(user.id.toString())
-          if (existingUser) {
-            setCurrentUser(existingUser)
+          if (persistedUser) {
+            setCurrentUser(persistedUser)
+          } else {
+            const existingUser = useAppStore.getState().getUserByTelegramId(user.id.toString())
+            if (existingUser) {
+              setCurrentUser(existingUser)
+            }
           }
         }
       } catch (error) {
@@ -77,7 +101,7 @@ export function TelegramApp() {
     }
 
     loadUserData()
-  }, [isReady, user, initData, setCurrentUser, setCompanies, initialize])
+  }, [isReady, user, initData, setCurrentUser, setCompanies, initialize, isHydrated])
 
   useEffect(() => {
     if (webApp) {
@@ -93,7 +117,7 @@ export function TelegramApp() {
     }
   }, [webApp])
 
-  if (isLoading) {
+  if (isLoading || !isHydrated) {
     return (
       <div className="flex h-screen items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4">
