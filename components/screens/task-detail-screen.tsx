@@ -43,7 +43,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { TimeTracker } from "@/components/time-tracker"
 import { useAppStore, type Task } from "@/lib/store"
 import { useTelegram } from "@/hooks/use-telegram"
-import { taskApi, commentApi } from "@/lib/api"
+import { taskApi, commentApi, timeApi } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import { formatDuration, formatHoursEstimate } from "@/lib/format-time"
 
@@ -108,6 +108,16 @@ export function TaskDetailScreen({ taskId, onBack }: TaskDetailScreenProps) {
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false)
   const [apiComments, setApiComments] = useState<ApiComment[]>([])
   const [isLoadingComments, setIsLoadingComments] = useState(false)
+  const [apiTimeLogs, setApiTimeLogs] = useState<
+    Array<{
+      id: string
+      taskId: string
+      userId: string
+      userName: string
+      durationSeconds: number
+      durationMinutes: number
+    }>
+  >([])
 
   const [showEditDialog, setShowEditDialog] = useState(false)
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
@@ -130,6 +140,23 @@ export function TaskDetailScreen({ taskId, onBack }: TaskDetailScreenProps) {
     showBackButton(onBack)
     return () => hideBackButton()
   }, [showBackButton, hideBackButton, onBack])
+
+  useEffect(() => {
+    const loadTimeLogs = async () => {
+      const telegramId = currentUser?.telegramId || user?.id?.toString() || ""
+      if (!telegramId || !taskId) return
+
+      try {
+        const response = await timeApi.getTaskTimeLogs(taskId, telegramId)
+        if (response.success && response.data?.timeLogs) {
+          setApiTimeLogs(response.data.timeLogs)
+        }
+      } catch (error) {
+        // Silently fail, will use local time logs
+      }
+    }
+    loadTimeLogs()
+  }, [taskId, currentUser?.telegramId, user?.id])
 
   useEffect(() => {
     const loadComments = async () => {
@@ -189,7 +216,8 @@ export function TaskDetailScreen({ taskId, onBack }: TaskDetailScreenProps) {
       if (typeof a === "string") return a === currentUser.id || a === currentUser.telegramId
       return (a as any).id === currentUser.id || (a as any).telegramId === currentUser.telegramId
     })
-  const totalTimeSeconds = timeLogs.reduce((sum, tl) => {
+  const allTimeLogs = apiTimeLogs.length > 0 ? apiTimeLogs : timeLogs
+  const totalTimeSeconds = allTimeLogs.reduce((sum, tl) => {
     const seconds = (tl as any).durationSeconds ?? ((tl as any).durationMinutes || 0) * 60
     return sum + seconds
   }, 0)

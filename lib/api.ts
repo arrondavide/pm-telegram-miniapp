@@ -209,6 +209,24 @@ export const timeApi = {
       method: "GET",
       headers: { "X-Telegram-Id": telegramId },
     }),
+
+  getTaskTimeLogs: (taskId: string, telegramId: string) =>
+    fetchApi<{
+      timeLogs: Array<{
+        id: string
+        taskId: string
+        userId: string
+        userName: string
+        startTime: string
+        endTime: string | null
+        durationMinutes: number
+        durationSeconds: number
+        note: string
+      }>
+    }>(`/tasks/${taskId}/timelogs`, {
+      method: "GET",
+      headers: { "X-Telegram-Id": telegramId },
+    }),
 }
 
 // Comment APIs
