@@ -20,9 +20,14 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "User not found" }, { status: 404 })
     }
 
-    const companyObjectId = new mongoose.Types.ObjectId(companyId)
+    let companyObjectId: mongoose.Types.ObjectId
+    try {
+      companyObjectId = new mongoose.Types.ObjectId(companyId)
+    } catch {
+      return NextResponse.json({ error: "Invalid company ID" }, { status: 400 })
+    }
 
-    // Get task counts
+    // Get all company tasks
     const [totalTasks, completedTasks, pendingTasks, overdueTasks] = await Promise.all([
       Task.countDocuments({ company_id: companyObjectId }),
       Task.countDocuments({ company_id: companyObjectId, status: "completed" }),
@@ -34,23 +39,57 @@ export async function GET(request: NextRequest) {
       }),
     ])
 
-    // Get user-specific stats
-    const [userTotalTasks, userCompletedTasks] = await Promise.all([
-      Task.countDocuments({ company_id: companyObjectId, assigned_to: user._id }),
-      Task.countDocuments({ company_id: companyObjectId, assigned_to: user._id, status: "completed" }),
-    ])
-
-    // Get total time logged this week
-    const weekStart = new Date()
-    weekStart.setDate(weekStart.getDate() - weekStart.getDay())
-    weekStart.setHours(0, 0, 0, 0)
-
-    const timeLogs = await TimeLog.find({
-      user_id: user._id,
-      start_time: { $gte: weekStart },
+    // Get user-specific stats - check both user._id and telegram_id in assigned_to
+    const userTasksById = await Task.find({
+      company_id: companyObjectId,
+      assigned_to: user._id,
     }).lean()
 
-    const totalMinutesThisWeek = timeLogs.reduce((acc: number, log: any) => acc + (log.duration_minutes || 0), 0)
+    // Also check if tasks were assigned using telegramId string
+    const userTasksByTelegramId = await Task.find({
+      company_id: companyObjectId,
+      assigned_to: telegramId,
+    }).lean()
+
+    // Merge and deduplicate
+    const allUserTaskIds = new Set([
+      ...userTasksById.map((t: any) => t._id.toString()),
+      ...userTasksByTelegramId.map((t: any) => t._id.toString()),
+    ])
+
+    const allUserTasks = [
+      ...userTasksById,
+      ...userTasksByTelegramId.filter(
+        (t: any) => !userTasksById.some((ut: any) => ut._id.toString() === t._id.toString()),
+      ),
+    ]
+
+    const userTotalTasks = allUserTasks.length
+    const userCompletedTasks = allUserTasks.filter((t: any) => t.status === "completed").length
+    const userPendingTasks = allUserTasks.filter((t: any) => !["completed", "cancelled"].includes(t.status)).length
+    const userOverdueTasks = allUserTasks.filter(
+      (t: any) => !["completed", "cancelled"].includes(t.status) && t.due_date && new Date(t.due_date) < new Date(),
+    ).length
+
+    // Get user's total time logged (all time, not just this week)
+    const userTimeLogs = await TimeLog.find({
+      user_id: user._id,
+      end_time: { $ne: null },
+    }).lean()
+
+    // Calculate total seconds from all time logs
+    let totalSeconds = 0
+    for (const log of userTimeLogs as any[]) {
+      if (log.duration_seconds) {
+        totalSeconds += log.duration_seconds
+      } else if (log.duration_minutes) {
+        totalSeconds += log.duration_minutes * 60
+      } else if (log.start_time && log.end_time) {
+        const start = new Date(log.start_time).getTime()
+        const end = new Date(log.end_time).getTime()
+        totalSeconds += Math.round((end - start) / 1000)
+      }
+    }
 
     // Get top performers (users with most completed tasks)
     const topPerformers = await Task.aggregate([
@@ -74,11 +113,33 @@ export async function GET(request: NextRequest) {
           from: "users",
           localField: "_id",
           foreignField: "_id",
-          as: "user",
+          as: "userById",
         },
       },
-      { $unwind: "$user" },
     ])
+
+    // Format top performers with fallback for telegram ID based assignments
+    const formattedPerformers = []
+    for (const p of topPerformers) {
+      let userData = p.userById?.[0]
+
+      // If not found by ObjectId, try finding by telegram_id string
+      if (!userData && typeof p._id === "string") {
+        userData = await User.findOne({ telegram_id: p._id }).lean()
+      }
+
+      if (userData) {
+        formattedPerformers.push({
+          user: {
+            id: userData._id.toString(),
+            fullName: userData.full_name || "Unknown",
+            username: userData.username || "",
+            telegramId: userData.telegram_id,
+          },
+          completedCount: p.completedCount,
+        })
+      }
+    }
 
     return NextResponse.json({
       company: {
@@ -88,18 +149,16 @@ export async function GET(request: NextRequest) {
         overdueTasks,
         completionRate: totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0,
       },
-      user: {
+      personal: {
         totalTasks: userTotalTasks,
         completedTasks: userCompletedTasks,
+        pendingTasks: userPendingTasks,
+        overdueTasks: userOverdueTasks,
+        totalSecondsWorked: totalSeconds,
+        totalHoursWorked: Math.round((totalSeconds / 3600) * 10) / 10,
         completionRate: userTotalTasks > 0 ? Math.round((userCompletedTasks / userTotalTasks) * 100) : 0,
-        hoursThisWeek: Math.round((totalMinutesThisWeek / 60) * 10) / 10,
       },
-      topPerformers: topPerformers.map((p: any) => ({
-        id: p.user._id.toString(),
-        fullName: p.user.full_name,
-        username: p.user.username,
-        completedCount: p.completedCount,
-      })),
+      topPerformers: formattedPerformers,
     })
   } catch (error) {
     console.error("Error fetching stats:", error)

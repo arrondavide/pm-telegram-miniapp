@@ -1,24 +1,85 @@
 "use client"
 
 import type React from "react"
-
-import { CheckCircle2, Clock, AlertTriangle, TrendingUp, Trophy, BarChart3 } from "lucide-react"
+import { useEffect, useState } from "react"
+import { CheckCircle2, Clock, AlertTriangle, TrendingUp, Trophy, BarChart3, RefreshCw } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Button } from "@/components/ui/button"
 import { useAppStore } from "@/lib/store"
 import { cn } from "@/lib/utils"
 import Image from "next/image"
 import { formatDuration } from "@/lib/format-time"
 
-export function StatsScreen() {
-  const { getPersonalStats, getTeamStats, getUserRole, getActiveCompany } = useAppStore()
+interface StatsData {
+  company: {
+    totalTasks: number
+    completedTasks: number
+    pendingTasks: number
+    overdueTasks: number
+    completionRate: number
+  }
+  personal: {
+    totalTasks: number
+    completedTasks: number
+    pendingTasks: number
+    overdueTasks: number
+    totalSecondsWorked: number
+    totalHoursWorked: number
+    completionRate: number
+  }
+  topPerformers: Array<{
+    user: {
+      id: string
+      fullName: string
+      username: string
+      telegramId: string
+    }
+    completedCount: number
+  }>
+}
 
-  const personalStats = getPersonalStats()
-  const teamStats = getTeamStats()
+export function StatsScreen() {
+  const { getUserRole, getActiveCompany, currentUser } = useAppStore()
+  const [stats, setStats] = useState<StatsData | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
   const userRole = getUserRole()
   const company = getActiveCompany()
   const canViewTeamStats = userRole === "admin" || userRole === "manager"
+
+  const loadStats = async () => {
+    if (!company?.id || !currentUser?.telegramId) {
+      setIsLoading(false)
+      return
+    }
+
+    setIsLoading(true)
+    setError(null)
+
+    try {
+      const response = await fetch(`/api/stats?companyId=${company.id}`, {
+        headers: { "X-Telegram-Id": currentUser.telegramId },
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to fetch stats")
+      }
+
+      const data = await response.json()
+      setStats(data)
+    } catch (err) {
+      setError("Failed to load statistics")
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    loadStats()
+  }, [company?.id, currentUser?.telegramId])
 
   const StatCard = ({
     title,
@@ -47,18 +108,88 @@ export function StatsScreen() {
     </Card>
   )
 
+  if (isLoading) {
+    return (
+      <div className="flex flex-col">
+        <header className="sticky top-0 z-40 border-b border-border/50 bg-background/95 px-4 py-4 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+          <div className="flex items-center gap-3">
+            <div className="relative flex h-10 w-10 items-center justify-center rounded-full bg-[#040404]">
+              <Image src="/logo-dark.png" alt="WhatsTask" width={28} height={28} className="object-contain" />
+            </div>
+            <div>
+              <h1 className="text-xl font-bold">Statistics</h1>
+              <p className="text-sm text-muted-foreground">{company?.name}</p>
+            </div>
+          </div>
+        </header>
+        <div className="flex flex-1 items-center justify-center p-8">
+          <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col">
+        <header className="sticky top-0 z-40 border-b border-border/50 bg-background/95 px-4 py-4 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+          <div className="flex items-center gap-3">
+            <div className="relative flex h-10 w-10 items-center justify-center rounded-full bg-[#040404]">
+              <Image src="/logo-dark.png" alt="WhatsTask" width={28} height={28} className="object-contain" />
+            </div>
+            <div>
+              <h1 className="text-xl font-bold">Statistics</h1>
+              <p className="text-sm text-muted-foreground">{company?.name}</p>
+            </div>
+          </div>
+        </header>
+        <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8">
+          <p className="text-muted-foreground">{error}</p>
+          <Button onClick={loadStats} variant="outline" size="sm">
+            <RefreshCw className="mr-2 h-4 w-4" />
+            Retry
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
+  const personalStats = stats?.personal || {
+    totalTasks: 0,
+    completedTasks: 0,
+    pendingTasks: 0,
+    overdueTasks: 0,
+    totalSecondsWorked: 0,
+    completionRate: 0,
+  }
+
+  const teamStats = stats?.company || {
+    totalTasks: 0,
+    completedTasks: 0,
+    pendingTasks: 0,
+    overdueTasks: 0,
+    completionRate: 0,
+  }
+
+  const topPerformers = stats?.topPerformers || []
+
   return (
     <div className="flex flex-col">
       {/* Header */}
       <header className="sticky top-0 z-40 border-b border-border/50 bg-background/95 px-4 py-4 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-        <div className="flex items-center gap-3">
-          <div className="relative flex h-10 w-10 items-center justify-center rounded-full bg-[#040404]">
-            <Image src="/logo-dark.png" alt="WhatsTask" width={28} height={28} className="object-contain" />
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="relative flex h-10 w-10 items-center justify-center rounded-full bg-[#040404]">
+              <Image src="/logo-dark.png" alt="WhatsTask" width={28} height={28} className="object-contain" />
+            </div>
+            <div>
+              <h1 className="text-xl font-bold">Statistics</h1>
+              <p className="text-sm text-muted-foreground">{company?.name}</p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-xl font-bold">Statistics</h1>
-            <p className="text-sm text-muted-foreground">{company?.name}</p>
-          </div>
+          <Button onClick={loadStats} variant="ghost" size="icon">
+            <RefreshCw className="h-4 w-4" />
+          </Button>
         </div>
       </header>
 
@@ -116,8 +247,8 @@ export function StatsScreen() {
                   <Clock className="h-6 w-6" />
                 </div>
                 <div>
-                  <p className="text-3xl font-bold">{formatDuration(personalStats.totalHoursWorked * 3600)}</p>
-                  <p className="text-sm text-muted-foreground">Total Time Tracked</p>
+                  <p className="text-3xl font-bold font-mono">{formatDuration(personalStats.totalSecondsWorked)}</p>
+                  <p className="text-sm text-muted-foreground">Total Time Tracked (DD:HH:MM:SS)</p>
                 </div>
               </CardContent>
             </Card>
@@ -159,7 +290,7 @@ export function StatsScreen() {
               </div>
 
               {/* Top Performers */}
-              {teamStats.topPerformers.length > 0 && (
+              {topPerformers.length > 0 && (
                 <Card className="border-border/50">
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2 text-sm font-medium">
@@ -168,7 +299,7 @@ export function StatsScreen() {
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-3">
-                    {teamStats.topPerformers.map((performer, index) => (
+                    {topPerformers.map((performer, index) => (
                       <div key={performer.user.id} className="flex items-center gap-3">
                         <div
                           className={cn(
@@ -186,7 +317,9 @@ export function StatsScreen() {
                         </div>
                         <div className="flex-1">
                           <p className="font-medium">{performer.user.fullName}</p>
-                          <p className="text-xs text-muted-foreground">@{performer.user.username}</p>
+                          {performer.user.username && (
+                            <p className="text-xs text-muted-foreground">@{performer.user.username}</p>
+                          )}
                         </div>
                         <div className="text-right">
                           <p className="font-bold">{performer.completedCount}</p>
@@ -194,6 +327,16 @@ export function StatsScreen() {
                         </div>
                       </div>
                     ))}
+                  </CardContent>
+                </Card>
+              )}
+
+              {topPerformers.length === 0 && (
+                <Card className="border-border/50">
+                  <CardContent className="flex flex-col items-center justify-center py-8 text-center">
+                    <Trophy className="h-12 w-12 text-muted-foreground/30 mb-3" />
+                    <p className="text-muted-foreground">No completed tasks yet</p>
+                    <p className="text-sm text-muted-foreground">Top performers will appear here</p>
                   </CardContent>
                 </Card>
               )}
