@@ -63,7 +63,7 @@ export interface TimeLog {
   userId: string
   startTime: Date
   endTime: Date | null
-  durationMinutes: number
+  durationSeconds: number
   note: string
 }
 
@@ -556,7 +556,7 @@ export const useAppStore = create<AppState>()(
           userId: currentUser.id,
           startTime: new Date(),
           endTime: null,
-          durationMinutes: 0,
+          durationSeconds: 0,
           note: "",
         }
 
@@ -577,14 +577,12 @@ export const useAppStore = create<AppState>()(
         if (!activeTimeLog) return null
 
         const endTime = new Date()
-        const durationMinutes = Math.round(
-          (endTime.getTime() - new Date(activeTimeLog.startTime).getTime()) / 1000 / 60,
-        )
+        const durationSeconds = Math.round((endTime.getTime() - new Date(activeTimeLog.startTime).getTime()) / 1000)
 
         const updatedLog: TimeLog = {
           ...activeTimeLog,
           endTime,
-          durationMinutes,
+          durationSeconds,
           note,
         }
 
@@ -592,7 +590,7 @@ export const useAppStore = create<AppState>()(
           timeLogs: state.timeLogs.map((tl) => (tl.id === activeTimeLog.id ? updatedLog : tl)),
           activeTimeLog: null,
           tasks: state.tasks.map((t) =>
-            t.id === activeTimeLog.taskId ? { ...t, actualHours: t.actualHours + durationMinutes / 60 } : t,
+            t.id === activeTimeLog.taskId ? { ...t, actualHours: t.actualHours + durationSeconds / 3600 } : t,
           ),
         }))
 
@@ -784,14 +782,14 @@ export const useAppStore = create<AppState>()(
         ).length
 
         const userTimeLogs = timeLogs.filter((tl) => tl.userId === currentUser.id && tl.endTime)
-        const totalMinutes = userTimeLogs.reduce((acc, tl) => acc + tl.durationMinutes, 0)
+        const totalSeconds = userTimeLogs.reduce((acc, tl) => acc + tl.durationSeconds, 0)
 
         return {
           totalTasks: userTasks.length,
           completedTasks,
           pendingTasks,
           overdueTasks,
-          totalHoursWorked: Math.round((totalMinutes / 60) * 10) / 10,
+          totalHoursWorked: Math.round((totalSeconds / 3600) * 10) / 10,
           completionRate: userTasks.length > 0 ? Math.round((completedTasks / userTasks.length) * 100) : 0,
         }
       },

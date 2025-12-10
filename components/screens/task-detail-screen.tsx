@@ -189,8 +189,11 @@ export function TaskDetailScreen({ taskId, onBack }: TaskDetailScreenProps) {
       if (typeof a === "string") return a === currentUser.id || a === currentUser.telegramId
       return (a as any).id === currentUser.id || (a as any).telegramId === currentUser.telegramId
     })
-  const totalTimeMinutes = timeLogs.reduce((sum, tl) => sum + (tl.durationMinutes || 0), 0)
-  const formattedTimeSpent = formatDuration(totalTimeMinutes)
+  const totalTimeSeconds = timeLogs.reduce((sum, tl) => {
+    const seconds = (tl as any).durationSeconds ?? ((tl as any).durationMinutes || 0) * 60
+    return sum + seconds
+  }, 0)
+  const formattedTimeSpent = formatDuration(totalTimeSeconds)
   const formattedEstimate = formatHoursEstimate(task.estimatedHours)
 
   const handleStatusChange = async (status: Task["status"]) => {

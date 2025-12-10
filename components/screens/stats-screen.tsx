@@ -116,7 +116,7 @@ export function StatsScreen() {
                   <Clock className="h-6 w-6" />
                 </div>
                 <div>
-                  <p className="text-3xl font-bold">{formatDuration(personalStats.totalHoursWorked * 60)}</p>
+                  <p className="text-3xl font-bold">{formatDuration(personalStats.totalHoursWorked * 3600)}</p>
                   <p className="text-sm text-muted-foreground">Total Time Tracked</p>
                 </div>
               </CardContent>
