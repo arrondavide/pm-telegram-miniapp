@@ -44,6 +44,32 @@ export async function GET(request: NextRequest) {
       (t: any) => !["completed", "cancelled"].includes(t.status) && t.due_date && new Date(t.due_date) < new Date(),
     ).length
 
+    const companyMembers = await User.find({
+      "companies.company_id": companyObjectId || companyId,
+    }).lean()
+
+    const memberIds = companyMembers.map((m: any) => m._id)
+
+    let companyTotalSeconds = 0
+    try {
+      const companyTimeLogs = await TimeLog.find({
+        user_id: { $in: memberIds },
+        end_time: { $ne: null },
+      }).lean()
+
+      for (const log of companyTimeLogs as any[]) {
+        if (log.duration_minutes && typeof log.duration_minutes === "number") {
+          companyTotalSeconds += log.duration_minutes * 60
+        } else if (log.start_time && log.end_time) {
+          const start = new Date(log.start_time).getTime()
+          const end = new Date(log.end_time).getTime()
+          companyTotalSeconds += Math.round((end - start) / 1000)
+        }
+      }
+    } catch (timeLogError) {
+      console.error("Error fetching company time logs:", timeLogError)
+    }
+
     let userTasks: any[] = []
 
     if (user) {
@@ -54,7 +80,6 @@ export async function GET(request: NextRequest) {
           const userIdStr = user._id?.toString() || ""
           const userTelegramId = user.telegram_id || telegramId
 
-          // Check if assignee matches user's ObjectId, telegramId, or string representation
           return assigneeStr === userIdStr || assigneeStr === userTelegramId || assigneeStr === telegramId
         })
       })
@@ -67,8 +92,8 @@ export async function GET(request: NextRequest) {
       (t: any) => !["completed", "cancelled"].includes(t.status) && t.due_date && new Date(t.due_date) < new Date(),
     ).length
 
-    // Get user's total time logged
-    let totalSeconds = 0
+    // Get user's personal time logged
+    let userTotalSeconds = 0
     if (user) {
       try {
         const userTimeLogs = await TimeLog.find({
@@ -77,19 +102,16 @@ export async function GET(request: NextRequest) {
         }).lean()
 
         for (const log of userTimeLogs as any[]) {
-          // Database stores duration_minutes, convert to seconds
           if (log.duration_minutes && typeof log.duration_minutes === "number") {
-            totalSeconds += log.duration_minutes * 60
+            userTotalSeconds += log.duration_minutes * 60
           } else if (log.start_time && log.end_time) {
-            // Fallback: calculate from timestamps
             const start = new Date(log.start_time).getTime()
             const end = new Date(log.end_time).getTime()
-            totalSeconds += Math.round((end - start) / 1000)
+            userTotalSeconds += Math.round((end - start) / 1000)
           }
         }
       } catch (timeLogError) {
-        console.error("Error fetching time logs:", timeLogError)
-        // Continue with 0 seconds
+        console.error("Error fetching user time logs:", timeLogError)
       }
     }
 
@@ -101,7 +123,6 @@ export async function GET(request: NextRequest) {
       for (const assignee of assignedTo) {
         const assigneeStr = assignee?.toString() || ""
         if (!performerMap.has(assigneeStr)) {
-          // Try to find user
           let userData = null
           if (mongoose.Types.ObjectId.isValid(assigneeStr)) {
             userData = await User.findById(assigneeStr).lean()
@@ -140,14 +161,17 @@ export async function GET(request: NextRequest) {
         pendingTasks,
         overdueTasks,
         completionRate: totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0,
+        totalSecondsWorked: companyTotalSeconds || 0,
+        totalHoursWorked: Math.round((companyTotalSeconds / 3600) * 10) / 10 || 0,
+        totalMembers: companyMembers.length,
       },
       personal: {
         totalTasks: userTotalTasks,
         completedTasks: userCompletedTasks,
         pendingTasks: userPendingTasks,
         overdueTasks: userOverdueTasks,
-        totalSecondsWorked: totalSeconds || 0,
-        totalHoursWorked: Math.round((totalSeconds / 3600) * 10) / 10 || 0,
+        totalSecondsWorked: userTotalSeconds || 0,
+        totalHoursWorked: Math.round((userTotalSeconds / 3600) * 10) / 10 || 0,
         completionRate: userTotalTasks > 0 ? Math.round((userCompletedTasks / userTotalTasks) * 100) : 0,
       },
       topPerformers,
@@ -161,6 +185,9 @@ export async function GET(request: NextRequest) {
         pendingTasks: 0,
         overdueTasks: 0,
         completionRate: 0,
+        totalSecondsWorked: 0,
+        totalHoursWorked: 0,
+        totalMembers: 0,
       },
       personal: {
         totalTasks: 0,

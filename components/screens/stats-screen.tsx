@@ -2,7 +2,7 @@
 
 import type React from "react"
 import { useEffect, useState } from "react"
-import { CheckCircle2, Clock, AlertTriangle, TrendingUp, Trophy, BarChart3, RefreshCw } from "lucide-react"
+import { CheckCircle2, Clock, AlertTriangle, TrendingUp, Trophy, BarChart3, RefreshCw, Users } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -19,6 +19,9 @@ interface StatsData {
     pendingTasks: number
     overdueTasks: number
     completionRate: number
+    totalSecondsWorked: number
+    totalHoursWorked: number
+    totalMembers: number
   }
   personal: {
     totalTasks: number
@@ -83,6 +86,9 @@ export function StatsScreen() {
           pendingTasks: 0,
           overdueTasks: 0,
           completionRate: 0,
+          totalSecondsWorked: 0,
+          totalHoursWorked: 0,
+          totalMembers: 0,
         },
         personal: {
           totalTasks: 0,
@@ -193,6 +199,9 @@ export function StatsScreen() {
     pendingTasks: 0,
     overdueTasks: 0,
     completionRate: 0,
+    totalSecondsWorked: 0,
+    totalHoursWorked: 0,
+    totalMembers: 0,
   }
 
   const topPerformers = stats?.topPerformers || []
@@ -314,6 +323,30 @@ export function StatsScreen() {
                   className={cn(teamStats.overdueTasks > 0 && "border-destructive/30 bg-destructive/5")}
                 />
               </div>
+
+              <Card className="border-border/50">
+                <CardContent className="flex items-center gap-4 p-4">
+                  <div className="rounded-lg bg-foreground/10 p-3">
+                    <Clock className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <p className="text-3xl font-bold font-mono">{formatDuration(teamStats.totalSecondsWorked || 0)}</p>
+                    <p className="text-sm text-muted-foreground">Team Total Time Tracked (DD:HH:MM:SS)</p>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="border-border/50">
+                <CardContent className="flex items-center gap-4 p-4">
+                  <div className="rounded-lg bg-foreground/10 p-3">
+                    <Users className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <p className="text-3xl font-bold">{teamStats.totalMembers || 0}</p>
+                    <p className="text-sm text-muted-foreground">Team Members</p>
+                  </div>
+                </CardContent>
+              </Card>
 
               {/* Top Performers */}
               {topPerformers.length > 0 && (
