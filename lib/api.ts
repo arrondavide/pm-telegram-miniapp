@@ -184,17 +184,17 @@ export const taskApi = {
 
 // Time tracking APIs
 export const timeApi = {
-  clockIn: (taskId: string, userId: string, telegramId: string) =>
+  clockIn: (taskId: string, telegramId: string) =>
     fetchApi<import("@/lib/store").TimeLog>("/time/clock-in", {
       method: "POST",
-      body: JSON.stringify({ taskId, userId }),
+      body: JSON.stringify({ taskId }),
       headers: { "X-Telegram-Id": telegramId },
     }),
 
-  clockOut: (timeLogId: string, note: string, telegramId: string) =>
+  clockOut: (telegramId: string) =>
     fetchApi<import("@/lib/store").TimeLog>("/time/clock-out", {
       method: "POST",
-      body: JSON.stringify({ timeLogId, note }),
+      body: JSON.stringify({}),
       headers: { "X-Telegram-Id": telegramId },
     }),
 

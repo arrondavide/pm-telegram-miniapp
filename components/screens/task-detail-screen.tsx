@@ -146,7 +146,7 @@ export function TaskDetailScreen({ taskId, onBack }: TaskDetailScreenProps) {
   useEffect(() => {
     const loadTimeLogs = async () => {
       const telegramId = currentUser?.telegramId || user?.id?.toString() || ""
-      if (!taskId) return
+      if (!taskId || !telegramId) return
 
       setIsLoadingTimeLogs(true)
       try {
@@ -155,7 +155,7 @@ export function TaskDetailScreen({ taskId, onBack }: TaskDetailScreenProps) {
           setApiTimeLogs(response.data.timeLogs)
         }
       } catch (error) {
-        // Silently fail, will use local time logs
+        console.error("[v0] Failed to load time logs:", error)
       } finally {
         setIsLoadingTimeLogs(false)
       }

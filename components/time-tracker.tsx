@@ -49,8 +49,8 @@ export function TimeTracker({ className, taskId }: TimeTrackerProps) {
     setIsClockingIn(true)
 
     try {
-      const initData = webApp?.initData || ""
-      const response = await timeApi.clockIn(taskId, user?.id?.toString() || "", initData)
+      const telegramId = user?.id?.toString() || ""
+      const response = await timeApi.clockIn(taskId, telegramId)
 
       if (response.success) {
         clockIn(taskId)
@@ -75,8 +75,8 @@ export function TimeTracker({ className, taskId }: TimeTrackerProps) {
     setIsClockingOut(true)
 
     try {
-      const initData = webApp?.initData || ""
-      await timeApi.clockOut(activeTimeLog?.id || "", "", initData)
+      const telegramId = user?.id?.toString() || ""
+      await timeApi.clockOut(telegramId)
       const log = clockOut()
       if (log) {
         hapticFeedback("success")
