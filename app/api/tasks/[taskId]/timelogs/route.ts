@@ -11,16 +11,19 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
     let timeLogs = []
 
-    // First try with the taskId directly (if it's a valid ObjectId)
+    // Strategy 1: Direct ObjectId match
     if (mongoose.Types.ObjectId.isValid(taskId)) {
-      timeLogs = await TimeLog.find({ task_id: new mongoose.Types.ObjectId(taskId) })
+      timeLogs = await TimeLog.find({
+        task_id: new mongoose.Types.ObjectId(taskId),
+        end_time: { $ne: null }, // Only get completed time logs
+      })
         .populate("user_id", "telegram_id full_name username")
         .sort({ start_time: -1 })
+        .lean()
     }
 
-    // If no results, try finding the task first and then get its time logs
+    // Strategy 2: If no results, try finding the task first
     if (timeLogs.length === 0) {
-      // Try to find the task by various IDs
       let task = null
 
       if (mongoose.Types.ObjectId.isValid(taskId)) {
@@ -28,23 +31,26 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       }
 
       if (!task) {
-        // Maybe it's stored as a string reference
         task = await Task.findOne({ _id: taskId })
       }
 
       if (task) {
-        timeLogs = await TimeLog.find({ task_id: task._id })
+        timeLogs = await TimeLog.find({
+          task_id: task._id,
+          end_time: { $ne: null },
+        })
           .populate("user_id", "telegram_id full_name username")
           .sort({ start_time: -1 })
+          .lean()
       }
     }
 
-    const formattedLogs = timeLogs.map((log) => ({
+    const formattedLogs = timeLogs.map((log: any) => ({
       id: log._id.toString(),
       taskId: log.task_id?.toString() || taskId,
       userId: log.user_id?._id?.toString() || "",
-      userTelegramId: (log.user_id as any)?.telegram_id || "",
-      userName: (log.user_id as any)?.full_name || "Unknown",
+      userTelegramId: log.user_id?.telegram_id || "",
+      userName: log.user_id?.full_name || "Unknown",
       startTime: log.start_time?.toISOString() || new Date().toISOString(),
       endTime: log.end_time?.toISOString() || null,
       durationMinutes: log.duration_minutes || 0,

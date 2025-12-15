@@ -76,9 +76,10 @@ export function TimeTracker({ className, taskId }: TimeTrackerProps) {
 
     try {
       const telegramId = user?.id?.toString() || ""
-      await timeApi.clockOut(telegramId)
+      const response = await timeApi.clockOut(telegramId)
       const log = clockOut()
-      if (log) {
+
+      if (response.success || log) {
         hapticFeedback("success")
       }
     } catch (error) {

@@ -44,7 +44,7 @@ interface StatsData {
 }
 
 export function StatsScreen() {
-  const { getUserRole, getActiveCompany, currentUser } = useAppStore()
+  const { getUserRole, getActiveCompany, currentUser, activeTimeLog } = useAppStore()
   const [stats, setStats] = useState<StatsData | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -70,7 +70,7 @@ export function StatsScreen() {
       const data = await response.json()
 
       if (data.error) {
-        if (data.company && data.personal) {
+        if (data.company && data.personal && (data.personal.totalTasks > 0 || data.company.totalTasks > 0)) {
           setStats(data)
         } else {
           setError(data.error)
@@ -79,6 +79,7 @@ export function StatsScreen() {
         setStats(data)
       }
     } catch (err) {
+      console.error("[v0] Failed to load stats:", err)
       setStats({
         company: {
           totalTasks: 0,
@@ -108,7 +109,7 @@ export function StatsScreen() {
 
   useEffect(() => {
     loadStats()
-  }, [company?.id, currentUser?.telegramId])
+  }, [company?.id, currentUser?.telegramId, activeTimeLog])
 
   const StatCard = ({
     title,

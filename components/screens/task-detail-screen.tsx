@@ -114,8 +114,12 @@ export function TaskDetailScreen({ taskId, onBack }: TaskDetailScreenProps) {
       taskId: string
       userId: string
       userName: string
+      telegramId: string
       durationSeconds: number
       durationMinutes: number
+      startTime: string
+      endTime: string
+      note: string
     }>
   >([])
 
@@ -152,7 +156,19 @@ export function TaskDetailScreen({ taskId, onBack }: TaskDetailScreenProps) {
       try {
         const response = await timeApi.getTaskTimeLogs(taskId, telegramId)
         if (response.success && response.data?.timeLogs) {
-          setApiTimeLogs(response.data.timeLogs)
+          const formattedLogs = response.data.timeLogs.map((log) => ({
+            id: log.id,
+            taskId: log.taskId,
+            userId: log.userId,
+            userName: log.userName,
+            telegramId: log.userTelegramId || log.userId,
+            durationSeconds: log.durationSeconds,
+            durationMinutes: log.durationMinutes,
+            startTime: log.startTime,
+            endTime: log.endTime,
+            note: log.note || "",
+          }))
+          setApiTimeLogs(formattedLogs)
         }
       } catch (error) {
         console.error("[v0] Failed to load time logs:", error)
@@ -161,7 +177,7 @@ export function TaskDetailScreen({ taskId, onBack }: TaskDetailScreenProps) {
       }
     }
     loadTimeLogs()
-  }, [taskId, currentUser?.telegramId, user?.id])
+  }, [taskId, currentUser?.telegramId, user?.id, activeTimeLog])
 
   useEffect(() => {
     const loadComments = async () => {

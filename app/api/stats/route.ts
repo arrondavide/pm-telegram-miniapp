@@ -58,12 +58,15 @@ export async function GET(request: NextRequest) {
       }).lean()
 
       for (const log of companyTimeLogs as any[]) {
-        if (log.duration_minutes && typeof log.duration_minutes === "number") {
+        if (log.duration_minutes && typeof log.duration_minutes === "number" && log.duration_minutes > 0) {
           companyTotalSeconds += log.duration_minutes * 60
         } else if (log.start_time && log.end_time) {
           const start = new Date(log.start_time).getTime()
           const end = new Date(log.end_time).getTime()
-          companyTotalSeconds += Math.round((end - start) / 1000)
+          const seconds = Math.round((end - start) / 1000)
+          if (seconds > 0) {
+            companyTotalSeconds += seconds
+          }
         }
       }
     } catch (timeLogError) {
@@ -102,12 +105,15 @@ export async function GET(request: NextRequest) {
         }).lean()
 
         for (const log of userTimeLogs as any[]) {
-          if (log.duration_minutes && typeof log.duration_minutes === "number") {
+          if (log.duration_minutes && typeof log.duration_minutes === "number" && log.duration_minutes > 0) {
             userTotalSeconds += log.duration_minutes * 60
           } else if (log.start_time && log.end_time) {
             const start = new Date(log.start_time).getTime()
             const end = new Date(log.end_time).getTime()
-            userTotalSeconds += Math.round((end - start) / 1000)
+            const seconds = Math.round((end - start) / 1000)
+            if (seconds > 0) {
+              userTotalSeconds += seconds
+            }
           }
         }
       } catch (timeLogError) {
