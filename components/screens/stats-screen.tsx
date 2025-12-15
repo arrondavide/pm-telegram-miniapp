@@ -109,7 +109,13 @@ export function StatsScreen() {
 
   useEffect(() => {
     loadStats()
-  }, [company?.id, currentUser?.telegramId, activeTimeLog])
+  }, [company?.id, currentUser?.telegramId])
+
+  useEffect(() => {
+    if (!activeTimeLog) {
+      loadStats()
+    }
+  }, [activeTimeLog])
 
   const StatCard = ({
     title,

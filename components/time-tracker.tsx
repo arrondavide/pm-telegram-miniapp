@@ -81,6 +81,9 @@ export function TimeTracker({ className, taskId }: TimeTrackerProps) {
 
       if (response.success || log) {
         hapticFeedback("success")
+        if (typeof window !== "undefined") {
+          window.location.reload()
+        }
       }
     } catch (error) {
       console.error("Failed to clock out:", error)
@@ -88,6 +91,9 @@ export function TimeTracker({ className, taskId }: TimeTrackerProps) {
       const log = clockOut()
       if (log) {
         hapticFeedback("success")
+        if (typeof window !== "undefined") {
+          window.location.reload()
+        }
       }
     } finally {
       setIsClockingOut(false)

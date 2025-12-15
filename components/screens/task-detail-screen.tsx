@@ -108,21 +108,9 @@ export function TaskDetailScreen({ taskId, onBack }: TaskDetailScreenProps) {
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false)
   const [apiComments, setApiComments] = useState<ApiComment[]>([])
   const [isLoadingComments, setIsLoadingComments] = useState(false)
-  const [apiTimeLogs, setApiTimeLogs] = useState<
-    Array<{
-      id: string
-      taskId: string
-      userId: string
-      userName: string
-      telegramId: string
-      durationSeconds: number
-      durationMinutes: number
-      startTime: string
-      endTime: string
-      note: string
-    }>
-  >([])
-
+  const [apiTimeLogs, setApiTimeLogs] = useState<any[]>([])
+  const [isLoadingTimeLogs, setIsLoadingTimeLogs] = useState(false)
+  const [timeLogsError, setTimeLogsError] = useState<string>("")
   const [showEditDialog, setShowEditDialog] = useState(false)
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
@@ -133,8 +121,6 @@ export function TaskDetailScreen({ taskId, onBack }: TaskDetailScreenProps) {
     priority: "medium" as Task["priority"],
     dueDate: "",
   })
-
-  const [isLoadingTimeLogs, setIsLoadingTimeLogs] = useState(false)
 
   const task = getTaskById(taskId)
   const localComments = getCommentsForTask(taskId)
@@ -153,6 +139,7 @@ export function TaskDetailScreen({ taskId, onBack }: TaskDetailScreenProps) {
       if (!taskId || !telegramId) return
 
       setIsLoadingTimeLogs(true)
+      setTimeLogsError("")
       try {
         const response = await timeApi.getTaskTimeLogs(taskId, telegramId)
         if (response.success && response.data?.timeLogs) {
@@ -169,9 +156,12 @@ export function TaskDetailScreen({ taskId, onBack }: TaskDetailScreenProps) {
             note: log.note || "",
           }))
           setApiTimeLogs(formattedLogs)
+        } else {
+          setTimeLogsError(response.error || "Failed to load time logs")
         }
       } catch (error) {
         console.error("[v0] Failed to load time logs:", error)
+        setTimeLogsError("Network error loading time logs")
       } finally {
         setIsLoadingTimeLogs(false)
       }
@@ -455,16 +445,23 @@ export function TaskDetailScreen({ taskId, onBack }: TaskDetailScreenProps) {
           <Card>
             <CardContent className="flex items-center gap-3 p-4">
               <Clock className="h-5 w-5 text-muted-foreground" />
-              <div>
+              <div className="flex-1">
                 <p className="font-body text-xs text-muted-foreground">Time Tracked</p>
                 {isLoadingTimeLogs ? (
                   <div className="flex items-center gap-1">
                     <Loader2 className="h-3 w-3 animate-spin" />
                     <span className="font-body text-sm">Loading...</span>
                   </div>
+                ) : timeLogsError ? (
+                  <p className="font-body text-xs text-destructive">{timeLogsError}</p>
                 ) : (
                   <p className="font-body font-medium font-mono text-sm">
                     {formattedTimeSpent} / {formattedEstimate}
+                  </p>
+                )}
+                {!isLoadingTimeLogs && (
+                  <p className="font-body text-xs text-muted-foreground mt-1">
+                    {allTimeLogs.length} log{allTimeLogs.length !== 1 ? "s" : ""} found
                   </p>
                 )}
               </div>
