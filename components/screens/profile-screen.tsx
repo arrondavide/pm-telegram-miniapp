@@ -32,7 +32,7 @@ import { companyApi } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import Image from "next/image"
 
-export function ProfileScreen() {
+export function ProfileScreen({ onNavigateToTest }: { onNavigateToTest?: () => void }) {
   const {
     currentUser,
     companies,
@@ -333,6 +333,24 @@ export function ProfileScreen() {
             </div>
           </CardContent>
         </Card>
+
+        {userRole === "admin" && onNavigateToTest && (
+          <Card className="border-dashed border-yellow-500/50 bg-yellow-500/5">
+            <CardContent className="p-4">
+              <Button
+                variant="outline"
+                className="w-full border-yellow-500/50 text-yellow-600 hover:bg-yellow-500/10 bg-transparent"
+                onClick={() => {
+                  hapticFeedback("medium")
+                  onNavigateToTest()
+                }}
+              >
+                <Settings className="mr-2 h-4 w-4" />
+                Run Time Tracking Tests
+              </Button>
+            </CardContent>
+          </Card>
+        )}
 
         <div className="rounded-lg border border-dashed border-border/50 p-4 text-center">
           <p className="text-sm text-muted-foreground">

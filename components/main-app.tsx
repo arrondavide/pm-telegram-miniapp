@@ -9,6 +9,7 @@ import { ProfileScreen } from "@/components/screens/profile-screen"
 import { CreateTaskScreen } from "@/components/screens/create-task-screen"
 import { TaskDetailScreen } from "@/components/screens/task-detail-screen"
 import { NotificationsScreen } from "@/components/screens/notifications-screen"
+import { TestScreen } from "@/components/screens/test-screen"
 import { InAppNotification } from "@/components/in-app-notification"
 import { useAppStore } from "@/lib/store"
 import { useTelegram } from "@/hooks/use-telegram"
@@ -17,7 +18,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Button } from "@/components/ui/button"
 import { Loader2, CheckCircle, XCircle } from "lucide-react"
 
-export type Screen = "tasks" | "team" | "stats" | "profile" | "create-task" | "task-detail" | "notifications"
+export type Screen = "tasks" | "team" | "stats" | "profile" | "create-task" | "task-detail" | "notifications" | "test"
 
 interface MainAppProps {
   pendingInviteCode?: string | null
@@ -94,9 +95,11 @@ export function MainApp({ pendingInviteCode, onCodeUsed }: MainAppProps) {
       case "stats":
         return <StatsScreen />
       case "profile":
-        return <ProfileScreen />
+        return <ProfileScreen onNavigateToTest={() => setActiveScreen("test")} />
       case "notifications":
         return <NotificationsScreen onBack={() => setActiveScreen("tasks")} onTaskSelect={handleTaskSelect} />
+      case "test":
+        return <TestScreen onBack={() => setActiveScreen("profile")} />
       case "create-task":
         return <CreateTaskScreen onBack={handleBack} onSuccess={handleBack} />
       case "task-detail":
@@ -110,7 +113,7 @@ export function MainApp({ pendingInviteCode, onCodeUsed }: MainAppProps) {
     }
   }
 
-  const showBottomNav = !["create-task", "task-detail"].includes(activeScreen)
+  const showBottomNav = !["create-task", "task-detail", "test"].includes(activeScreen)
 
   return (
     <div className="flex min-h-screen flex-col bg-background">

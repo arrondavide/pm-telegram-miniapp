@@ -29,10 +29,8 @@ export async function GET(request: NextRequest) {
       // Use string companyId
     }
 
-    // Get all company tasks - try with ObjectId first, then string
     let allTasks = await Task.find(companyQuery).lean()
 
-    // If no tasks found with ObjectId, try string match
     if (allTasks.length === 0 && companyObjectId) {
       allTasks = await Task.find({ company_id: companyId }).lean()
     }
@@ -54,7 +52,8 @@ export async function GET(request: NextRequest) {
     try {
       const companyTimeLogs = await TimeLog.find({
         user_id: { $in: memberIds },
-        end_time: { $ne: null },
+        end_time: { $exists: true, $ne: null },
+        duration_minutes: { $exists: true },
       }).lean()
 
       for (const log of companyTimeLogs as any[]) {
@@ -95,13 +94,13 @@ export async function GET(request: NextRequest) {
       (t: any) => !["completed", "cancelled"].includes(t.status) && t.due_date && new Date(t.due_date) < new Date(),
     ).length
 
-    // Get user's personal time logged
     let userTotalSeconds = 0
     if (user) {
       try {
         const userTimeLogs = await TimeLog.find({
           user_id: user._id,
-          end_time: { $ne: null },
+          end_time: { $exists: true, $ne: null },
+          duration_minutes: { $exists: true },
         }).lean()
 
         for (const log of userTimeLogs as any[]) {

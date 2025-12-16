@@ -135,27 +135,29 @@ export function TaskDetailScreen({ taskId, onBack }: TaskDetailScreenProps) {
 
   useEffect(() => {
     const loadTimeLogs = async () => {
-      const telegramId = currentUser?.telegramId || user?.id?.toString() || ""
-      if (!taskId || !telegramId) return
+      const telegramId = currentUser?.telegramId || user?.id?.toString()
+      if (!telegramId) return
 
       setIsLoadingTimeLogs(true)
       setTimeLogsError("")
       try {
         const response = await timeApi.getTaskTimeLogs(taskId, telegramId)
         if (response.success && response.data?.timeLogs) {
-          const formattedLogs = response.data.timeLogs.map((log) => ({
-            id: log.id,
-            taskId: log.taskId,
-            userId: log.userId,
-            userName: log.userName,
-            telegramId: log.userTelegramId || log.userId,
-            durationSeconds: log.durationSeconds,
-            durationMinutes: log.durationMinutes,
-            startTime: log.startTime,
-            endTime: log.endTime,
-            note: log.note || "",
-          }))
-          setApiTimeLogs(formattedLogs)
+          const completedLogs = response.data.timeLogs
+            .filter((log) => log.endTime && log.durationSeconds > 0)
+            .map((log) => ({
+              id: log.id,
+              taskId: log.taskId,
+              userId: log.userId,
+              userName: log.userName,
+              telegramId: log.userTelegramId || log.userId,
+              durationSeconds: log.durationSeconds,
+              durationMinutes: log.durationMinutes,
+              startTime: log.startTime,
+              endTime: log.endTime,
+              note: log.note || "",
+            }))
+          setApiTimeLogs(completedLogs)
         } else {
           setTimeLogsError(response.error || "Failed to load time logs")
         }
