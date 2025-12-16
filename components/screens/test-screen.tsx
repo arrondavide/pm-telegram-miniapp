@@ -92,11 +92,16 @@ export function TestScreen({ onBack }: { onBack: () => void }) {
     if (currentCompany?.id && currentUser?.telegramId) {
       try {
         updateTest(4, { status: "running" })
-        const tasks = await taskApi.getAll(currentCompany.id, currentUser.telegramId.toString())
-        updateTest(4, {
-          status: "passed",
-          message: `Found ${tasks.length} tasks in company`,
-        })
+        const response = await taskApi.getAll(currentCompany.id, currentUser.telegramId.toString())
+        if (response.success && response.data) {
+          const tasks = (response.data as any).tasks || []
+          updateTest(4, {
+            status: "passed",
+            message: `Found ${tasks.length} tasks in company`,
+          })
+        } else {
+          updateTest(4, { status: "failed", message: response.error || "Unknown error" })
+        }
       } catch (error) {
         updateTest(4, { status: "failed", message: String(error) })
       }

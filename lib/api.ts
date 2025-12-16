@@ -247,6 +247,49 @@ export const commentApi = {
 
 // Stats APIs
 export const statsApi = {
+  get: async (companyId: string, telegramId: string) => {
+    const response = await fetchApi<{
+      company: {
+        totalTasks: number
+        completedTasks: number
+        pendingTasks: number
+        overdueTasks: number
+        completionRate: number
+        totalSecondsWorked: number
+        totalHoursWorked: number
+        totalMembers: number
+      }
+      personal: {
+        totalTasks: number
+        completedTasks: number
+        pendingTasks: number
+        overdueTasks: number
+        totalSecondsWorked: number
+        totalHoursWorked: number
+        completionRate: number
+      }
+      topPerformers: Array<{ user: import("@/lib/store").User; completedCount: number }>
+    }>(`/stats?companyId=${companyId}`, {
+      method: "GET",
+      headers: { "X-Telegram-Id": telegramId },
+    })
+
+    if (response.success && response.data) {
+      return {
+        totalTasks: response.data.personal.totalTasks,
+        completedTasks: response.data.personal.completedTasks,
+        pendingTasks: response.data.personal.pendingTasks,
+        overdueTasks: response.data.personal.overdueTasks,
+        totalSecondsWorked: response.data.personal.totalSecondsWorked,
+        totalHoursWorked: response.data.personal.totalHoursWorked,
+        completionRate: response.data.personal.completionRate,
+        company: response.data.company,
+        topPerformers: response.data.topPerformers,
+      }
+    }
+    throw new Error(response.error || "Failed to fetch stats")
+  },
+
   getPersonal: (userId: string, companyId: string, telegramId: string) =>
     fetchApi<{
       totalTasks: number
