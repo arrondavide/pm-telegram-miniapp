@@ -191,6 +191,12 @@ export const taskApi = {
       headers: { "X-Telegram-Id": telegramId },
     }),
 
+  getByProject: (projectId: string, telegramId: string, rootOnly = true) =>
+    fetchApi<{ tasks: import("@/lib/store").Task[] }>(`/api/projects/${projectId}/tasks?rootOnly=${rootOnly}`, {
+      method: "GET",
+      headers: { "X-Telegram-Id": telegramId },
+    }),
+
   getById: (taskId: string, telegramId: string) =>
     fetchApi<import("@/lib/store").Task>(`/tasks/${taskId}`, {
       method: "GET",

@@ -16,7 +16,6 @@ export function BottomNav({ activeScreen, onNavigate, userRole }: BottomNavProps
 
   const navItems = [
     { id: "projects", label: "Projects", icon: FolderKanban },
-    { id: "tasks", label: "Tasks", icon: ClipboardList },
     { id: "notifications", label: "Alerts", icon: Bell, badge: unreadCount },
     ...(userRole !== "employee" ? [{ id: "team", label: "Team", icon: Users }] : []),
     { id: "stats", label: "Stats", icon: BarChart3 },

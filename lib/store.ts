@@ -157,6 +157,7 @@ interface AppState {
   deleteProject: (projectId: string) => void
   setActiveProject: (projectId: string | null) => void
   getActiveProject: () => Project | null
+  getProjectById: (projectId: string) => Project | null
   getProjectsForCompany: () => Project[]
 
   // User actions
@@ -478,6 +479,11 @@ export const useAppStore = create<AppState>()(
         const { activeProjectId, projects } = get()
         if (!activeProjectId) return null
         return projects.find((p) => p.id === activeProjectId) || null
+      },
+
+      getProjectById: (projectId: string) => {
+        const { projects } = get()
+        return projects.find((p) => p.id === projectId) || null
       },
 
       getProjectsForCompany: () => {
