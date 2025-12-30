@@ -19,10 +19,19 @@ import { format } from "date-fns"
 interface CreateTaskScreenProps {
   onBack: () => void
   onSuccess: () => void
+  parentTaskId?: string | null
 }
 
-export function CreateTaskScreen({ onBack, onSuccess }: CreateTaskScreenProps) {
-  const { createTask, getCompanyMembers, currentUser, loadMembers, activeProjectId, getActiveProject } = useAppStore()
+export function CreateTaskScreen({ onBack, onSuccess, parentTaskId }: CreateTaskScreenProps) {
+  const {
+    createTask,
+    getCompanyMembers,
+    currentUser,
+    loadMembers,
+    activeProjectId,
+    getActiveProject,
+    getTaskById,
+  } = useAppStore()
   const { hapticFeedback, showBackButton, hideBackButton, user } = useTelegram()
 
   const [title, setTitle] = useState("")
@@ -40,7 +49,9 @@ export function CreateTaskScreen({ onBack, onSuccess }: CreateTaskScreenProps) {
 
   const members = getCompanyMembers()
   const activeProject = getActiveProject()
+  const parentTask = parentTaskId ? getTaskById(parentTaskId) : null
   const telegramId = user?.id?.toString() || currentUser?.telegramId || ""
+  const isCreatingSubtask = Boolean(parentTaskId && parentTask)
 
   useEffect(() => {
     showBackButton(onBack)
@@ -104,11 +115,15 @@ export function CreateTaskScreen({ onBack, onSuccess }: CreateTaskScreenProps) {
     hapticFeedback("medium")
 
     try {
+      // Calculate depth and path for subtasks
+      const taskDepth = parentTask ? (parentTask.depth || 0) + 1 : 0
+      const taskPath = parentTask ? [...(parentTask.path || []), parentTask.id] : []
+
       const response = await taskApi.create(
         {
           companyId: currentUser.activeCompanyId,
           projectId: activeProjectId,
-          parentTaskId: null,
+          parentTaskId: parentTaskId || null,
           title: title.trim(),
           description: description.trim(),
           dueDate,
@@ -119,8 +134,8 @@ export function CreateTaskScreen({ onBack, onSuccess }: CreateTaskScreenProps) {
           category: category.trim(),
           tags,
           department: "",
-          depth: 0,
-          path: [],
+          depth: taskDepth,
+          path: taskPath,
           estimatedHours: Number.parseFloat(estimatedHours) || 0,
           actualHours: 0,
           completedAt: null,

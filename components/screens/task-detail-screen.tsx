@@ -51,6 +51,8 @@ import { formatDuration, formatHoursEstimate } from "@/lib/format-time"
 interface TaskDetailScreenProps {
   taskId: string
   onBack: () => void
+  onCreateSubtask?: () => void
+  onEditTask?: () => void
 }
 
 const statusOptions: Array<{ value: Task["status"]; label: string; color: string }> = [
@@ -86,7 +88,7 @@ interface ApiComment {
   createdAt: string
 }
 
-export function TaskDetailScreen({ taskId, onBack }: TaskDetailScreenProps) {
+export function TaskDetailScreen({ taskId, onBack, onCreateSubtask, onEditTask }: TaskDetailScreenProps) {
   const {
     getTaskById,
     updateTaskStatus,
@@ -423,7 +425,7 @@ export function TaskDetailScreen({ taskId, onBack }: TaskDetailScreenProps) {
             <CardTitle className="font-heading text-sm font-medium">Status</CardTitle>
           </CardHeader>
           <CardContent>
-            <Select value={task.status} onValueChange={handleStatusChange} disabled={!isAssigned || isUpdatingStatus}>
+            <Select value={task.status} onValueChange={handleStatusChange} disabled={(!isAssigned && !isManagerOrAdmin) || isUpdatingStatus}>
               <SelectTrigger>
                 {isUpdatingStatus ? <Loader2 className="h-4 w-4 animate-spin" /> : <SelectValue />}
               </SelectTrigger>
@@ -523,10 +525,10 @@ export function TaskDetailScreen({ taskId, onBack }: TaskDetailScreenProps) {
                 <CheckCircle2 className="h-4 w-4" />
                 Subtasks ({subtasks.length})
               </CardTitle>
-              {isManagerOrAdmin && (
+              {isManagerOrAdmin && onCreateSubtask && (
                 <Button size="sm" variant="outline" onClick={() => {
-                  // TODO: Implement create subtask
                   hapticFeedback("light")
+                  onCreateSubtask()
                 }}>
                   + Add Subtask
                 </Button>

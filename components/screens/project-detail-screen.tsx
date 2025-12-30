@@ -32,15 +32,43 @@ export function ProjectDetailScreen({ projectId, onBack, onTaskClick, onCreateTa
   const { tasks } = useAppStore()
   const projectTasks = tasks.filter((t) => t.projectId === projectId)
 
+  console.log('[ProjectDetail] Debug Info:', {
+    projectId,
+    totalTasks: tasks.length,
+    projectTasks: projectTasks.length,
+    userRole,
+    isEmployee,
+    currentUserId: currentUser?.id,
+    currentUserTelegramId: currentUser?.telegramId,
+    sampleTask: projectTasks[0],
+  })
+
   // For employees: show only tasks they're assigned to (including subtasks)
   // For managers/admins: show only root-level tasks
   const allTasks = isEmployee && currentUser
-    ? projectTasks.filter((task) =>
-        task.assignedTo.some((assigneeId) =>
-          assigneeId === currentUser.id || assigneeId === currentUser.telegramId
-        )
-      )
+    ? projectTasks.filter((task) => {
+        const isAssigned = task.assignedTo.some((assignee) => {
+          // assignedTo is an array of objects with {id, fullName, username, telegramId}
+          if (typeof assignee === 'string') {
+            return assignee === currentUser.id || assignee === currentUser.telegramId
+          }
+          return assignee.id === currentUser.id ||
+                 assignee.telegramId === currentUser.telegramId ||
+                 assignee.id === currentUser.telegramId
+        })
+        console.log('[ProjectDetail] Task filter:', {
+          taskId: task.id,
+          title: task.title,
+          assignedTo: task.assignedTo,
+          currentUserId: currentUser.id,
+          currentUserTelegramId: currentUser.telegramId,
+          isAssigned
+        })
+        return isAssigned
+      })
     : projectTasks.filter((t) => !t.parentTaskId || t.depth === 0)
+
+  console.log('[ProjectDetail] Final tasks count:', allTasks.length)
 
   useEffect(() => {
     showBackButton(onBack)

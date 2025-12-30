@@ -40,6 +40,7 @@ interface MainAppProps {
 export function MainApp({ pendingInviteCode, onCodeUsed }: MainAppProps) {
   const [activeScreen, setActiveScreen] = useState<Screen>("projects")
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
+  const [parentTaskIdForSubtask, setParentTaskIdForSubtask] = useState<string | null>(null)
   const { currentUser, setCurrentUser, setCompanies, setActiveProject } = useAppStore()
   const { user, hapticFeedback } = useTelegram()
 
@@ -151,10 +152,29 @@ export function MainApp({ pendingInviteCode, onCodeUsed }: MainAppProps) {
       case "test":
         return <TestScreen onBack={() => setActiveScreen("profile")} />
       case "create-task":
-        return <CreateTaskScreen onBack={handleBackToProjectDetail} onSuccess={handleBackToProjectDetail} />
+        return (
+          <CreateTaskScreen
+            parentTaskId={parentTaskIdForSubtask}
+            onBack={() => {
+              setParentTaskIdForSubtask(null)
+              handleBackToProjectDetail()
+            }}
+            onSuccess={() => {
+              setParentTaskIdForSubtask(null)
+              handleBackToProjectDetail()
+            }}
+          />
+        )
       case "task-detail":
         return selectedTaskId ? (
-          <TaskDetailScreen taskId={selectedTaskId} onBack={handleBackToProjectDetail} />
+          <TaskDetailScreen
+            taskId={selectedTaskId}
+            onBack={handleBackToProjectDetail}
+            onCreateSubtask={() => {
+              setParentTaskIdForSubtask(selectedTaskId)
+              setActiveScreen("create-task")
+            }}
+          />
         ) : activeProjectId ? (
           <ProjectDetailScreen
             projectId={activeProjectId}
