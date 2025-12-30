@@ -17,7 +17,7 @@ interface ProjectDetailScreenProps {
 }
 
 export function ProjectDetailScreen({ projectId, onBack, onTaskClick, onCreateTask }: ProjectDetailScreenProps) {
-  const { getProjectById, getRootTasksForProject, loadTasks, currentUser } = useAppStore()
+  const { getProjectById, getRootTasksForProject, loadTasks, currentUser, getUserRole } = useAppStore()
   const { hapticFeedback, showBackButton, hideBackButton } = useTelegram()
 
   const [searchQuery, setSearchQuery] = useState("")
@@ -25,7 +25,22 @@ export function ProjectDetailScreen({ projectId, onBack, onTaskClick, onCreateTa
   const [isLoadingTasks, setIsLoadingTasks] = useState(true)
 
   const project = getProjectById(projectId)
-  const allTasks = getRootTasksForProject(projectId)
+  const userRole = getUserRole()
+  const isEmployee = userRole === "employee"
+
+  // Get tasks from store
+  const { tasks } = useAppStore()
+  const projectTasks = tasks.filter((t) => t.projectId === projectId)
+
+  // For employees: show only tasks they're assigned to (including subtasks)
+  // For managers/admins: show only root-level tasks
+  const allTasks = isEmployee && currentUser
+    ? projectTasks.filter((task) =>
+        task.assignedTo.some((assigneeId) =>
+          assigneeId === currentUser.id || assigneeId === currentUser.telegramId
+        )
+      )
+    : projectTasks.filter((t) => !t.parentTaskId || t.depth === 0)
 
   useEffect(() => {
     showBackButton(onBack)
@@ -38,7 +53,8 @@ export function ProjectDetailScreen({ projectId, onBack, onTaskClick, onCreateTa
 
       setIsLoadingTasks(true)
       try {
-        const response = await taskApi.getByProject(projectId, currentUser.telegramId)
+        // Fetch all tasks in the project (rootOnly=false) so employees can see subtasks they're assigned to
+        const response = await taskApi.getByProject(projectId, currentUser.telegramId, false)
         if (response.success && response.data?.tasks) {
           loadTasks(response.data.tasks)
         }
