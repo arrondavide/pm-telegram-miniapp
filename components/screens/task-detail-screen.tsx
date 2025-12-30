@@ -41,6 +41,7 @@ import {
 } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { TimeTracker } from "@/components/time-tracker"
+import { TaskCard } from "@/components/task-card"
 import { useAppStore, type Task } from "@/lib/store"
 import { useTelegram } from "@/hooks/use-telegram"
 import { taskApi, commentApi, timeApi } from "@/lib/api"
@@ -110,6 +111,8 @@ export function TaskDetailScreen({ taskId, onBack }: TaskDetailScreenProps) {
   const [apiTimeLogs, setApiTimeLogs] = useState<any[]>([])
   const [isLoadingTimeLogs, setIsLoadingTimeLogs] = useState(false)
   const [timeLogsError, setTimeLogsError] = useState<string>("")
+  const [subtasks, setSubtasks] = useState<Task[]>([])
+  const [isLoadingSubtasks, setIsLoadingSubtasks] = useState(false)
   const [showEditDialog, setShowEditDialog] = useState(false)
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
@@ -187,6 +190,26 @@ export function TaskDetailScreen({ taskId, onBack }: TaskDetailScreenProps) {
     }
     loadComments()
   }, [taskId])
+
+  useEffect(() => {
+    const loadSubtasks = async () => {
+      const telegramId = currentUser?.telegramId || user?.id?.toString()
+      if (!telegramId) return
+
+      setIsLoadingSubtasks(true)
+      try {
+        const response = await taskApi.getSubtasks(taskId, telegramId)
+        if (response.success && response.data) {
+          setSubtasks(response.data.subtasks || [])
+        }
+      } catch (error) {
+        console.error("Failed to load subtasks:", error)
+      } finally {
+        setIsLoadingSubtasks(false)
+      }
+    }
+    loadSubtasks()
+  }, [taskId, currentUser?.telegramId, user?.id])
 
   useEffect(() => {
     if (task) {
@@ -488,6 +511,52 @@ export function TaskDetailScreen({ taskId, onBack }: TaskDetailScreenProps) {
               ))
             ) : (
               <p className="text-sm text-muted-foreground">No assignees</p>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Subtasks */}
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="flex items-center gap-2 font-heading text-sm font-medium">
+                <CheckCircle2 className="h-4 w-4" />
+                Subtasks ({subtasks.length})
+              </CardTitle>
+              {isManagerOrAdmin && (
+                <Button size="sm" variant="outline" onClick={() => {
+                  // TODO: Implement create subtask
+                  hapticFeedback("light")
+                }}>
+                  + Add Subtask
+                </Button>
+              )}
+            </div>
+          </CardHeader>
+          <CardContent>
+            {isLoadingSubtasks ? (
+              <div className="flex items-center justify-center py-4">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : subtasks.length > 0 ? (
+              <div className="space-y-2">
+                {subtasks.map((subtask) => (
+                  <TaskCard
+                    key={subtask.id}
+                    task={subtask}
+                    onClick={() => {
+                      // Navigate to subtask detail
+                      hapticFeedback("light")
+                      // TODO: Implement subtask navigation
+                    }}
+                    showAssignees={true}
+                  />
+                ))}
+              </div>
+            ) : (
+              <p className="py-4 text-center text-sm text-muted-foreground">
+                No subtasks yet. {isManagerOrAdmin && "Click 'Add Subtask' to create one."}
+              </p>
             )}
           </CardContent>
         </Card>
