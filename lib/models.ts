@@ -342,7 +342,7 @@ taskSchema.index({ assigned_to: 1, status: 1 })
 taskSchema.index({ company_id: 1, createdAt: -1 })
 userSchema.index({ "companies.company_id": 1 })
 timeLogSchema.index({ user_id: 1, start_time: -1 })
-notificationSchema.index({ scheduled_for: 1, sent: false })
+notificationSchema.index({ scheduled_for: 1, sent: 1 })
 
 // Models - check if already exists to avoid recompilation errors
 export const Company: Model<ICompany> = mongoose.models.Company || mongoose.model<ICompany>("Company", companySchema)

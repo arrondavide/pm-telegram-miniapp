@@ -106,11 +106,15 @@ export function TeamScreen() {
         const invs = response.data.invitations.map((inv: any) => ({
           id: inv.id,
           companyId: company.id,
+          invitedBy: inv.invitedBy || "",
           username: inv.username || "",
+          telegramId: inv.telegramId || null,
           role: inv.role,
+          department: inv.department || "",
           invitationCode: inv.code,
           status: inv.status,
           expiresAt: new Date(inv.expiresAt),
+          acceptedAt: inv.acceptedAt ? new Date(inv.acceptedAt) : null,
           createdAt: new Date(inv.createdAt),
         }))
         setPendingInvitations(invs.filter((i: Invitation) => i.status === "pending"))
@@ -148,11 +152,15 @@ export function TeamScreen() {
         const newInvitation: Invitation = {
           id: inv.id,
           companyId: company.id,
+          invitedBy: currentUser.id,
           username: inviteUsername.trim(),
+          telegramId: null,
           role: inviteRole as "admin" | "manager" | "employee",
+          department: inviteDepartment.trim(),
           invitationCode: inv.code,
           status: "pending",
           expiresAt: new Date(inv.expiresAt),
+          acceptedAt: null,
           createdAt: new Date(),
         }
         setPendingInvitations((prev) => [newInvitation, ...prev])

@@ -26,7 +26,8 @@ export function TestScreen({ onBack }: { onBack: () => void }) {
     { name: "Time Logs API (Mock Task)", status: "pending" },
   ])
   const [isRunning, setIsRunning] = useState(false)
-  const { currentUser, currentCompany } = useAppStore()
+  const { currentUser, getActiveCompany } = useAppStore()
+  const currentCompany = getActiveCompany()
 
   const updateTest = (index: number, updates: Partial<TestResult>) => {
     setTests((prev) => prev.map((test, i) => (i === index ? { ...test, ...updates } : test)))

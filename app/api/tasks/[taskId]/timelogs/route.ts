@@ -9,7 +9,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
     await connectToDatabase()
 
-    let timeLogs = []
+    let timeLogs: any[] = []
 
     if (mongoose.Types.ObjectId.isValid(taskId)) {
       timeLogs = await TimeLog.find({

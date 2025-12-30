@@ -109,12 +109,14 @@ export function StatsScreen() {
 
   useEffect(() => {
     loadStats()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [company?.id, currentUser?.telegramId])
 
   useEffect(() => {
     if (!activeTimeLog) {
       loadStats()
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTimeLog])
 
   const StatCard = ({

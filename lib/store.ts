@@ -61,8 +61,11 @@ export interface TimeLog {
   id: string
   taskId: string
   userId: string
+  userName: string
+  userTelegramId?: string
   startTime: Date
   endTime: Date | null
+  durationMinutes: number
   durationSeconds: number
   note: string
 }
@@ -575,8 +578,11 @@ export const useAppStore = create<AppState>()(
           id: generateId(),
           taskId,
           userId: currentUser.id,
+          userName: currentUser.fullName || currentUser.username || "Unknown",
+          userTelegramId: currentUser.telegramId,
           startTime: new Date(),
           endTime: null,
+          durationMinutes: 0,
           durationSeconds: 0,
           note: "",
         }

@@ -217,6 +217,7 @@ export const timeApi = {
         taskId: string
         userId: string
         userName: string
+        userTelegramId?: string
         startTime: string
         endTime: string | null
         durationMinutes: number

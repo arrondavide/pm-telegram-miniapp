@@ -35,6 +35,8 @@ export async function GET(request: NextRequest) {
       allTasks = await Task.find({ company_id: companyId }).lean()
     }
 
+    console.log(`[Stats API] Found ${allTasks.length} tasks for company ${companyId}`)
+
     const totalTasks = allTasks.length
     const completedTasks = allTasks.filter((t: any) => t.status === "completed").length
     const pendingTasks = allTasks.filter((t: any) => ["pending", "started", "in_progress"].includes(t.status)).length
@@ -48,12 +50,16 @@ export async function GET(request: NextRequest) {
 
     const memberIds = companyMembers.map((m: any) => m._id)
 
+    // Get all task IDs for this company
+    const companyTaskIds = allTasks.map((t: any) => t._id)
+
     let companyTotalSeconds = 0
     try {
+      // Filter time logs to only include work on company tasks
       const companyTimeLogs = await TimeLog.find({
         user_id: { $in: memberIds },
+        task_id: { $in: companyTaskIds },
         end_time: { $exists: true, $ne: null },
-        duration_minutes: { $exists: true },
       }).lean()
 
       for (const log of companyTimeLogs as any[]) {
@@ -68,6 +74,10 @@ export async function GET(request: NextRequest) {
           }
         }
       }
+
+      console.log(
+        `[Stats API] Company time: ${companyTimeLogs.length} logs, ${companyTotalSeconds} seconds (${Math.round(companyTotalSeconds / 3600)} hours)`,
+      )
     } catch (timeLogError) {
       console.error("Error fetching company time logs:", timeLogError)
     }
@@ -97,10 +107,14 @@ export async function GET(request: NextRequest) {
     let userTotalSeconds = 0
     if (user) {
       try {
+        // Get task IDs for user's assigned tasks
+        const userTaskIds = userTasks.map((t: any) => t._id)
+
+        // Only include time logs for user's tasks in this company
         const userTimeLogs = await TimeLog.find({
           user_id: user._id,
+          task_id: { $in: userTaskIds },
           end_time: { $exists: true, $ne: null },
-          duration_minutes: { $exists: true },
         }).lean()
 
         for (const log of userTimeLogs as any[]) {
@@ -115,6 +129,10 @@ export async function GET(request: NextRequest) {
             }
           }
         }
+
+        console.log(
+          `[Stats API] User time: ${userTimeLogs.length} logs, ${userTotalSeconds} seconds (${Math.round(userTotalSeconds / 3600)} hours)`,
+        )
       } catch (timeLogError) {
         console.error("Error fetching user time logs:", timeLogError)
       }
