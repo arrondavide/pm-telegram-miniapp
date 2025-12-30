@@ -10,6 +10,8 @@ import { CreateTaskScreen } from "@/components/screens/create-task-screen"
 import { TaskDetailScreen } from "@/components/screens/task-detail-screen"
 import { NotificationsScreen } from "@/components/screens/notifications-screen"
 import { TestScreen } from "@/components/screens/test-screen"
+import { ProjectsScreen } from "@/components/screens/projects-screen"
+import { CreateProjectScreen } from "@/components/screens/create-project-screen"
 import { InAppNotification } from "@/components/in-app-notification"
 import { useAppStore } from "@/lib/store"
 import { useTelegram } from "@/hooks/use-telegram"
@@ -18,7 +20,17 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Button } from "@/components/ui/button"
 import { Loader2, CheckCircle, XCircle } from "lucide-react"
 
-export type Screen = "tasks" | "team" | "stats" | "profile" | "create-task" | "task-detail" | "notifications" | "test"
+export type Screen =
+  | "projects"
+  | "tasks"
+  | "team"
+  | "stats"
+  | "profile"
+  | "create-project"
+  | "create-task"
+  | "task-detail"
+  | "notifications"
+  | "test"
 
 interface MainAppProps {
   pendingInviteCode?: string | null
@@ -26,9 +38,9 @@ interface MainAppProps {
 }
 
 export function MainApp({ pendingInviteCode, onCodeUsed }: MainAppProps) {
-  const [activeScreen, setActiveScreen] = useState<Screen>("tasks")
+  const [activeScreen, setActiveScreen] = useState<Screen>("projects")
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
-  const { currentUser, setCurrentUser, setCompanies } = useAppStore()
+  const { currentUser, setCurrentUser, setCompanies, setActiveProject } = useAppStore()
   const { user, hapticFeedback } = useTelegram()
 
   const [showJoinDialog, setShowJoinDialog] = useState(false)
@@ -76,6 +88,11 @@ export function MainApp({ pendingInviteCode, onCodeUsed }: MainAppProps) {
     }
   }
 
+  const handleProjectSelect = (projectId: string) => {
+    setActiveProject(projectId)
+    setActiveScreen("tasks")
+  }
+
   const handleTaskSelect = (taskId: string) => {
     setSelectedTaskId(taskId)
     setActiveScreen("task-detail")
@@ -86,8 +103,27 @@ export function MainApp({ pendingInviteCode, onCodeUsed }: MainAppProps) {
     setSelectedTaskId(null)
   }
 
+  const handleBackToProjects = () => {
+    setActiveScreen("projects")
+    setActiveProject(null)
+  }
+
   const renderScreen = () => {
     switch (activeScreen) {
+      case "projects":
+        return (
+          <ProjectsScreen
+            onProjectSelect={handleProjectSelect}
+            onCreateProject={() => setActiveScreen("create-project")}
+          />
+        )
+      case "create-project":
+        return (
+          <CreateProjectScreen
+            onBack={handleBackToProjects}
+            onSuccess={() => setActiveScreen("projects")}
+          />
+        )
       case "tasks":
         return <TasksScreen onTaskSelect={handleTaskSelect} onCreateTask={() => setActiveScreen("create-task")} />
       case "team":
@@ -109,11 +145,16 @@ export function MainApp({ pendingInviteCode, onCodeUsed }: MainAppProps) {
           <TasksScreen onTaskSelect={handleTaskSelect} onCreateTask={() => setActiveScreen("create-task")} />
         )
       default:
-        return <TasksScreen onTaskSelect={handleTaskSelect} onCreateTask={() => setActiveScreen("create-task")} />
+        return (
+          <ProjectsScreen
+            onProjectSelect={handleProjectSelect}
+            onCreateProject={() => setActiveScreen("create-project")}
+          />
+        )
     }
   }
 
-  const showBottomNav = !["create-task", "task-detail", "test"].includes(activeScreen)
+  const showBottomNav = !["create-project", "create-task", "task-detail", "test"].includes(activeScreen)
 
   return (
     <div className="flex min-h-screen flex-col bg-background">

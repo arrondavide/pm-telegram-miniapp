@@ -9,6 +9,23 @@ export interface ICompany extends Document {
   updatedAt: Date
 }
 
+export interface IProject extends Document {
+  _id: mongoose.Types.ObjectId
+  name: string
+  description: string
+  company_id: mongoose.Types.ObjectId
+  status: "active" | "on_hold" | "completed" | "archived"
+  created_by: mongoose.Types.ObjectId
+  color: string
+  icon: string
+  start_date?: Date
+  target_end_date?: Date
+  completed_at?: Date
+  archived_at?: Date
+  createdAt: Date
+  updatedAt: Date
+}
+
 export interface IUserCompany {
   company_id: mongoose.Types.ObjectId
   role: "admin" | "manager" | "employee"
@@ -48,12 +65,6 @@ export interface IInvitation extends Document {
   updatedAt: Date
 }
 
-export interface ISubtask {
-  title: string
-  completed: boolean
-  completed_at?: Date
-}
-
 export interface ITask extends Document {
   _id: mongoose.Types.ObjectId
   title: string
@@ -64,10 +75,13 @@ export interface ITask extends Document {
   assigned_to: mongoose.Types.ObjectId[]
   created_by: mongoose.Types.ObjectId
   company_id: mongoose.Types.ObjectId
+  project_id: mongoose.Types.ObjectId
+  parent_task_id?: mongoose.Types.ObjectId
+  depth: number
+  path: mongoose.Types.ObjectId[]
   category: string
   tags: string[]
   department: string
-  subtasks: ISubtask[]
   depends_on: mongoose.Types.ObjectId[]
   is_recurring: boolean
   recurrence?: {
@@ -167,6 +181,23 @@ const companySchema = new Schema<ICompany>(
   { timestamps: true },
 )
 
+const projectSchema = new Schema<IProject>(
+  {
+    name: { type: String, required: true, trim: true },
+    description: { type: String, default: "" },
+    company_id: { type: Schema.Types.ObjectId, ref: "Company", required: true, index: true },
+    status: { type: String, enum: ["active", "on_hold", "completed", "archived"], default: "active" },
+    created_by: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    color: { type: String, default: "#3b82f6" },
+    icon: { type: String, default: "📁" },
+    start_date: { type: Date },
+    target_end_date: { type: Date },
+    completed_at: { type: Date },
+    archived_at: { type: Date },
+  },
+  { timestamps: true },
+)
+
 const userSchema = new Schema<IUser>(
   {
     telegram_id: { type: String, required: true, unique: true, index: true },
@@ -224,16 +255,13 @@ const taskSchema = new Schema<ITask>(
     assigned_to: [{ type: Schema.Types.ObjectId, ref: "User" }],
     created_by: { type: Schema.Types.ObjectId, ref: "User", required: true },
     company_id: { type: Schema.Types.ObjectId, ref: "Company", required: true },
+    project_id: { type: Schema.Types.ObjectId, ref: "Project", required: true },
+    parent_task_id: { type: Schema.Types.ObjectId, ref: "Task" },
+    depth: { type: Number, default: 0 },
+    path: [{ type: Schema.Types.ObjectId, ref: "Task" }],
     category: { type: String, default: "" },
     tags: [{ type: String }],
     department: { type: String, default: "" },
-    subtasks: [
-      {
-        title: { type: String, required: true },
-        completed: { type: Boolean, default: false },
-        completed_at: { type: Date },
-      },
-    ],
     depends_on: [{ type: Schema.Types.ObjectId, ref: "Task" }],
     is_recurring: { type: Boolean, default: false },
     recurrence: {
@@ -337,15 +365,25 @@ const notificationSchema = new Schema<INotification>(
 )
 
 // Indexes
+projectSchema.index({ company_id: 1, status: 1 })
+projectSchema.index({ company_id: 1, createdAt: -1 })
+
 taskSchema.index({ company_id: 1, status: 1, due_date: 1 })
 taskSchema.index({ assigned_to: 1, status: 1 })
 taskSchema.index({ company_id: 1, createdAt: -1 })
+taskSchema.index({ project_id: 1, parent_task_id: 1 })
+taskSchema.index({ project_id: 1, depth: 1 })
+taskSchema.index({ parent_task_id: 1, status: 1 })
+taskSchema.index({ path: 1 })
+
 userSchema.index({ "companies.company_id": 1 })
 timeLogSchema.index({ user_id: 1, start_time: -1 })
 notificationSchema.index({ scheduled_for: 1, sent: 1 })
 
 // Models - check if already exists to avoid recompilation errors
 export const Company: Model<ICompany> = mongoose.models.Company || mongoose.model<ICompany>("Company", companySchema)
+
+export const Project: Model<IProject> = mongoose.models.Project || mongoose.model<IProject>("Project", projectSchema)
 
 export const User: Model<IUser> = mongoose.models.User || mongoose.model<IUser>("User", userSchema)
 

@@ -91,7 +91,6 @@ export function TaskDetailScreen({ taskId, onBack }: TaskDetailScreenProps) {
     updateTaskStatus,
     updateTask,
     deleteTask,
-    toggleSubtask,
     addComment,
     getCommentsForTask,
     getTimeLogsForTask,
@@ -210,8 +209,6 @@ export function TaskDetailScreen({ taskId, onBack }: TaskDetailScreenProps) {
 
   const priority = priorityConfig[task.priority]
   const isOverdue = task.status !== "completed" && new Date(task.dueDate) < new Date()
-  const completedSubtasks = task.subtasks.filter((st) => st.completed).length
-  const subtaskProgress = task.subtasks.length > 0 ? (completedSubtasks / task.subtasks.length) * 100 : 0
 
   const assignees = task.assignedTo
     .map((id) => {
@@ -262,11 +259,6 @@ export function TaskDetailScreen({ taskId, onBack }: TaskDetailScreenProps) {
     } finally {
       setIsUpdatingStatus(false)
     }
-  }
-
-  const handleToggleSubtask = (subtaskId: string) => {
-    hapticFeedback("light")
-    toggleSubtask(taskId, subtaskId)
   }
 
   const handleAddComment = async () => {
@@ -499,38 +491,6 @@ export function TaskDetailScreen({ taskId, onBack }: TaskDetailScreenProps) {
             )}
           </CardContent>
         </Card>
-
-        {/* Subtasks */}
-        {task.subtasks.length > 0 && (
-          <Card>
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <CardTitle className="flex items-center gap-2 font-heading text-sm font-medium">
-                  <CheckCircle2 className="h-4 w-4" />
-                  Subtasks
-                </CardTitle>
-                <span className="font-body text-sm text-muted-foreground">
-                  {completedSubtasks}/{task.subtasks.length}
-                </span>
-              </div>
-              <Progress value={subtaskProgress} className="mt-2 h-2" />
-            </CardHeader>
-            <CardContent className="space-y-2">
-              {task.subtasks.map((subtask) => (
-                <div
-                  key={subtask.id}
-                  className="flex cursor-pointer items-center gap-3 rounded-lg border p-3"
-                  onClick={() => isAssigned && handleToggleSubtask(subtask.id)}
-                >
-                  <Checkbox checked={subtask.completed} disabled={!isAssigned} />
-                  <span className={cn("flex-1 font-body", subtask.completed && "text-muted-foreground line-through")}>
-                    {subtask.title}
-                  </span>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-        )}
 
         {/* Tags */}
         {task.tags.length > 0 && (

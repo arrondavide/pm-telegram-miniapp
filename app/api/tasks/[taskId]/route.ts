@@ -77,7 +77,10 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         category: task.category,
         tags: task.tags,
         department: task.department,
-        subtasks: task.subtasks,
+        projectId: (task as any).project_id?.toString() || null,
+        parentTaskId: (task as any).parent_task_id?.toString() || null,
+        depth: (task as any).depth || 0,
+        path: ((task as any).path || []).map((p: any) => p.toString()),
         assignedTo: (task.assigned_to as any[]).map((u: any) => ({
           id: u._id.toString(),
           fullName: u.full_name,
@@ -144,7 +147,6 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     if (body.priority !== undefined) task.priority = body.priority
     if (body.category !== undefined) task.category = body.category
     if (body.tags !== undefined) task.tags = body.tags
-    if (body.subtasks !== undefined) task.subtasks = body.subtasks
 
     await task.save()
 

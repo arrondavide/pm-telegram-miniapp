@@ -1,6 +1,6 @@
 "use client"
 
-import { ClipboardList, Users, BarChart3, User, Bell } from "lucide-react"
+import { FolderKanban, ClipboardList, Users, BarChart3, User, Bell } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useAppStore } from "@/lib/store"
 
@@ -15,6 +15,7 @@ export function BottomNav({ activeScreen, onNavigate, userRole }: BottomNavProps
   const unreadCount = getUnreadNotificationCount()
 
   const navItems = [
+    { id: "projects", label: "Projects", icon: FolderKanban },
     { id: "tasks", label: "Tasks", icon: ClipboardList },
     { id: "notifications", label: "Alerts", icon: Bell, badge: unreadCount },
     ...(userRole !== "employee" ? [{ id: "team", label: "Team", icon: Users }] : []),

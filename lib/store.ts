@@ -9,6 +9,23 @@ export interface Company {
   createdAt: Date
 }
 
+export interface Project {
+  id: string
+  name: string
+  description: string
+  companyId: string
+  status: "active" | "on_hold" | "completed" | "archived"
+  createdBy: string
+  color: string
+  icon: string
+  startDate: Date | null
+  targetEndDate: Date | null
+  completedAt: Date | null
+  archivedAt: Date | null
+  createdAt: Date
+  updatedAt: Date
+}
+
 export interface UserCompany {
   companyId: string
   role: "admin" | "manager" | "employee"
@@ -30,13 +47,6 @@ export interface User {
   createdAt: Date
 }
 
-export interface Subtask {
-  id: string
-  title: string
-  completed: boolean
-  completedAt: Date | null
-}
-
 export interface Task {
   id: string
   title: string
@@ -47,10 +57,13 @@ export interface Task {
   assignedTo: (string | { id: string; telegramId?: string; _id?: string; fullName?: string })[]
   createdBy: string
   companyId: string
+  projectId: string
+  parentTaskId: string | null
+  depth: number
+  path: string[]
   category: string
   tags: string[]
   department: string
-  subtasks: Subtask[]
   estimatedHours: number
   actualHours: number
   completedAt: Date | null
@@ -107,11 +120,13 @@ interface AppState {
   // Data
   users: User[]
   companies: Company[]
+  projects: Project[]
   tasks: Task[]
   timeLogs: TimeLog[]
   comments: Comment[]
   invitations: Invitation[]
   currentUser: User | null
+  activeProjectId: string | null
   activeTimeLog: TimeLog | null
   notifications: Notification[]
 
@@ -135,6 +150,15 @@ interface AppState {
   deleteCompany: (companyId: string) => void
   joinCompanyWithCode: (company: Company, userCompany: UserCompany) => void
 
+  // Project actions
+  loadProjects: (projects: Project[]) => void
+  createProject: (project: Omit<Project, "id" | "createdAt" | "updatedAt">) => Project
+  updateProject: (projectId: string, updates: Partial<Project>) => void
+  deleteProject: (projectId: string) => void
+  setActiveProject: (projectId: string | null) => void
+  getActiveProject: () => Project | null
+  getProjectsForCompany: () => Project[]
+
   // User actions
   registerUser: (telegramId: string, fullName: string, username: string) => User
   getUserRole: () => "admin" | "manager" | "employee" | null
@@ -147,7 +171,14 @@ interface AppState {
   getTasksForUser: () => Task[]
   getAllCompanyTasks: () => Task[]
   getTaskById: (taskId: string) => Task | null
-  toggleSubtask: (taskId: string, subtaskId: string) => void
+
+  // Hierarchical task queries
+  getTasksByProject: (projectId: string) => Task[]
+  getRootTasksForProject: (projectId: string) => Task[]
+  getTasksByParent: (parentTaskId: string) => Task[]
+  getTaskPath: (taskId: string) => Task[]
+  getSubtaskCount: (taskId: string) => number
+  getCompletedSubtaskCount: (taskId: string) => number
 
   // Time tracking
   clockIn: (taskId: string) => void
@@ -197,11 +228,13 @@ export const useAppStore = create<AppState>()(
     (set, get) => ({
       users: [],
       companies: [],
+      projects: [],
       tasks: [],
       timeLogs: [],
       comments: [],
       invitations: [],
       currentUser: null,
+      activeProjectId: null,
       activeTimeLog: null,
       notifications: [],
 
@@ -402,6 +435,57 @@ export const useAppStore = create<AppState>()(
         }))
       },
 
+      // Project actions
+      loadProjects: (projects) => {
+        console.log("[v0] loadProjects called with:", projects.length, "projects")
+        set({ projects })
+      },
+
+      createProject: (project) => {
+        const newProject: Project = {
+          ...project,
+          id: generateId(),
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        }
+        set((state) => ({
+          projects: [...state.projects, newProject],
+        }))
+        return newProject
+      },
+
+      updateProject: (projectId, updates) => {
+        set((state) => ({
+          projects: state.projects.map((p) =>
+            p.id === projectId ? { ...p, ...updates, updatedAt: new Date() } : p
+          ),
+        }))
+      },
+
+      deleteProject: (projectId) => {
+        set((state) => ({
+          projects: state.projects.filter((p) => p.id !== projectId),
+          tasks: state.tasks.filter((t) => t.projectId !== projectId),
+          activeProjectId: state.activeProjectId === projectId ? null : state.activeProjectId,
+        }))
+      },
+
+      setActiveProject: (projectId) => {
+        set({ activeProjectId: projectId })
+      },
+
+      getActiveProject: () => {
+        const { activeProjectId, projects } = get()
+        if (!activeProjectId) return null
+        return projects.find((p) => p.id === activeProjectId) || null
+      },
+
+      getProjectsForCompany: () => {
+        const { currentUser, projects } = get()
+        if (!currentUser?.activeCompanyId) return []
+        return projects.filter((p) => p.companyId === currentUser.activeCompanyId)
+      },
+
       registerUser: (telegramId, fullName, username) => {
         const user: User = {
           id: generateId(),
@@ -549,25 +633,45 @@ export const useAppStore = create<AppState>()(
         return get().tasks.find((t) => t.id === taskId) || null
       },
 
-      toggleSubtask: (taskId, subtaskId) => {
-        set((state) => ({
-          tasks: state.tasks.map((t) =>
-            t.id === taskId
-              ? {
-                  ...t,
-                  subtasks: t.subtasks.map((st) =>
-                    st.id === subtaskId
-                      ? {
-                          ...st,
-                          completed: !st.completed,
-                          completedAt: !st.completed ? new Date() : null,
-                        }
-                      : st,
-                  ),
-                }
-              : t,
-          ),
-        }))
+      // Hierarchical task queries
+      getTasksByProject: (projectId) => {
+        return get().tasks.filter((t) => t.projectId === projectId)
+      },
+
+      getRootTasksForProject: (projectId) => {
+        return get().tasks.filter((t) => t.projectId === projectId && (!t.parentTaskId || t.depth === 0))
+      },
+
+      getTasksByParent: (parentTaskId) => {
+        return get().tasks.filter((t) => t.parentTaskId === parentTaskId)
+      },
+
+      getTaskPath: (taskId) => {
+        const task = get().getTaskById(taskId)
+        if (!task) return []
+
+        const path: Task[] = []
+        const tasks = get().tasks
+
+        // Walk up the path
+        for (const pathId of task.path) {
+          const ancestorTask = tasks.find((t) => t.id === pathId)
+          if (ancestorTask) {
+            path.push(ancestorTask)
+          }
+        }
+
+        // Add the task itself at the end
+        path.push(task)
+        return path
+      },
+
+      getSubtaskCount: (taskId) => {
+        return get().tasks.filter((t) => t.parentTaskId === taskId).length
+      },
+
+      getCompletedSubtaskCount: (taskId) => {
+        return get().tasks.filter((t) => t.parentTaskId === taskId && t.status === "completed").length
       },
 
       clockIn: (taskId) => {

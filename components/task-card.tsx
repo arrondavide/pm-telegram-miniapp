@@ -39,9 +39,6 @@ export function TaskCard({ task, onClick, showAssignees = false }: TaskCardProps
   const dueDate = new Date(task.dueDate)
   const daysUntilDue = Math.ceil((dueDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
 
-  const completedSubtasks = task.subtasks.filter((st) => st.completed).length
-  const subtaskProgress = task.subtasks.length > 0 ? (completedSubtasks / task.subtasks.length) * 100 : 0
-
   const assignees = task.assignedTo
     .map((id) => users.find((u) => u.id === id))
     .filter(Boolean)
@@ -99,22 +96,6 @@ export function TaskCard({ task, onClick, showAssignees = false }: TaskCardProps
                 </Badge>
               )}
             </div>
-
-            {/* Subtasks Progress */}
-            {task.subtasks.length > 0 && (
-              <div className="mt-3">
-                <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
-                  <span className="flex items-center gap-1">
-                    <CheckCircle2 className="h-3 w-3" />
-                    Subtasks
-                  </span>
-                  <span>
-                    {completedSubtasks}/{task.subtasks.length}
-                  </span>
-                </div>
-                <Progress value={subtaskProgress} className="h-1.5 bg-muted" />
-              </div>
-            )}
 
             {/* Assignees */}
             {showAssignees && assignees.length > 0 && (

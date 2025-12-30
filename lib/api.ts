@@ -125,6 +125,58 @@ export const companyApi = {
     }),
 }
 
+// Project APIs
+export const projectApi = {
+  getAll: (companyId: string, telegramId: string) =>
+    fetchApi<{ projects: import("@/lib/store").Project[] }>(`/projects?companyId=${companyId}`, {
+      method: "GET",
+      headers: { "X-Telegram-Id": telegramId },
+    }),
+
+  getById: (projectId: string, telegramId: string) =>
+    fetchApi<{ project: import("@/lib/store").Project }>(`/projects/${projectId}`, {
+      method: "GET",
+      headers: { "X-Telegram-Id": telegramId },
+    }),
+
+  create: (
+    project: {
+      companyId: string
+      name: string
+      description?: string
+      color?: string
+      icon?: string
+      startDate?: string
+      targetEndDate?: string
+    },
+    telegramId: string,
+  ) =>
+    fetchApi<{ project: import("@/lib/store").Project }>("/projects", {
+      method: "POST",
+      body: JSON.stringify(project),
+      headers: { "X-Telegram-Id": telegramId },
+    }),
+
+  update: (projectId: string, updates: Partial<import("@/lib/store").Project>, telegramId: string) =>
+    fetchApi<{ project: import("@/lib/store").Project }>(`/projects/${projectId}`, {
+      method: "PATCH",
+      body: JSON.stringify(updates),
+      headers: { "X-Telegram-Id": telegramId },
+    }),
+
+  delete: (projectId: string, telegramId: string, force: boolean = false) =>
+    fetchApi<{ message: string; deletedTasks: number }>(`/projects/${projectId}?force=${force}`, {
+      method: "DELETE",
+      headers: { "X-Telegram-Id": telegramId },
+    }),
+
+  getTasks: (projectId: string, telegramId: string, hierarchy: boolean = false) =>
+    fetchApi<{ tasks: import("@/lib/store").Task[] }>(`/projects/${projectId}/tasks?hierarchy=${hierarchy}`, {
+      method: "GET",
+      headers: { "X-Telegram-Id": telegramId },
+    }),
+}
+
 // Task APIs
 export const taskApi = {
   getAll: (companyId: string, telegramId: string) =>
@@ -169,16 +221,59 @@ export const taskApi = {
       headers: { "X-Telegram-Id": telegramId },
     }),
 
-  toggleSubtask: (taskId: string, subtaskId: string, telegramId: string) =>
-    fetchApi<import("@/lib/store").Task>(`/tasks/${taskId}/subtasks/${subtaskId}/toggle`, {
-      method: "POST",
-      headers: { "X-Telegram-Id": telegramId },
-    }),
-
   delete: (taskId: string, telegramId: string) =>
     fetchApi<void>(`/tasks/${taskId}`, {
       method: "DELETE",
       headers: { "X-Telegram-Id": telegramId },
+    }),
+
+  // Hierarchical task operations
+  getSubtasks: (taskId: string, telegramId: string) =>
+    fetchApi<{ subtasks: import("@/lib/store").Task[] }>(`/tasks/${taskId}/subtasks`, {
+      method: "GET",
+      headers: { "X-Telegram-Id": telegramId },
+    }),
+
+  createSubtask: (
+    taskId: string,
+    subtask: {
+      title: string
+      description?: string
+      dueDate?: string
+      priority?: string
+      assignedTo?: string[]
+      category?: string
+      tags?: string[]
+      department?: string
+      estimatedHours?: number
+    },
+    telegramId: string,
+  ) =>
+    fetchApi<{ subtask: import("@/lib/store").Task }>(`/tasks/${taskId}/subtasks`, {
+      method: "POST",
+      body: JSON.stringify(subtask),
+      headers: { "X-Telegram-Id": telegramId },
+    }),
+
+  getDescendants: (taskId: string, telegramId: string) =>
+    fetchApi<{ descendants: import("@/lib/store").Task[]; count: number }>(`/tasks/${taskId}/descendants`, {
+      method: "GET",
+      headers: { "X-Telegram-Id": telegramId },
+    }),
+
+  bulkMove: (
+    taskIds: string[],
+    targetProjectId?: string,
+    targetParentId?: string | null,
+    telegramId?: string,
+  ) =>
+    fetchApi<{
+      message: string
+      results: { success: string[]; failed: Array<{ taskId: string; error: string }> }
+    }>("/tasks/bulk", {
+      method: "POST",
+      body: JSON.stringify({ action: "move", taskIds, targetProjectId, targetParentId }),
+      headers: { "X-Telegram-Id": telegramId || "" },
     }),
 }
 

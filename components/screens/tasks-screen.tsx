@@ -24,11 +24,14 @@ export function TasksScreen({ onTaskSelect, onCreateTask }: TasksScreenProps) {
     getAllCompanyTasks,
     getUserRole,
     getActiveCompany,
+    getActiveProject,
+    getRootTasksForProject,
     activeTimeLog,
     currentUser,
     loadTasks,
     getUnreadNotificationCount,
     tasks,
+    activeProjectId,
   } = useAppStore()
   const { user } = useTelegram()
   const [filter, setFilter] = useState<"all" | "pending" | "in_progress" | "completed">("all")
@@ -38,22 +41,24 @@ export function TasksScreen({ onTaskSelect, onCreateTask }: TasksScreenProps) {
 
   const role = getUserRole()
   const company = getActiveCompany()
+  const activeProject = getActiveProject()
   const isManagerOrAdmin = role === "admin" || role === "manager"
   const unreadCount = getUnreadNotificationCount()
   const telegramId = user?.id?.toString() || currentUser?.telegramId || ""
 
   useEffect(() => {
-    if (company?.id && currentUser && telegramId) {
+    if (company?.id && currentUser && telegramId && activeProjectId) {
       loadTasksFromApi()
     }
-  }, [company?.id, currentUser, telegramId]) // Updated dependency array
+  }, [company?.id, currentUser, telegramId, activeProjectId])
 
   const loadTasksFromApi = async () => {
-    if (!company?.id || !currentUser || !telegramId) return
+    if (!company?.id || !currentUser || !telegramId || !activeProjectId) return
 
     setIsLoading(true)
     setDebugInfo(null)
     try {
+      // Fetch tasks filtered by project and only root tasks
       const response = await taskApi.getAll(company.id, telegramId)
 
       if (response.success && response.data) {
@@ -78,17 +83,15 @@ export function TasksScreen({ onTaskSelect, onCreateTask }: TasksScreenProps) {
                 status: t.status,
                 priority: t.priority,
                 companyId: company.id,
+                projectId: t.projectId || activeProjectId,
+                parentTaskId: t.parentTaskId || null,
+                depth: t.depth || 0,
+                path: t.path || [],
                 assignedTo: assignedToData,
                 createdBy: t.createdBy?.id || t.createdBy || currentUser?.id || "",
                 category: t.category || "",
                 tags: t.tags || [],
                 department: t.department || "",
-                subtasks: (t.subtasks || []).map((st: any, idx: number) => ({
-                  id: st.id || `subtask-${idx}`,
-                  title: st.title,
-                  completed: st.completed || false,
-                  completedAt: st.completedAt ? new Date(st.completedAt) : null,
-                })),
                 estimatedHours: t.estimatedHours || 0,
                 actualHours: t.actualHours || 0,
                 completedAt: t.completedAt ? new Date(t.completedAt) : null,
@@ -124,8 +127,13 @@ export function TasksScreen({ onTaskSelect, onCreateTask }: TasksScreenProps) {
     }
   }
 
-  const myTasks = getTasksForUser()
-  const allTasks = isManagerOrAdmin ? getAllCompanyTasks() : myTasks
+  // Get root tasks for the active project
+  const projectRootTasks = activeProjectId ? getRootTasksForProject(activeProjectId) : []
+
+  const myTasks = getTasksForUser().filter(
+    (t) => t.projectId === activeProjectId && (!t.parentTaskId || t.depth === 0)
+  )
+  const allTasks = isManagerOrAdmin ? projectRootTasks : myTasks
 
   const filterTasks = (tasks: typeof myTasks) => {
     return tasks.filter((task) => {
@@ -155,8 +163,10 @@ export function TasksScreen({ onTaskSelect, onCreateTask }: TasksScreenProps) {
               <Image src="/logo-dark.png" alt="WhatsTask" width={28} height={28} className="object-contain" />
             </div>
             <div>
-              <h1 className="font-heading text-xl font-bold">Tasks</h1>
-              <p className="font-body text-sm text-muted-foreground">{company?.name || "No company"}</p>
+              <h1 className="font-heading text-xl font-bold">{activeProject?.name || "Tasks"}</h1>
+              <p className="font-body text-sm text-muted-foreground">
+                {activeProject ? `${activeProject.icon} ${company?.name || ""}` : company?.name || "No company"}
+              </p>
             </div>
           </div>
           <div className="flex items-center gap-2">

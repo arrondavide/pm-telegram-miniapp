@@ -22,7 +22,7 @@ interface CreateTaskScreenProps {
 }
 
 export function CreateTaskScreen({ onBack, onSuccess }: CreateTaskScreenProps) {
-  const { createTask, getCompanyMembers, currentUser, loadMembers } = useAppStore()
+  const { createTask, getCompanyMembers, currentUser, loadMembers, activeProjectId, getActiveProject } = useAppStore()
   const { hapticFeedback, showBackButton, hideBackButton, user } = useTelegram()
 
   const [title, setTitle] = useState("")
@@ -33,14 +33,13 @@ export function CreateTaskScreen({ onBack, onSuccess }: CreateTaskScreenProps) {
   const [category, setCategory] = useState("")
   const [tags, setTags] = useState<string[]>([])
   const [newTag, setNewTag] = useState("")
-  const [subtasks, setSubtasks] = useState<string[]>([])
-  const [newSubtask, setNewSubtask] = useState("")
   const [estimatedHours, setEstimatedHours] = useState("4")
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isLoadingMembers, setIsLoadingMembers] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const members = getCompanyMembers()
+  const activeProject = getActiveProject()
   const telegramId = user?.id?.toString() || currentUser?.telegramId || ""
 
   useEffect(() => {
@@ -77,17 +76,6 @@ export function CreateTaskScreen({ onBack, onSuccess }: CreateTaskScreenProps) {
     setTags(tags.filter((t) => t !== tag))
   }
 
-  const handleAddSubtask = () => {
-    if (newSubtask.trim()) {
-      setSubtasks([...subtasks, newSubtask.trim()])
-      setNewSubtask("")
-    }
-  }
-
-  const handleRemoveSubtask = (index: number) => {
-    setSubtasks(subtasks.filter((_, i) => i !== index))
-  }
-
   const toggleAssignee = (memberId: string, memberTelegramId?: string) => {
     const idToUse = memberTelegramId || memberId
     if (assignedTo.includes(idToUse)) {
@@ -99,7 +87,7 @@ export function CreateTaskScreen({ onBack, onSuccess }: CreateTaskScreenProps) {
   }
 
   const handleSubmit = async () => {
-    if (!title.trim() || !dueDate || assignedTo.length === 0 || !currentUser?.activeCompanyId) {
+    if (!title.trim() || !dueDate || assignedTo.length === 0 || !currentUser?.activeCompanyId || !activeProjectId) {
       hapticFeedback("error")
       setError("Please fill in all required fields and assign at least one person")
       return
@@ -119,6 +107,8 @@ export function CreateTaskScreen({ onBack, onSuccess }: CreateTaskScreenProps) {
       const response = await taskApi.create(
         {
           companyId: currentUser.activeCompanyId,
+          projectId: activeProjectId,
+          parentTaskId: null,
           title: title.trim(),
           description: description.trim(),
           dueDate,
@@ -129,12 +119,8 @@ export function CreateTaskScreen({ onBack, onSuccess }: CreateTaskScreenProps) {
           category: category.trim(),
           tags,
           department: "",
-          subtasks: subtasks.map((st, i) => ({
-            id: `st-${Date.now()}-${i}`,
-            title: st,
-            completed: false,
-            completedAt: null,
-          })),
+          depth: 0,
+          path: [],
           estimatedHours: Number.parseFloat(estimatedHours) || 0,
           actualHours: 0,
           completedAt: null,
@@ -154,15 +140,13 @@ export function CreateTaskScreen({ onBack, onSuccess }: CreateTaskScreenProps) {
           assignedTo,
           createdBy: currentUser.id,
           companyId: currentUser.activeCompanyId,
+          projectId: activeProjectId,
+          parentTaskId: null,
+          depth: 0,
+          path: [],
           category: category.trim(),
           tags,
           department: "",
-          subtasks: subtasks.map((st, i) => ({
-            id: `st-${Date.now()}-${i}`,
-            title: st,
-            completed: false,
-            completedAt: null,
-          })),
           estimatedHours: Number.parseFloat(estimatedHours) || 0,
         })
         hapticFeedback("success")
@@ -354,39 +338,20 @@ export function CreateTaskScreen({ onBack, onSuccess }: CreateTaskScreenProps) {
           )}
         </div>
 
-        {/* Subtasks */}
-        <div className="space-y-2">
-          <Label className="font-body">Subtasks</Label>
-          <div className="flex gap-2">
-            <Input
-              placeholder="Add a subtask"
-              value={newSubtask}
-              onChange={(e) => setNewSubtask(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), handleAddSubtask())}
-            />
-            <Button type="button" variant="outline" size="icon" onClick={handleAddSubtask}>
-              <Plus className="h-4 w-4" />
-            </Button>
-          </div>
-          {subtasks.length > 0 && (
-            <div className="space-y-2 mt-2">
-              {subtasks.map((subtask, index) => (
-                <div key={index} className="flex items-center gap-2 rounded-lg border p-3">
-                  <span className="flex-1 text-sm font-body">{subtask}</span>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="h-6 w-6"
-                    onClick={() => handleRemoveSubtask(index)}
-                  >
-                    <X className="h-4 w-4" />
-                  </Button>
-                </div>
-              ))}
+        {/* Project Info */}
+        {activeProject && (
+          <div className="rounded-lg border bg-muted/50 p-3">
+            <div className="flex items-center gap-2 text-sm">
+              <span className="text-lg">{activeProject.icon}</span>
+              <div>
+                <p className="font-medium">{activeProject.name}</p>
+                <p className="text-xs text-muted-foreground">
+                  Creating root-level task • Add subtasks from task details after creation
+                </p>
+              </div>
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
     </div>
   )
