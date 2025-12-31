@@ -98,6 +98,10 @@ export function CreateTaskScreen({ onBack, onSuccess, parentTaskId }: CreateTask
   }
 
   const handleSubmit = async () => {
+    console.log('[CreateTask] handleSubmit called')
+    console.log('[CreateTask] activeProjectId:', activeProjectId)
+    console.log('[CreateTask] currentUser.activeCompanyId:', currentUser?.activeCompanyId)
+
     if (!title.trim() || !dueDate || assignedTo.length === 0 || !currentUser?.activeCompanyId || !activeProjectId) {
       hapticFeedback("error")
       setError("Please fill in all required fields and assign at least one person")
@@ -118,6 +122,8 @@ export function CreateTaskScreen({ onBack, onSuccess, parentTaskId }: CreateTask
       // Calculate depth and path for subtasks
       const taskDepth = parentTask ? (parentTask.depth || 0) + 1 : 0
       const taskPath = parentTask ? [...(parentTask.path || []), parentTask.id] : []
+
+      console.log('[CreateTask] Creating task with projectId:', activeProjectId)
 
       const response = await taskApi.create(
         {
@@ -371,7 +377,7 @@ export function CreateTaskScreen({ onBack, onSuccess, parentTaskId }: CreateTask
         </div>
 
         {/* Project Info */}
-        {activeProject && (
+        {activeProject ? (
           <div className="rounded-lg border bg-muted/50 p-3">
             <div className="flex items-center gap-2 text-sm">
               <span className="text-lg">{activeProject.icon}</span>
@@ -380,8 +386,14 @@ export function CreateTaskScreen({ onBack, onSuccess, parentTaskId }: CreateTask
                 <p className="text-xs text-muted-foreground">
                   Creating root-level task • Add subtasks from task details after creation
                 </p>
+                <p className="text-xs text-blue-600 mt-1">DEBUG: Project ID = {activeProjectId}</p>
               </div>
             </div>
+          </div>
+        ) : (
+          <div className="rounded-lg border-2 border-red-500 bg-red-50 p-3">
+            <p className="text-sm font-semibold text-red-800">⚠️ WARNING: No active project!</p>
+            <p className="text-xs text-red-600 mt-1">activeProjectId = {activeProjectId || 'null'}</p>
           </div>
         )}
       </div>
