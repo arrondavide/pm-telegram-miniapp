@@ -213,35 +213,40 @@ export function ProjectDetailScreen({ projectId, onBack, onTaskClick, onCreateTa
       {/* Content */}
       <div className="flex-1 overflow-auto">
         {/* DEBUG PANEL - Remove this after testing */}
-        {isEmployee && (
-          <div className="m-4 rounded-lg border-2 border-blue-500 bg-blue-50 p-4 text-xs">
-            <div className="mb-2 font-bold text-blue-900">🔍 DEBUG INFO (Employee View)</div>
-            <div className="space-y-1 text-blue-800">
-              <div>👤 Your ID: {currentUser?.id}</div>
-              <div>📱 Your Telegram ID: {currentUser?.telegramId}</div>
-              <div>📊 Total tasks in store: {tasks.length}</div>
-              <div>📁 Tasks in this project: {projectTasks.length}</div>
-              <div>✅ Tasks assigned to you: {allTasks.length}</div>
-              {tasks.length > 0 && (
-                <div className="mt-2 border-t border-blue-300 pt-2">
-                  <div className="font-semibold">Task in Store (not in project):</div>
-                  <div>Title: {tasks[0]?.title}</div>
-                  <div>Task ProjectId: {tasks[0]?.projectId}</div>
-                  <div>Current ProjectId: {projectId}</div>
-                  <div className={tasks[0]?.projectId === projectId ? "text-green-600" : "text-red-600"}>
-                    {tasks[0]?.projectId === projectId ? "✅ IDs MATCH" : "❌ IDs DON'T MATCH!"}
-                  </div>
-                  <div>Assigned To: {JSON.stringify(tasks[0]?.assignedTo?.map(a => typeof a === 'string' ? a : a.telegramId))}</div>
+        <div className="m-4 rounded-lg border-2 border-blue-500 bg-blue-50 p-4 text-xs">
+          <div className="mb-2 font-bold text-blue-900">🔍 DEBUG INFO ({isEmployee ? 'Employee' : 'Admin/Manager'} View)</div>
+          <div className="space-y-1 text-blue-800">
+            <div>👤 Your ID: {currentUser?.id}</div>
+            <div>📱 Your Telegram ID: {currentUser?.telegramId}</div>
+            <div>📂 Current Project ID: {projectId}</div>
+            <div>📊 Total tasks in store: {tasks.length}</div>
+            <div>📁 Tasks in this project: {projectTasks.length}</div>
+            <div>✅ {isEmployee ? 'Tasks assigned to you' : 'Root tasks'}: {allTasks.length}</div>
+            <div>🔄 Loading: {isLoadingTasks ? 'Yes' : 'No'}</div>
+            {tasks.length > 0 && (
+              <div className="mt-2 border-t border-blue-300 pt-2">
+                <div className="font-semibold">First Task in Store:</div>
+                <div>Title: {tasks[0]?.title}</div>
+                <div>Task ProjectId: {tasks[0]?.projectId || '(empty)'}</div>
+                <div>Current ProjectId: {projectId}</div>
+                <div className={tasks[0]?.projectId === projectId ? "text-green-600" : "text-red-600"}>
+                  {tasks[0]?.projectId === projectId ? "✅ IDs MATCH" : "❌ IDs DON'T MATCH!"}
                 </div>
-              )}
-              {allTasks.length === 0 && projectTasks.length > 0 && (
-                <div className="mt-2 rounded bg-red-100 p-2 text-red-800">
-                  ⚠️ Tasks exist but none match your ID!
-                </div>
-              )}
-            </div>
+                <div>Assigned To: {JSON.stringify(tasks[0]?.assignedTo?.map(a => typeof a === 'string' ? a : a.telegramId))}</div>
+              </div>
+            )}
+            {allTasks.length === 0 && projectTasks.length > 0 && (
+              <div className="mt-2 rounded bg-red-100 p-2 text-red-800">
+                ⚠️ Tasks exist but {isEmployee ? 'none match your ID' : 'all are subtasks (no root tasks)'}!
+              </div>
+            )}
+            {tasks.length === 0 && !isLoadingTasks && (
+              <div className="mt-2 rounded bg-yellow-100 p-2 text-yellow-800">
+                ⚠️ API returned 0 tasks! Check server logs.
+              </div>
+            )}
           </div>
-        )}
+        </div>
 
         {isLoadingTasks ? (
           <div className="flex h-full items-center justify-center">
