@@ -19,11 +19,24 @@ export function ProjectsScreen({ onProjectSelect, onCreateProject }: ProjectsScr
 
   useEffect(() => {
     async function fetchProjects() {
-      if (!activeCompany || !currentUser) return
+      console.log('[ProjectsScreen] fetchProjects called', {
+        hasActiveCompany: !!activeCompany,
+        activeCompanyId: activeCompany?.id,
+        hasCurrentUser: !!currentUser,
+        currentUserTelegramId: currentUser?.telegramId,
+        currentUserActiveCompanyId: currentUser?.activeCompanyId
+      })
+
+      if (!activeCompany || !currentUser) {
+        console.log('[ProjectsScreen] Missing activeCompany or currentUser, setting loading=false')
+        setIsLoading(false)
+        return
+      }
 
       setIsLoading(true)
       try {
         const response = await projectApi.getAll(activeCompany.id, currentUser.telegramId)
+        console.log('[ProjectsScreen] API response:', response)
         if (response.success && response.data) {
           loadProjects(response.data.projects)
         }
@@ -81,6 +94,24 @@ export function ProjectsScreen({ onProjectSelect, onCreateProject }: ProjectsScr
             <Plus className="mr-2 h-4 w-4" />
             New Project
           </Button>
+        </div>
+      </div>
+
+      {/* DEBUG PANEL - Remove after testing */}
+      <div className="m-4 rounded-lg border-2 border-purple-500 bg-purple-50 p-4 text-xs">
+        <div className="mb-2 font-bold text-purple-900">🔍 DEBUG INFO (Projects Screen)</div>
+        <div className="space-y-1 text-purple-800">
+          <div>👤 User ID: {currentUser?.id}</div>
+          <div>📱 User Telegram ID: {currentUser?.telegramId}</div>
+          <div>🏢 User Active Company ID: {currentUser?.activeCompanyId}</div>
+          <div>🏢 Active Company ID: {activeCompany?.id}</div>
+          <div>🏢 Active Company Name: {activeCompany?.name}</div>
+          <div>📊 Projects in Store: {projects.length}</div>
+          <div>📋 Tasks in Store: {tasks.length}</div>
+          <div className="mt-2 border-t border-purple-300 pt-2">
+            <div className="font-semibold">Loading State:</div>
+            <div>isLoading: {isLoading ? "true" : "false"}</div>
+          </div>
         </div>
       </div>
 
