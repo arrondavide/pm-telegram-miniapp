@@ -254,7 +254,13 @@ export const useAppStore = create<AppState>()(
       loadTasks: (tasks) => {
         console.log("[Store] loadTasks called with:", tasks.length, "tasks")
         console.log("[Store] Sample task assignedTo structure:", tasks[0]?.assignedTo)
-        set({ tasks })
+
+        // Merge tasks instead of replacing to preserve locally-created tasks
+        set((state) => {
+          const taskMap = new Map(state.tasks.map(t => [t.id, t]))
+          tasks.forEach(task => taskMap.set(task.id, task))
+          return { tasks: Array.from(taskMap.values()) }
+        })
       },
 
       addNotification: (notification) => {
