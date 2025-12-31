@@ -50,23 +50,30 @@ export function ProjectDetailScreen({ projectId, onBack, onTaskClick, onCreateTa
   // For managers/admins: show only root-level tasks
   const allTasks = isEmployee && currentUser
     ? projectTasks.filter((task) => {
+        console.log('[ProjectDetail] Checking task:', task.title)
+        console.log('[ProjectDetail] Task assignedTo:', JSON.stringify(task.assignedTo))
+        console.log('[ProjectDetail] Current user id:', currentUser.id)
+        console.log('[ProjectDetail] Current user telegramId:', currentUser.telegramId)
+
         const isAssigned = task.assignedTo.some((assignee) => {
           // assignedTo is an array of objects with {id, fullName, username, telegramId}
           if (typeof assignee === 'string') {
-            return assignee === currentUser.id || assignee === currentUser.telegramId
+            const match = assignee === currentUser.id || assignee === currentUser.telegramId
+            console.log(`  [String] assignee "${assignee}" === userId "${currentUser.id}" or telegramId "${currentUser.telegramId}"? ${match}`)
+            return match
           }
-          return assignee.id === currentUser.id ||
-                 assignee.telegramId === currentUser.telegramId ||
-                 assignee.id === currentUser.telegramId
+          const matchId = assignee.id === currentUser.id
+          const matchTelegramId = assignee.telegramId === currentUser.telegramId
+          const matchIdToTelegram = assignee.id === currentUser.telegramId
+          const match = matchId || matchTelegramId || matchIdToTelegram
+          console.log(`  [Object] assignee.id "${assignee.id}" === userId "${currentUser.id}"? ${matchId}`)
+          console.log(`  [Object] assignee.telegramId "${assignee.telegramId}" === userTelegramId "${currentUser.telegramId}"? ${matchTelegramId}`)
+          console.log(`  [Object] assignee.id "${assignee.id}" === userTelegramId "${currentUser.telegramId}"? ${matchIdToTelegram}`)
+          console.log(`  [Object] Final match: ${match}`)
+          return match
         })
-        console.log('[ProjectDetail] Task filter:', {
-          taskId: task.id,
-          title: task.title,
-          assignedTo: task.assignedTo,
-          currentUserId: currentUser.id,
-          currentUserTelegramId: currentUser.telegramId,
-          isAssigned
-        })
+        console.log('[ProjectDetail] Task isAssigned:', isAssigned)
+        console.log('---')
         return isAssigned
       })
     : projectTasks.filter((t) => !t.parentTaskId || t.depth === 0)
@@ -80,14 +87,23 @@ export function ProjectDetailScreen({ projectId, onBack, onTaskClick, onCreateTa
 
   useEffect(() => {
     const fetchTasks = async () => {
-      if (!currentUser?.telegramId) return
+      if (!currentUser?.telegramId) {
+        console.log('[ProjectDetail] Not fetching - no telegramId')
+        return
+      }
 
+      console.log('[ProjectDetail] Fetching tasks for project:', projectId)
       setIsLoadingTasks(true)
       try {
         // Fetch all tasks in the project (rootOnly=false) so employees can see subtasks they're assigned to
         const response = await taskApi.getByProject(projectId, currentUser.telegramId, false)
+        console.log('[ProjectDetail] API response:', response)
         if (response.success && response.data?.tasks) {
+          console.log('[ProjectDetail] Loaded tasks count:', response.data.tasks.length)
+          console.log('[ProjectDetail] Sample task from API:', response.data.tasks[0])
           loadTasks(response.data.tasks)
+        } else {
+          console.log('[ProjectDetail] API response failed or no tasks')
         }
       } catch (error) {
         console.error("Failed to load tasks:", error)
@@ -196,6 +212,32 @@ export function ProjectDetailScreen({ projectId, onBack, onTaskClick, onCreateTa
 
       {/* Content */}
       <div className="flex-1 overflow-auto">
+        {/* DEBUG PANEL - Remove this after testing */}
+        {isEmployee && (
+          <div className="m-4 rounded-lg border-2 border-blue-500 bg-blue-50 p-4 text-xs">
+            <div className="mb-2 font-bold text-blue-900">🔍 DEBUG INFO (Employee View)</div>
+            <div className="space-y-1 text-blue-800">
+              <div>👤 Your ID: {currentUser?.id}</div>
+              <div>📱 Your Telegram ID: {currentUser?.telegramId}</div>
+              <div>📊 Total tasks in store: {tasks.length}</div>
+              <div>📁 Tasks in this project: {projectTasks.length}</div>
+              <div>✅ Tasks assigned to you: {allTasks.length}</div>
+              {projectTasks.length > 0 && (
+                <div className="mt-2 border-t border-blue-300 pt-2">
+                  <div className="font-semibold">Sample Task:</div>
+                  <div>Title: {projectTasks[0]?.title}</div>
+                  <div>Assigned To: {JSON.stringify(projectTasks[0]?.assignedTo?.map(a => typeof a === 'string' ? a : a.telegramId))}</div>
+                </div>
+              )}
+              {allTasks.length === 0 && projectTasks.length > 0 && (
+                <div className="mt-2 rounded bg-red-100 p-2 text-red-800">
+                  ⚠️ Tasks exist but none match your ID!
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {isLoadingTasks ? (
           <div className="flex h-full items-center justify-center">
             <div className="text-center text-muted-foreground">Loading tasks...</div>
