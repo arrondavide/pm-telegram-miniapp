@@ -146,19 +146,36 @@ export function CreateTaskScreen({ onBack, onSuccess, parentTaskId }: CreateTask
 
       if (response.success) {
         // Also create locally for immediate UI update
+        // Convert assignedTo from telegramIds to proper format matching API response
+        const assignedToWithDetails = assignedTo.map(assigneeId => {
+          const member = members.find(m => (m.telegramId || m.id) === assigneeId)
+          if (member) {
+            return {
+              id: member.id,
+              telegramId: member.telegramId || "",
+              fullName: member.fullName,
+              username: member.username || "",
+            }
+          }
+          // Fallback if member not found in list
+          return assigneeId
+        })
+
+        console.log('[CreateTask] Creating local task with assignedTo:', assignedToWithDetails)
+
         createTask({
           title: title.trim(),
           description: description.trim(),
           dueDate,
           priority,
           status: "pending",
-          assignedTo,
+          assignedTo: assignedToWithDetails as any,
           createdBy: currentUser.id,
           companyId: currentUser.activeCompanyId,
           projectId: activeProjectId,
-          parentTaskId: null,
-          depth: 0,
-          path: [],
+          parentTaskId: parentTaskId || null,
+          depth: taskDepth,
+          path: taskPath,
           category: category.trim(),
           tags,
           department: "",
