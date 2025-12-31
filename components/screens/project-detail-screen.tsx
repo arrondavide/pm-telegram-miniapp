@@ -222,11 +222,16 @@ export function ProjectDetailScreen({ projectId, onBack, onTaskClick, onCreateTa
               <div>📊 Total tasks in store: {tasks.length}</div>
               <div>📁 Tasks in this project: {projectTasks.length}</div>
               <div>✅ Tasks assigned to you: {allTasks.length}</div>
-              {projectTasks.length > 0 && (
+              {tasks.length > 0 && (
                 <div className="mt-2 border-t border-blue-300 pt-2">
-                  <div className="font-semibold">Sample Task:</div>
-                  <div>Title: {projectTasks[0]?.title}</div>
-                  <div>Assigned To: {JSON.stringify(projectTasks[0]?.assignedTo?.map(a => typeof a === 'string' ? a : a.telegramId))}</div>
+                  <div className="font-semibold">Task in Store (not in project):</div>
+                  <div>Title: {tasks[0]?.title}</div>
+                  <div>Task ProjectId: {tasks[0]?.projectId}</div>
+                  <div>Current ProjectId: {projectId}</div>
+                  <div className={tasks[0]?.projectId === projectId ? "text-green-600" : "text-red-600"}>
+                    {tasks[0]?.projectId === projectId ? "✅ IDs MATCH" : "❌ IDs DON'T MATCH!"}
+                  </div>
+                  <div>Assigned To: {JSON.stringify(tasks[0]?.assignedTo?.map(a => typeof a === 'string' ? a : a.telegramId))}</div>
                 </div>
               )}
               {allTasks.length === 0 && projectTasks.length > 0 && (
