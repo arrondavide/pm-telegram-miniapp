@@ -40,7 +40,10 @@ export function ProjectDetailScreen({ projectId, onBack, onTaskClick, onCreateTa
     isEmployee,
     currentUserId: currentUser?.id,
     currentUserTelegramId: currentUser?.telegramId,
+    currentUserFull: currentUser,
     sampleTask: projectTasks[0],
+    sampleTaskAssignedTo: projectTasks[0]?.assignedTo,
+    sampleTaskAssignedToTypes: projectTasks[0]?.assignedTo?.map(a => typeof a),
   })
 
   // For employees: show only tasks they're assigned to (including subtasks)
@@ -140,10 +143,12 @@ export function ProjectDetailScreen({ projectId, onBack, onTaskClick, onCreateTa
               </div>
             </div>
           </div>
-          <Button onClick={onCreateTask} size="sm">
-            <Plus className="mr-2 h-4 w-4" />
-            Task
-          </Button>
+          {!isEmployee && (
+            <Button onClick={onCreateTask} size="sm">
+              <Plus className="mr-2 h-4 w-4" />
+              Task
+            </Button>
+          )}
         </div>
 
         {/* Stats */}
@@ -199,9 +204,13 @@ export function ProjectDetailScreen({ projectId, onBack, onTaskClick, onCreateTa
           <div className="flex h-full items-center justify-center">
             <div className="text-center">
               <p className="mb-2 text-muted-foreground">
-                {searchQuery || statusFilter !== "all" ? "No tasks match your filters" : "No tasks yet"}
+                {searchQuery || statusFilter !== "all"
+                  ? "No tasks match your filters"
+                  : isEmployee
+                    ? "No tasks assigned to you yet"
+                    : "No tasks yet"}
               </p>
-              {!searchQuery && statusFilter === "all" && (
+              {!searchQuery && statusFilter === "all" && !isEmployee && (
                 <Button onClick={onCreateTask} variant="outline">
                   <Plus className="mr-2 h-4 w-4" />
                   Create First Task

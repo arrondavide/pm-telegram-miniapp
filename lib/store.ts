@@ -252,7 +252,8 @@ export const useAppStore = create<AppState>()(
       },
 
       loadTasks: (tasks) => {
-        console.log("[v0] loadTasks called with:", tasks.length, "tasks")
+        console.log("[Store] loadTasks called with:", tasks.length, "tasks")
+        console.log("[Store] Sample task assignedTo structure:", tasks[0]?.assignedTo)
         set({ tasks })
       },
 
