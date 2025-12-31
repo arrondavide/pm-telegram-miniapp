@@ -53,6 +53,9 @@ export function CreateTaskScreen({ onBack, onSuccess, parentTaskId }: CreateTask
   const telegramId = user?.id?.toString() || currentUser?.telegramId || ""
   const isCreatingSubtask = Boolean(parentTaskId && parentTask)
 
+  console.log('[CreateTask] Component rendered with activeProjectId:', activeProjectId)
+  console.log('[CreateTask] activeProject:', activeProject)
+
   useEffect(() => {
     showBackButton(onBack)
     return () => hideBackButton()
@@ -393,7 +396,8 @@ export function CreateTaskScreen({ onBack, onSuccess, parentTaskId }: CreateTask
         ) : (
           <div className="rounded-lg border-2 border-red-500 bg-red-50 p-3">
             <p className="text-sm font-semibold text-red-800">⚠️ WARNING: No active project!</p>
-            <p className="text-xs text-red-600 mt-1">activeProjectId = {activeProjectId || 'null'}</p>
+            <p className="text-xs text-red-600 mt-1">activeProjectId = {String(activeProjectId)} ({typeof activeProjectId})</p>
+            <p className="text-xs text-red-600">This will create a task with NO projectId!</p>
           </div>
         )}
       </div>
