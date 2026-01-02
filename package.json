@@ -7,7 +7,8 @@
     "dev": "next dev",
     "lint": "eslint .",
     "start": "next start",
-    "migrate:projects": "tsx scripts/migrate-to-projects.ts"
+    "migrate:projects": "tsx scripts/migrate-to-projects.ts",
+    "fix:data": "tsx scripts/fix-all-data.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
