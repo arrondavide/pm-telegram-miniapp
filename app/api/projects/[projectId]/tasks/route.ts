@@ -46,15 +46,29 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       return NextResponse.json({ error: "Access denied" }, { status: 403 })
     }
 
+    // Auto-fix: Assign tasks without project_id to this project if they belong to the same company
+    const fixResult = await Task.updateMany(
+      {
+        company_id: project.company_id,
+        $or: [
+          { project_id: null },
+          { project_id: { $exists: false } }
+        ]
+      },
+      {
+        $set: { project_id: project._id }
+      }
+    )
+
+    if (fixResult.modifiedCount > 0) {
+      console.log(`[Auto-fix] Assigned ${fixResult.modifiedCount} orphan tasks to project ${project._id}`)
+    }
+
     // Build query
     const query: any = { project_id: project._id }
     if (rootOnly) {
       query.$or = [{ parent_task_id: null }, { parent_task_id: { $exists: false } }]
     }
-
-    console.log('[API] Fetching tasks with query:', JSON.stringify(query))
-    console.log('[API] Project ID:', project._id.toString())
-    console.log('[API] rootOnly:', rootOnly)
 
     // Get tasks
     const tasks = await Task.find(query)
@@ -62,36 +76,6 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       .populate("created_by", "telegram_id full_name username")
       .sort({ createdAt: -1 })
       .lean()
-
-    console.log('[API] Found tasks count:', tasks.length)
-    if (tasks.length > 0) {
-      console.log('[API] Sample task:', {
-        id: tasks[0]._id.toString(),
-        title: tasks[0].title,
-        project_id: tasks[0].project_id?.toString(),
-        assignedTo: tasks[0].assigned_to
-      })
-    }
-
-    // Also check for ALL tasks in this project (ignoring rootOnly)
-    const allTasksInProject = await Task.find({ project_id: project._id }).lean()
-    console.log('[API] Total tasks in project (ignoring rootOnly):', allTasksInProject.length)
-
-    // Check for tasks with missing project_id
-    const tasksWithoutProject = await Task.find({
-      $or: [
-        { project_id: null },
-        { project_id: { $exists: false } }
-      ]
-    }).limit(5).lean()
-    console.log('[API] Tasks without project_id:', tasksWithoutProject.length)
-    if (tasksWithoutProject.length > 0) {
-      console.log('[API] Sample task without project_id:', {
-        id: tasksWithoutProject[0]._id.toString(),
-        title: tasksWithoutProject[0].title,
-        company_id: tasksWithoutProject[0].company_id?.toString()
-      })
-    }
 
     // Format tasks
     const formatTask = (task: any) => ({

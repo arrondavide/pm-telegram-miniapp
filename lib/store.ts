@@ -252,9 +252,6 @@ export const useAppStore = create<AppState>()(
       },
 
       loadTasks: (tasks) => {
-        console.log("[Store] loadTasks called with:", tasks.length, "tasks")
-        console.log("[Store] Sample task assignedTo structure:", tasks[0]?.assignedTo)
-
         // Merge tasks instead of replacing to preserve locally-created tasks
         set((state) => {
           const taskMap = new Map(state.tasks.map(t => [t.id, t]))
@@ -445,7 +442,6 @@ export const useAppStore = create<AppState>()(
 
       // Project actions
       loadProjects: (projects) => {
-        console.log("[v0] loadProjects called with:", projects.length, "projects")
         set({ projects })
       },
 

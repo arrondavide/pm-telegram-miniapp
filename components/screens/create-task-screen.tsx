@@ -53,9 +53,6 @@ export function CreateTaskScreen({ onBack, onSuccess, parentTaskId }: CreateTask
   const telegramId = user?.id?.toString() || currentUser?.telegramId || ""
   const isCreatingSubtask = Boolean(parentTaskId && parentTask)
 
-  console.log('[CreateTask] Component rendered with activeProjectId:', activeProjectId)
-  console.log('[CreateTask] activeProject:', activeProject)
-
   useEffect(() => {
     showBackButton(onBack)
     return () => hideBackButton()
@@ -101,10 +98,6 @@ export function CreateTaskScreen({ onBack, onSuccess, parentTaskId }: CreateTask
   }
 
   const handleSubmit = async () => {
-    console.log('[CreateTask] handleSubmit called')
-    console.log('[CreateTask] activeProjectId:', activeProjectId)
-    console.log('[CreateTask] currentUser.activeCompanyId:', currentUser?.activeCompanyId)
-
     if (!title.trim() || !dueDate || assignedTo.length === 0 || !currentUser?.activeCompanyId || !activeProjectId) {
       hapticFeedback("error")
       setError("Please fill in all required fields and assign at least one person")
@@ -125,8 +118,6 @@ export function CreateTaskScreen({ onBack, onSuccess, parentTaskId }: CreateTask
       // Calculate depth and path for subtasks
       const taskDepth = parentTask ? (parentTask.depth || 0) + 1 : 0
       const taskPath = parentTask ? [...(parentTask.path || []), parentTask.id] : []
-
-      console.log('[CreateTask] Creating task with projectId:', activeProjectId)
 
       const response = await taskApi.create(
         {
@@ -169,8 +160,6 @@ export function CreateTaskScreen({ onBack, onSuccess, parentTaskId }: CreateTask
           // Fallback if member not found in list
           return assigneeId
         })
-
-        console.log('[CreateTask] Creating local task with assignedTo:', assignedToWithDetails)
 
         createTask({
           title: title.trim(),
