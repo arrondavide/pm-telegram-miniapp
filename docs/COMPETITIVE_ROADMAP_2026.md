@@ -68,8 +68,8 @@ Features:
 
 Views to implement:
 - [x] **Kanban Board** - Drag-and-drop columns by status ✓ COMPLETED
-- [ ] **Calendar View** - Tasks on a date-based calendar
-- [ ] **Timeline/Gantt** - Project timeline with dependencies
+- [x] **Calendar View** - Tasks on a date-based calendar ✓ COMPLETED
+- [x] **Timeline/Gantt** - Project timeline with dependencies ✓ COMPLETED
 - [ ] **Table View** - Spreadsheet-like with inline editing
 - [ ] **Dashboard View** - Customizable widgets
 - [ ] **Mind Map** - Visual task hierarchy

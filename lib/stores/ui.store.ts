@@ -5,7 +5,7 @@
 import { create } from "zustand"
 import { persist } from "zustand/middleware"
 
-type ViewMode = "list" | "kanban"
+export type ViewMode = "list" | "kanban" | "calendar" | "timeline"
 
 interface UIState {
   taskViewMode: ViewMode

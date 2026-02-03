@@ -1,12 +1,14 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Plus, Filter, Clock, AlertTriangle, RefreshCw, Bell, Info, List, LayoutGrid } from "lucide-react"
+import { Plus, Filter, Clock, AlertTriangle, RefreshCw, Bell, Info, List, LayoutGrid, Calendar, GanttChart } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { TaskCard } from "@/components/task-card"
 import { TimeTracker } from "@/components/time-tracker"
 import { KanbanBoard } from "@/components/kanban"
+import { CalendarView } from "@/components/calendar-view"
+import { GanttView } from "@/components/gantt-view"
 import { useUserStore } from "@/lib/stores/user.store"
 import { useCompanyStore } from "@/lib/stores/company.store"
 import { useProjectStore } from "@/lib/stores/project.store"
@@ -254,12 +256,12 @@ export function TasksScreen({ onTaskSelect, onCreateTask }: TasksScreenProps) {
         {/* View Mode Toggle + Filters */}
         <div className="mt-4 flex items-center gap-2">
           {/* View Mode Toggle */}
-          <div className="flex rounded-lg border border-border/50 p-0.5">
+          <div className="flex rounded-lg border border-border/50 p-0.5 overflow-x-auto">
             <Button
               size="sm"
               variant={taskViewMode === "list" ? "default" : "ghost"}
               className={cn(
-                "h-8 px-3 gap-1.5",
+                "h-8 px-2 gap-1",
                 taskViewMode === "list" && "bg-foreground text-background"
               )}
               onClick={() => setTaskViewMode("list")}
@@ -271,13 +273,37 @@ export function TasksScreen({ onTaskSelect, onCreateTask }: TasksScreenProps) {
               size="sm"
               variant={taskViewMode === "kanban" ? "default" : "ghost"}
               className={cn(
-                "h-8 px-3 gap-1.5",
+                "h-8 px-2 gap-1",
                 taskViewMode === "kanban" && "bg-foreground text-background"
               )}
               onClick={() => setTaskViewMode("kanban")}
             >
               <LayoutGrid className="h-4 w-4" />
               <span className="hidden sm:inline">Board</span>
+            </Button>
+            <Button
+              size="sm"
+              variant={taskViewMode === "calendar" ? "default" : "ghost"}
+              className={cn(
+                "h-8 px-2 gap-1",
+                taskViewMode === "calendar" && "bg-foreground text-background"
+              )}
+              onClick={() => setTaskViewMode("calendar")}
+            >
+              <Calendar className="h-4 w-4" />
+              <span className="hidden sm:inline">Calendar</span>
+            </Button>
+            <Button
+              size="sm"
+              variant={taskViewMode === "timeline" ? "default" : "ghost"}
+              className={cn(
+                "h-8 px-2 gap-1",
+                taskViewMode === "timeline" && "bg-foreground text-background"
+              )}
+              onClick={() => setTaskViewMode("timeline")}
+            >
+              <GanttChart className="h-4 w-4" />
+              <span className="hidden sm:inline">Timeline</span>
             </Button>
           </div>
 
@@ -321,6 +347,21 @@ export function TasksScreen({ onTaskSelect, onCreateTask }: TasksScreenProps) {
             onTaskClick={onTaskSelect}
             onStatusChange={handleStatusChange}
             onCreateTask={isManagerOrAdmin ? onCreateTask : undefined}
+            isLoading={isLoading}
+          />
+        ) : taskViewMode === "calendar" ? (
+          /* Calendar View */
+          <CalendarView
+            tasks={kanbanTasks}
+            onTaskClick={onTaskSelect}
+            onCreateTask={isManagerOrAdmin ? (date) => onCreateTask() : undefined}
+            isLoading={isLoading}
+          />
+        ) : taskViewMode === "timeline" ? (
+          /* Timeline/Gantt View */
+          <GanttView
+            tasks={kanbanTasks}
+            onTaskClick={onTaskSelect}
             isLoading={isLoading}
           />
         ) : (
