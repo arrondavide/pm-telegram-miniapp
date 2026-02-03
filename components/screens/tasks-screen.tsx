@@ -1,26 +1,30 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Plus, Filter, Clock, AlertTriangle, RefreshCw, Bell, Info } from "lucide-react"
+import { Plus, Filter, Clock, AlertTriangle, RefreshCw, Bell, Info, List, LayoutGrid } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { TaskCard } from "@/components/task-card"
 import { TimeTracker } from "@/components/time-tracker"
+import { KanbanBoard } from "@/components/kanban"
 import { useUserStore } from "@/lib/stores/user.store"
 import { useCompanyStore } from "@/lib/stores/company.store"
 import { useProjectStore } from "@/lib/stores/project.store"
 import { useTaskStore } from "@/lib/stores/task.store"
 import { useTimeStore } from "@/lib/stores/time.store"
 import { useNotificationStore } from "@/lib/stores/notification.store"
+import { useUIStore } from "@/lib/stores/ui.store"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { taskApi } from "@/lib/api"
 import { useTelegram } from "@/hooks/use-telegram"
 import Image from "next/image"
+import type { TaskStatus } from "@/types/models.types"
+import { cn } from "@/lib/utils"
 
 interface TasksScreenProps {
   onTaskSelect: (taskId: string) => void
-  onCreateTask: () => void
+  onCreateTask: (defaultStatus?: TaskStatus) => void
 }
 
 export function TasksScreen({ onTaskSelect, onCreateTask }: TasksScreenProps) {
@@ -37,6 +41,7 @@ export function TasksScreen({ onTaskSelect, onCreateTask }: TasksScreenProps) {
     getTasksForUser,
     getAllCompanyTasks,
     getRootTasksForProject,
+    updateTaskStatus,
   } = useTaskStore()
 
   const activeTimeLog = useTimeStore((state) => state.activeTimeLog)
@@ -44,6 +49,7 @@ export function TasksScreen({ onTaskSelect, onCreateTask }: TasksScreenProps) {
   const getUnreadNotificationCount = useNotificationStore((state) => state.getUnreadNotificationCount)
 
   const { user } = useTelegram()
+  const { taskViewMode, setTaskViewMode } = useUIStore()
   const [filter, setFilter] = useState<"all" | "pending" | "in_progress" | "completed">("all")
   const [priorityFilter, setPriorityFilter] = useState<string>("all")
   const [isLoading, setIsLoading] = useState(false)
@@ -137,6 +143,21 @@ export function TasksScreen({ onTaskSelect, onCreateTask }: TasksScreenProps) {
     }
   }
 
+  // Handle status change from Kanban drag-and-drop
+  const handleStatusChange = async (taskId: string, newStatus: TaskStatus) => {
+    // Optimistically update the local store
+    updateTaskStatus(taskId, newStatus)
+
+    // Sync with API
+    try {
+      await taskApi.updateStatus(taskId, newStatus, telegramId)
+    } catch (error) {
+      console.error("Failed to update task status:", error)
+      // Optionally revert the optimistic update on error
+      loadTasksFromApi()
+    }
+  }
+
   // Get root tasks for the active project
   const projectRootTasks = activeProjectId ? getRootTasksForProject(activeProjectId) : []
 
@@ -163,6 +184,12 @@ export function TasksScreen({ onTaskSelect, onCreateTask }: TasksScreenProps) {
   const filteredAllTasks = filterTasks(allTasks)
 
   const overdueTasks = myTasks.filter((t) => t.status !== "completed" && new Date(t.dueDate) < new Date())
+
+  // For Kanban, we use all tasks (no status filter) but apply priority filter
+  const kanbanTasks = allTasks.filter((task) => {
+    const priorityMatch = priorityFilter === "all" || task.priority === priorityFilter
+    return priorityMatch
+  })
 
   return (
     <div className="flex flex-col">
@@ -194,7 +221,7 @@ export function TasksScreen({ onTaskSelect, onCreateTask }: TasksScreenProps) {
             {isManagerOrAdmin && (
               <Button
                 size="sm"
-                onClick={onCreateTask}
+                onClick={() => onCreateTask()}
                 className="gap-2 bg-foreground text-background hover:bg-foreground/90"
               >
                 <Plus className="h-4 w-4" />
@@ -224,19 +251,51 @@ export function TasksScreen({ onTaskSelect, onCreateTask }: TasksScreenProps) {
           </div>
         )}
 
-        <div className="mt-4 flex gap-2">
-          <Select value={filter} onValueChange={(v) => setFilter(v as typeof filter)}>
-            <SelectTrigger className="w-[130px] border-border/50">
-              <Filter className="mr-2 h-4 w-4" />
-              <SelectValue placeholder="Status" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Status</SelectItem>
-              <SelectItem value="pending">Pending</SelectItem>
-              <SelectItem value="in_progress">In Progress</SelectItem>
-              <SelectItem value="completed">Completed</SelectItem>
-            </SelectContent>
-          </Select>
+        {/* View Mode Toggle + Filters */}
+        <div className="mt-4 flex items-center gap-2">
+          {/* View Mode Toggle */}
+          <div className="flex rounded-lg border border-border/50 p-0.5">
+            <Button
+              size="sm"
+              variant={taskViewMode === "list" ? "default" : "ghost"}
+              className={cn(
+                "h-8 px-3 gap-1.5",
+                taskViewMode === "list" && "bg-foreground text-background"
+              )}
+              onClick={() => setTaskViewMode("list")}
+            >
+              <List className="h-4 w-4" />
+              <span className="hidden sm:inline">List</span>
+            </Button>
+            <Button
+              size="sm"
+              variant={taskViewMode === "kanban" ? "default" : "ghost"}
+              className={cn(
+                "h-8 px-3 gap-1.5",
+                taskViewMode === "kanban" && "bg-foreground text-background"
+              )}
+              onClick={() => setTaskViewMode("kanban")}
+            >
+              <LayoutGrid className="h-4 w-4" />
+              <span className="hidden sm:inline">Board</span>
+            </Button>
+          </div>
+
+          {/* Filters - hide status filter for Kanban view */}
+          {taskViewMode === "list" && (
+            <Select value={filter} onValueChange={(v) => setFilter(v as typeof filter)}>
+              <SelectTrigger className="w-[130px] border-border/50">
+                <Filter className="mr-2 h-4 w-4" />
+                <SelectValue placeholder="Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Status</SelectItem>
+                <SelectItem value="pending">Pending</SelectItem>
+                <SelectItem value="in_progress">In Progress</SelectItem>
+                <SelectItem value="completed">Completed</SelectItem>
+              </SelectContent>
+            </Select>
+          )}
 
           <Select value={priorityFilter} onValueChange={setPriorityFilter}>
             <SelectTrigger className="w-[130px] border-border/50">
@@ -253,71 +312,83 @@ export function TasksScreen({ onTaskSelect, onCreateTask }: TasksScreenProps) {
         </div>
       </header>
 
-      {/* Task Lists */}
+      {/* Content Area */}
       <div className="flex-1 p-4">
-        <Tabs defaultValue="my-tasks">
-          <TabsList className="grid w-full grid-cols-2 bg-muted">
-            <TabsTrigger value="my-tasks" className="gap-2 data-[state=active]:bg-background">
-              My Tasks
-              <Badge variant="secondary" className="ml-1 bg-foreground/10">
-                {filteredMyTasks.length}
-              </Badge>
-            </TabsTrigger>
-            {isManagerOrAdmin && (
-              <TabsTrigger value="all-tasks" className="gap-2 data-[state=active]:bg-background">
-                All Tasks
+        {taskViewMode === "kanban" ? (
+          /* Kanban View */
+          <KanbanBoard
+            tasks={kanbanTasks}
+            onTaskClick={onTaskSelect}
+            onStatusChange={handleStatusChange}
+            onCreateTask={isManagerOrAdmin ? onCreateTask : undefined}
+            isLoading={isLoading}
+          />
+        ) : (
+          /* List View */
+          <Tabs defaultValue="my-tasks">
+            <TabsList className="grid w-full grid-cols-2 bg-muted">
+              <TabsTrigger value="my-tasks" className="gap-2 data-[state=active]:bg-background">
+                My Tasks
                 <Badge variant="secondary" className="ml-1 bg-foreground/10">
-                  {filteredAllTasks.length}
+                  {filteredMyTasks.length}
                 </Badge>
               </TabsTrigger>
-            )}
-          </TabsList>
+              {isManagerOrAdmin && (
+                <TabsTrigger value="all-tasks" className="gap-2 data-[state=active]:bg-background">
+                  All Tasks
+                  <Badge variant="secondary" className="ml-1 bg-foreground/10">
+                    {filteredAllTasks.length}
+                  </Badge>
+                </TabsTrigger>
+              )}
+            </TabsList>
 
-          <TabsContent value="my-tasks" className="mt-4 space-y-3">
-            {isLoading ? (
-              <div className="flex flex-col items-center justify-center py-12 text-center">
-                <RefreshCw className="mb-4 h-8 w-8 animate-spin text-muted-foreground/50" />
-                <p className="text-sm text-muted-foreground">Loading tasks...</p>
-              </div>
-            ) : filteredMyTasks.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-12 text-center">
-                <Clock className="mb-4 h-12 w-12 text-muted-foreground/30" />
-                <h3 className="font-heading font-medium">No tasks found</h3>
-                <p className="font-body text-sm text-muted-foreground">
-                  {filter !== "all" ? "Try adjusting your filters" : "You have no assigned tasks"}
-                </p>
-                <p className="font-body text-xs text-muted-foreground/50 mt-2">
-                  Your ID: {currentUser?.telegramId || "Unknown"}
-                </p>
-              </div>
-            ) : (
-              filteredMyTasks.map((task) => (
-                <TaskCard key={task.id} task={task} onClick={() => onTaskSelect(task.id)} />
-              ))
-            )}
-          </TabsContent>
-
-          {isManagerOrAdmin && (
-            <TabsContent value="all-tasks" className="mt-4 space-y-3">
+            <TabsContent value="my-tasks" className="mt-4 space-y-3">
               {isLoading ? (
                 <div className="flex flex-col items-center justify-center py-12 text-center">
                   <RefreshCw className="mb-4 h-8 w-8 animate-spin text-muted-foreground/50" />
                   <p className="text-sm text-muted-foreground">Loading tasks...</p>
                 </div>
-              ) : filteredAllTasks.length === 0 ? (
+              ) : filteredMyTasks.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-12 text-center">
                   <Clock className="mb-4 h-12 w-12 text-muted-foreground/30" />
                   <h3 className="font-heading font-medium">No tasks found</h3>
-                  <p className="font-body text-sm text-muted-foreground">Create a new task to get started</p>
+                  <p className="font-body text-sm text-muted-foreground">
+                    {filter !== "all" ? "Try adjusting your filters" : "You have no assigned tasks"}
+                  </p>
+                  <p className="font-body text-xs text-muted-foreground/50 mt-2">
+                    Your ID: {currentUser?.telegramId || "Unknown"}
+                  </p>
                 </div>
               ) : (
-                filteredAllTasks.map((task) => (
-                  <TaskCard key={task.id} task={task} onClick={() => onTaskSelect(task.id)} showAssignees />
+                filteredMyTasks.map((task) => (
+                  <TaskCard key={task.id} task={task} onClick={() => onTaskSelect(task.id)} />
                 ))
               )}
             </TabsContent>
-          )}
-        </Tabs>
+
+            {isManagerOrAdmin && (
+              <TabsContent value="all-tasks" className="mt-4 space-y-3">
+                {isLoading ? (
+                  <div className="flex flex-col items-center justify-center py-12 text-center">
+                    <RefreshCw className="mb-4 h-8 w-8 animate-spin text-muted-foreground/50" />
+                    <p className="text-sm text-muted-foreground">Loading tasks...</p>
+                  </div>
+                ) : filteredAllTasks.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-12 text-center">
+                    <Clock className="mb-4 h-12 w-12 text-muted-foreground/30" />
+                    <h3 className="font-heading font-medium">No tasks found</h3>
+                    <p className="font-body text-sm text-muted-foreground">Create a new task to get started</p>
+                  </div>
+                ) : (
+                  filteredAllTasks.map((task) => (
+                    <TaskCard key={task.id} task={task} onClick={() => onTaskSelect(task.id)} showAssignees />
+                  ))
+                )}
+              </TabsContent>
+            )}
+          </Tabs>
+        )}
       </div>
     </div>
   )

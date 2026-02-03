@@ -68,6 +68,11 @@ export interface TaskAssignee {
   fullName?: string
 }
 
+export interface CustomFieldValue {
+  fieldId: string
+  value: any
+}
+
 export interface Task {
   id: string
   title: string
@@ -90,6 +95,7 @@ export interface Task {
   completedAt: string | null
   createdAt: string
   updatedAt?: string
+  customFields?: CustomFieldValue[]
 }
 
 // Time tracking types
