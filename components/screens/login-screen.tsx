@@ -6,12 +6,18 @@ import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Building2, UserPlus, Briefcase, ArrowRight } from "lucide-react"
-import { useAppStore } from "@/lib/store"
+import { useUserStore } from "@/lib/stores/user.store"
+import { useCompanyStore } from "@/lib/stores/company.store"
 import { useTelegram } from "@/hooks/use-telegram"
 
 export function LoginScreen() {
   const { user, hapticFeedback } = useTelegram()
-  const { createCompany, registerUser, acceptInvitation, setCurrentUser, getUserByTelegramId } = useAppStore()
+
+  const setCurrentUser = useUserStore((state) => state.setCurrentUser)
+  const registerUser = useUserStore((state) => state.registerUser)
+  const getUserByTelegramId = useUserStore((state) => state.getUserByTelegramId)
+  const createCompany = useCompanyStore((state) => state.createCompany)
+  const acceptInvitation = useCompanyStore((state) => state.acceptInvitation)
 
   const [companyName, setCompanyName] = useState("")
   const [inviteCode, setInviteCode] = useState("")

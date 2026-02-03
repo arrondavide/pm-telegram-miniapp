@@ -1,6 +1,6 @@
 "use client"
 
-import { type Project } from "@/lib/store"
+import type { Project } from "@/types/models.types"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 

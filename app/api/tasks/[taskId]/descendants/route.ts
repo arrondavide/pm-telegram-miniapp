@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { connectToDatabase } from "@/lib/mongodb"
 import { Task } from "@/lib/models"
+import { taskTransformer } from "@/lib/transformers"
 import mongoose from "mongoose"
 
 // GET /api/tasks/{id}/descendants - Get all descendants (recursive)
@@ -38,39 +39,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       .sort({ depth: 1, createdAt: -1 })
       .lean()
 
-    const formattedDescendants = descendants.map((task: any) => ({
-      id: task._id.toString(),
-      title: task.title,
-      description: task.description || "",
-      dueDate: task.due_date.toISOString(),
-      status: task.status,
-      priority: task.priority,
-      assignedTo: (task.assigned_to || []).map((a: any) => ({
-        id: a._id?.toString() || "",
-        fullName: a.full_name || "Unknown",
-        username: a.username || "",
-        telegramId: a.telegram_id || "",
-      })),
-      createdBy: {
-        id: task.created_by?._id?.toString() || "",
-        fullName: task.created_by?.full_name || "Unknown",
-        username: task.created_by?.username || "",
-        telegramId: task.created_by?.telegram_id || "",
-      },
-      companyId: task.company_id.toString(),
-      projectId: task.project_id.toString(),
-      parentTaskId: task.parent_task_id?.toString() || null,
-      depth: task.depth || 0,
-      path: (task.path || []).map((p: any) => p.toString()),
-      category: task.category || "",
-      tags: task.tags || [],
-      department: task.department || "",
-      estimatedHours: task.estimated_hours || 0,
-      actualHours: task.actual_hours || 0,
-      completedAt: task.completed_at?.toISOString() || null,
-      createdAt: task.createdAt.toISOString(),
-      updatedAt: task.updatedAt.toISOString(),
-    }))
+    const formattedDescendants = taskTransformer.toList(descendants as any[])
 
     return NextResponse.json({
       descendants: formattedDescendants,

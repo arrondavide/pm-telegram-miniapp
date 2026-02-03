@@ -7,7 +7,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
-import { useAppStore } from "@/lib/store"
+import { useUserStore } from "@/lib/stores/user.store"
+import { useCompanyStore } from "@/lib/stores/company.store"
+import { useTimeStore } from "@/lib/stores/time.store"
 import { cn } from "@/lib/utils"
 import Image from "next/image"
 import { formatDuration } from "@/lib/format-time"
@@ -44,7 +46,11 @@ interface StatsData {
 }
 
 export function StatsScreen() {
-  const { getUserRole, getActiveCompany, currentUser, activeTimeLog } = useAppStore()
+  const currentUser = useUserStore((state) => state.currentUser)
+  const getUserRole = useUserStore((state) => state.getUserRole)
+  const getActiveCompany = useCompanyStore((state) => state.getActiveCompany)
+  const activeTimeLog = useTimeStore((state) => state.activeTimeLog)
+
   const [stats, setStats] = useState<StatsData | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)

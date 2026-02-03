@@ -2,11 +2,12 @@
 
 import { useEffect, useState } from "react"
 import { X, Bell, ClipboardList, MessageSquare, CheckCheck, Clock } from "lucide-react"
-import { useAppStore, type Notification } from "@/lib/store"
+import { useNotificationStore } from "@/lib/stores/notification.store"
+import type { Notification } from "@/types/models.types"
 import { cn } from "@/lib/utils"
 
 export function InAppNotification() {
-  const { notifications } = useAppStore()
+  const notifications = useNotificationStore((state) => state.notifications)
   const [visibleNotification, setVisibleNotification] = useState<Notification | null>(null)
   const [isVisible, setIsVisible] = useState(false)
 

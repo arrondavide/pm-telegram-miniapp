@@ -6,7 +6,12 @@ import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { TaskCard } from "@/components/task-card"
 import { TimeTracker } from "@/components/time-tracker"
-import { useAppStore } from "@/lib/store"
+import { useUserStore } from "@/lib/stores/user.store"
+import { useCompanyStore } from "@/lib/stores/company.store"
+import { useProjectStore } from "@/lib/stores/project.store"
+import { useTaskStore } from "@/lib/stores/task.store"
+import { useTimeStore } from "@/lib/stores/time.store"
+import { useNotificationStore } from "@/lib/stores/notification.store"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { taskApi } from "@/lib/api"
@@ -19,20 +24,25 @@ interface TasksScreenProps {
 }
 
 export function TasksScreen({ onTaskSelect, onCreateTask }: TasksScreenProps) {
+  const currentUser = useUserStore((state) => state.currentUser)
+  const getUserRole = useUserStore((state) => state.getUserRole)
+
+  const getActiveCompany = useCompanyStore((state) => state.getActiveCompany)
+
+  const { activeProjectId, getActiveProject } = useProjectStore()
+
   const {
+    tasks,
+    loadTasks,
     getTasksForUser,
     getAllCompanyTasks,
-    getUserRole,
-    getActiveCompany,
-    getActiveProject,
     getRootTasksForProject,
-    activeTimeLog,
-    currentUser,
-    loadTasks,
-    getUnreadNotificationCount,
-    tasks,
-    activeProjectId,
-  } = useAppStore()
+  } = useTaskStore()
+
+  const activeTimeLog = useTimeStore((state) => state.activeTimeLog)
+
+  const getUnreadNotificationCount = useNotificationStore((state) => state.getUnreadNotificationCount)
+
   const { user } = useTelegram()
   const [filter, setFilter] = useState<"all" | "pending" | "in_progress" | "completed">("all")
   const [priorityFilter, setPriorityFilter] = useState<string>("all")
@@ -79,7 +89,7 @@ export function TasksScreen({ onTaskSelect, onCreateTask }: TasksScreenProps) {
                 id: t.id,
                 title: t.title,
                 description: t.description || "",
-                dueDate: new Date(t.dueDate),
+                dueDate: new Date(t.dueDate).toISOString(),
                 status: t.status,
                 priority: t.priority,
                 companyId: company.id,
@@ -94,8 +104,8 @@ export function TasksScreen({ onTaskSelect, onCreateTask }: TasksScreenProps) {
                 department: t.department || "",
                 estimatedHours: t.estimatedHours || 0,
                 actualHours: t.actualHours || 0,
-                completedAt: t.completedAt ? new Date(t.completedAt) : null,
-                createdAt: new Date(t.createdAt),
+                completedAt: t.completedAt ? new Date(t.completedAt).toISOString() : null,
+                createdAt: new Date(t.createdAt).toISOString(),
               }
             })
           : []

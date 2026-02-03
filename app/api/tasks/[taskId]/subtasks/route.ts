@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { connectToDatabase } from "@/lib/mongodb"
 import { Task, User } from "@/lib/models"
+import { taskTransformer } from "@/lib/transformers"
 import mongoose from "mongoose"
 
 // GET /api/tasks/{id}/subtasks - Get direct children of a task
@@ -36,41 +37,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       .sort({ createdAt: -1 })
       .lean()
 
-    const formattedSubtasks = subtasks.map((task: any) => ({
-      id: task._id.toString(),
-      title: task.title,
-      description: task.description || "",
-      dueDate: task.due_date.toISOString(),
-      status: task.status,
-      priority: task.priority,
-      assignedTo: (task.assigned_to || []).map((a: any) => ({
-        id: a._id?.toString() || "",
-        fullName: a.full_name || "Unknown",
-        username: a.username || "",
-        telegramId: a.telegram_id || "",
-      })),
-      createdBy: {
-        id: task.created_by?._id?.toString() || "",
-        fullName: task.created_by?.full_name || "Unknown",
-        username: task.created_by?.username || "",
-        telegramId: task.created_by?.telegram_id || "",
-      },
-      companyId: task.company_id.toString(),
-      projectId: task.project_id.toString(),
-      parentTaskId: task.parent_task_id?.toString() || null,
-      depth: task.depth || 0,
-      path: (task.path || []).map((p: any) => p.toString()),
-      category: task.category || "",
-      tags: task.tags || [],
-      department: task.department || "",
-      estimatedHours: task.estimated_hours || 0,
-      actualHours: task.actual_hours || 0,
-      completedAt: task.completed_at?.toISOString() || null,
-      createdAt: task.createdAt.toISOString(),
-      updatedAt: task.updatedAt.toISOString(),
-    }))
-
-    return NextResponse.json({ subtasks: formattedSubtasks })
+    return NextResponse.json({ subtasks: taskTransformer.toList(subtasks as any[]) })
   } catch (error) {
     console.error("Error fetching subtasks:", error)
     return NextResponse.json({ error: "Failed to fetch subtasks" }, { status: 500 })
@@ -161,38 +128,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     return NextResponse.json(
       {
-        subtask: {
-          id: populatedSubtask!._id.toString(),
-          title: populatedSubtask!.title,
-          description: populatedSubtask!.description || "",
-          dueDate: (populatedSubtask as any)!.due_date.toISOString(),
-          status: populatedSubtask!.status,
-          priority: populatedSubtask!.priority,
-          assignedTo: ((populatedSubtask as any)!.assigned_to || []).map((a: any) => ({
-            id: a._id?.toString() || "",
-            fullName: a.full_name || "Unknown",
-            username: a.username || "",
-            telegramId: a.telegram_id || "",
-          })),
-          createdBy: {
-            id: (populatedSubtask as any)!.created_by?._id?.toString() || "",
-            fullName: (populatedSubtask as any)!.created_by?.full_name || "Unknown",
-            username: (populatedSubtask as any)!.created_by?.username || "",
-            telegramId: (populatedSubtask as any)!.created_by?.telegram_id || "",
-          },
-          companyId: (populatedSubtask as any)!.company_id.toString(),
-          projectId: (populatedSubtask as any)!.project_id.toString(),
-          parentTaskId: (populatedSubtask as any)!.parent_task_id?.toString() || null,
-          depth: (populatedSubtask as any)!.depth || 0,
-          path: ((populatedSubtask as any)!.path || []).map((p: any) => p.toString()),
-          category: populatedSubtask!.category || "",
-          tags: (populatedSubtask as any)!.tags || [],
-          department: populatedSubtask!.department || "",
-          estimatedHours: populatedSubtask!.estimated_hours || 0,
-          actualHours: populatedSubtask!.actual_hours || 0,
-          createdAt: (populatedSubtask as any)!.createdAt.toISOString(),
-          updatedAt: (populatedSubtask as any)!.updatedAt.toISOString(),
-        },
+        subtask: taskTransformer.toFrontend(populatedSubtask as any),
       },
       { status: 201 }
     )

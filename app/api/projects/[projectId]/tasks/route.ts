@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { connectToDatabase } from "@/lib/mongodb"
 import { Project, Task, User } from "@/lib/models"
+import { taskTransformer } from "@/lib/transformers"
 import mongoose from "mongoose"
 
 // GET /api/projects/{id}/tasks?hierarchy=true&rootOnly=true
@@ -77,55 +78,15 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       .sort({ createdAt: -1 })
       .lean()
 
-    // Format tasks
-    const formatTask = (task: any) => ({
-      id: task._id.toString(),
-      title: task.title,
-      description: task.description || "",
-      dueDate: task.due_date.toISOString(),
-      status: task.status,
-      priority: task.priority,
-      assignedTo: (task.assigned_to || []).map((a: any) => ({
-        id: a._id?.toString() || "",
-        fullName: a.full_name || "Unknown",
-        username: a.username || "",
-        telegramId: a.telegram_id || "",
-      })),
-      createdBy: {
-        id: task.created_by?._id?.toString() || "",
-        fullName: task.created_by?.full_name || "Unknown",
-        username: task.created_by?.username || "",
-        telegramId: task.created_by?.telegram_id || "",
-      },
-      companyId: task.company_id.toString(),
-      projectId: task.project_id.toString(),
-      parentTaskId: task.parent_task_id?.toString() || null,
-      depth: task.depth || 0,
-      path: (task.path || []).map((p: any) => p.toString()),
-      category: task.category || "",
-      tags: task.tags || [],
-      department: task.department || "",
-      dependsOn: (task.depends_on || []).map((d: any) => d.toString()),
-      isRecurring: task.is_recurring || false,
-      recurrence: task.recurrence || null,
-      parentRecurringTask: task.parent_recurring_task?.toString() || null,
-      estimatedHours: task.estimated_hours || 0,
-      actualHours: task.actual_hours || 0,
-      attachments: task.attachments || [],
-      completedAt: task.completed_at?.toISOString() || null,
-      cancelledAt: task.cancelled_at?.toISOString() || null,
-      createdAt: task.createdAt.toISOString(),
-      updatedAt: task.updatedAt.toISOString(),
-    })
-
+    // Use centralized transformer
     if (hierarchy) {
       // Build tree structure
       const taskMap = new Map<string, any>()
       const rootTasks: any[] = []
 
-      // First pass: create task objects with children array
+      // First pass: transform and create task objects with children array
       tasks.forEach((task: any) => {
-        const formattedTask: any = formatTask(task)
+        const formattedTask: any = taskTransformer.toFrontend(task)
         formattedTask.children = []
         taskMap.set(formattedTask.id, formattedTask)
       })
@@ -148,8 +109,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
       return NextResponse.json({ tasks: rootTasks })
     } else {
-      // Return flat list
-      return NextResponse.json({ tasks: tasks.map(formatTask) })
+      // Return flat list using transformer
+      return NextResponse.json({ tasks: taskTransformer.toList(tasks as any[]) })
     }
   } catch (error) {
     console.error("Error fetching project tasks:", error)

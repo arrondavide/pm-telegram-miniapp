@@ -4,8 +4,8 @@ import { Calendar, CheckCircle2, Clock, Users } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
-import type { Task } from "@/lib/store"
-import { useAppStore } from "@/lib/store"
+import type { Task } from "@/types/models.types"
+import { useUserStore } from "@/lib/stores/user.store"
 import { cn } from "@/lib/utils"
 
 interface TaskCardProps {
@@ -31,7 +31,7 @@ const statusConfig = {
 }
 
 export function TaskCard({ task, onClick, showAssignees = false }: TaskCardProps) {
-  const { users } = useAppStore()
+  const users = useUserStore((state) => state.users)
   const priority = priorityConfig[task.priority]
   const status = statusConfig[task.status]
 

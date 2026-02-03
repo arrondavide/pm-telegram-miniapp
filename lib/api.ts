@@ -34,15 +34,15 @@ async function fetchApi<T>(endpoint: string, options: RequestInit = {}): Promise
 export const userApi = {
   getByTelegramId: (telegramId: string, initData: string) =>
     fetchApi<{
-      user: import("@/lib/store").User | null
-      companies: import("@/lib/store").Company[]
+      user: import("@/types/models.types").User | null
+      companies: import("@/types/models.types").Company[]
     }>(`/users/telegram/${telegramId}`, {
       method: "GET",
       headers: { "X-Telegram-Init-Data": initData },
     }),
 
   register: (data: { telegramId: string; fullName: string; username: string; initData: string }) =>
-    fetchApi<import("@/lib/store").User>("/users/register", {
+    fetchApi<import("@/types/models.types").User>("/users/register", {
       method: "POST",
       body: JSON.stringify(data),
       headers: { "X-Telegram-Init-Data": data.initData },
@@ -53,7 +53,7 @@ export const userApi = {
     preferences: { dailyDigest?: boolean; reminderTime?: string },
     initData: string,
   ) =>
-    fetchApi<import("@/lib/store").User>(`/users/${userId}/preferences`, {
+    fetchApi<import("@/types/models.types").User>(`/users/${userId}/preferences`, {
       method: "PATCH",
       body: JSON.stringify(preferences),
       headers: { "X-Telegram-Init-Data": initData },
@@ -63,7 +63,7 @@ export const userApi = {
 // Company APIs
 export const companyApi = {
   create: (data: { name: string; telegramId: string; fullName: string; username: string; initData: string }) =>
-    fetchApi<{ company: import("@/lib/store").Company; user: import("@/lib/store").User }>("/companies", {
+    fetchApi<{ company: import("@/types/models.types").Company; user: import("@/types/models.types").User }>("/companies", {
       method: "POST",
       body: JSON.stringify(data),
       headers: { "X-Telegram-Init-Data": data.initData },
@@ -76,7 +76,7 @@ export const companyApi = {
     }),
 
   getMembers: (companyId: string, telegramId: string) =>
-    fetchApi<{ members: import("@/lib/store").User[] }>(`/companies/${companyId}/members`, {
+    fetchApi<{ members: import("@/types/models.types").User[] }>(`/companies/${companyId}/members`, {
       method: "GET",
       headers: { "X-Telegram-Id": telegramId },
     }),
@@ -97,23 +97,23 @@ export const companyApi = {
 
   joinWithCode: (data: { invitationCode: string; telegramId: string; fullName: string; username: string }) =>
     fetchApi<{
-      company: import("@/lib/store").Company
-      user: import("@/lib/store").User
-      allCompanies: import("@/lib/store").Company[]
+      company: import("@/types/models.types").Company
+      user: import("@/types/models.types").User
+      allCompanies: import("@/types/models.types").Company[]
     }>("/companies/join", {
       method: "POST",
       body: JSON.stringify(data),
     }),
 
   changeUserRole: (companyId: string, userId: string, role: string, initData: string) =>
-    fetchApi<import("@/lib/store").User>(`/companies/${companyId}/members/${userId}/role`, {
+    fetchApi<import("@/types/models.types").User>(`/companies/${companyId}/members/${userId}/role`, {
       method: "PATCH",
       body: JSON.stringify({ role }),
       headers: { "X-Telegram-Init-Data": initData },
     }),
 
   getPendingInvitations: (companyId: string, telegramId: string) =>
-    fetchApi<{ invitations: import("@/lib/store").Invitation[] }>(`/companies/${companyId}/invitations`, {
+    fetchApi<{ invitations: import("@/types/models.types").Invitation[] }>(`/companies/${companyId}/invitations`, {
       method: "GET",
       headers: { "X-Telegram-Id": telegramId },
     }),
@@ -128,13 +128,13 @@ export const companyApi = {
 // Project APIs
 export const projectApi = {
   getAll: (companyId: string, telegramId: string) =>
-    fetchApi<{ projects: import("@/lib/store").Project[] }>(`/projects?companyId=${companyId}`, {
+    fetchApi<{ projects: import("@/types/models.types").Project[] }>(`/projects?companyId=${companyId}`, {
       method: "GET",
       headers: { "X-Telegram-Id": telegramId },
     }),
 
   getById: (projectId: string, telegramId: string) =>
-    fetchApi<{ project: import("@/lib/store").Project }>(`/projects/${projectId}`, {
+    fetchApi<{ project: import("@/types/models.types").Project }>(`/projects/${projectId}`, {
       method: "GET",
       headers: { "X-Telegram-Id": telegramId },
     }),
@@ -151,14 +151,14 @@ export const projectApi = {
     },
     telegramId: string,
   ) =>
-    fetchApi<{ project: import("@/lib/store").Project }>("/projects", {
+    fetchApi<{ project: import("@/types/models.types").Project }>("/projects", {
       method: "POST",
       body: JSON.stringify(project),
       headers: { "X-Telegram-Id": telegramId },
     }),
 
-  update: (projectId: string, updates: Partial<import("@/lib/store").Project>, telegramId: string) =>
-    fetchApi<{ project: import("@/lib/store").Project }>(`/projects/${projectId}`, {
+  update: (projectId: string, updates: Partial<import("@/types/models.types").Project>, telegramId: string) =>
+    fetchApi<{ project: import("@/types/models.types").Project }>(`/projects/${projectId}`, {
       method: "PATCH",
       body: JSON.stringify(updates),
       headers: { "X-Telegram-Id": telegramId },
@@ -171,7 +171,7 @@ export const projectApi = {
     }),
 
   getTasks: (projectId: string, telegramId: string, hierarchy: boolean = false) =>
-    fetchApi<{ tasks: import("@/lib/store").Task[] }>(`/projects/${projectId}/tasks?hierarchy=${hierarchy}`, {
+    fetchApi<{ tasks: import("@/types/models.types").Task[] }>(`/projects/${projectId}/tasks?hierarchy=${hierarchy}`, {
       method: "GET",
       headers: { "X-Telegram-Id": telegramId },
     }),
@@ -180,48 +180,48 @@ export const projectApi = {
 // Task APIs
 export const taskApi = {
   getAll: (companyId: string, telegramId: string) =>
-    fetchApi<import("@/lib/store").Task[]>(`/tasks?companyId=${companyId}`, {
+    fetchApi<import("@/types/models.types").Task[]>(`/tasks?companyId=${companyId}`, {
       method: "GET",
       headers: { "X-Telegram-Id": telegramId },
     }),
 
   getByUser: (companyId: string, userId: string, telegramId: string) =>
-    fetchApi<import("@/lib/store").Task[]>(`/tasks?companyId=${companyId}&assignedTo=${userId}`, {
+    fetchApi<import("@/types/models.types").Task[]>(`/tasks?companyId=${companyId}&assignedTo=${userId}`, {
       method: "GET",
       headers: { "X-Telegram-Id": telegramId },
     }),
 
   getByProject: (projectId: string, telegramId: string, rootOnly = true) =>
-    fetchApi<{ tasks: import("@/lib/store").Task[] }>(`/api/projects/${projectId}/tasks?rootOnly=${rootOnly}`, {
+    fetchApi<{ tasks: import("@/types/models.types").Task[] }>(`/api/projects/${projectId}/tasks?rootOnly=${rootOnly}`, {
       method: "GET",
       headers: { "X-Telegram-Id": telegramId },
     }),
 
   getById: (taskId: string, telegramId: string) =>
-    fetchApi<import("@/lib/store").Task>(`/tasks/${taskId}`, {
+    fetchApi<import("@/types/models.types").Task>(`/tasks/${taskId}`, {
       method: "GET",
       headers: { "X-Telegram-Id": telegramId },
     }),
 
   create: (
-    task: Omit<import("@/lib/store").Task, "id" | "createdAt" | "completedAt" | "actualHours"> & { companyId: string },
+    task: Omit<import("@/types/models.types").Task, "id" | "createdAt" | "completedAt" | "actualHours"> & { companyId: string },
     telegramId: string,
   ) =>
-    fetchApi<import("@/lib/store").Task>("/tasks", {
+    fetchApi<import("@/types/models.types").Task>("/tasks", {
       method: "POST",
       body: JSON.stringify(task),
       headers: { "X-Telegram-Id": telegramId },
     }),
 
-  update: (taskId: string, updates: Partial<import("@/lib/store").Task>, telegramId: string) =>
-    fetchApi<import("@/lib/store").Task>(`/tasks/${taskId}`, {
+  update: (taskId: string, updates: Partial<import("@/types/models.types").Task>, telegramId: string) =>
+    fetchApi<import("@/types/models.types").Task>(`/tasks/${taskId}`, {
       method: "PATCH",
       body: JSON.stringify(updates),
       headers: { "X-Telegram-Id": telegramId },
     }),
 
   updateStatus: (taskId: string, status: string, telegramId: string) =>
-    fetchApi<import("@/lib/store").Task>(`/tasks/${taskId}/status`, {
+    fetchApi<import("@/types/models.types").Task>(`/tasks/${taskId}/status`, {
       method: "PATCH",
       body: JSON.stringify({ status }),
       headers: { "X-Telegram-Id": telegramId },
@@ -235,7 +235,7 @@ export const taskApi = {
 
   // Hierarchical task operations
   getSubtasks: (taskId: string, telegramId: string) =>
-    fetchApi<{ subtasks: import("@/lib/store").Task[] }>(`/tasks/${taskId}/subtasks`, {
+    fetchApi<{ subtasks: import("@/types/models.types").Task[] }>(`/tasks/${taskId}/subtasks`, {
       method: "GET",
       headers: { "X-Telegram-Id": telegramId },
     }),
@@ -255,14 +255,14 @@ export const taskApi = {
     },
     telegramId: string,
   ) =>
-    fetchApi<{ subtask: import("@/lib/store").Task }>(`/tasks/${taskId}/subtasks`, {
+    fetchApi<{ subtask: import("@/types/models.types").Task }>(`/tasks/${taskId}/subtasks`, {
       method: "POST",
       body: JSON.stringify(subtask),
       headers: { "X-Telegram-Id": telegramId },
     }),
 
   getDescendants: (taskId: string, telegramId: string) =>
-    fetchApi<{ descendants: import("@/lib/store").Task[]; count: number }>(`/tasks/${taskId}/descendants`, {
+    fetchApi<{ descendants: import("@/types/models.types").Task[]; count: number }>(`/tasks/${taskId}/descendants`, {
       method: "GET",
       headers: { "X-Telegram-Id": telegramId },
     }),
@@ -286,27 +286,27 @@ export const taskApi = {
 // Time tracking APIs
 export const timeApi = {
   clockIn: (taskId: string, telegramId: string) =>
-    fetchApi<import("@/lib/store").TimeLog>("/time/clock-in", {
+    fetchApi<import("@/types/models.types").TimeLog>("/time/clock-in", {
       method: "POST",
       body: JSON.stringify({ taskId }),
       headers: { "X-Telegram-Id": telegramId },
     }),
 
   clockOut: (telegramId: string) =>
-    fetchApi<import("@/lib/store").TimeLog>("/time/clock-out", {
+    fetchApi<import("@/types/models.types").TimeLog>("/time/clock-out", {
       method: "POST",
       body: JSON.stringify({}),
       headers: { "X-Telegram-Id": telegramId },
     }),
 
   getActive: (userId: string, telegramId: string) =>
-    fetchApi<import("@/lib/store").TimeLog | null>(`/time/active?userId=${userId}`, {
+    fetchApi<import("@/types/models.types").TimeLog | null>(`/time/active?userId=${userId}`, {
       method: "GET",
       headers: { "X-Telegram-Id": telegramId },
     }),
 
   getForTask: (taskId: string, telegramId: string) =>
-    fetchApi<import("@/lib/store").TimeLog[]>(`/time?taskId=${taskId}`, {
+    fetchApi<import("@/types/models.types").TimeLog[]>(`/time?taskId=${taskId}`, {
       method: "GET",
       headers: { "X-Telegram-Id": telegramId },
     }),
@@ -334,13 +334,13 @@ export const timeApi = {
 // Comment APIs
 export const commentApi = {
   getForTask: (taskId: string, telegramId: string) =>
-    fetchApi<import("@/lib/store").Comment[]>(`/tasks/${taskId}/comments`, {
+    fetchApi<import("@/types/models.types").Comment[]>(`/tasks/${taskId}/comments`, {
       method: "GET",
       headers: { "X-Telegram-Id": telegramId },
     }),
 
   create: (taskId: string, userId: string, message: string, telegramId: string) =>
-    fetchApi<import("@/lib/store").Comment>(`/tasks/${taskId}/comments`, {
+    fetchApi<import("@/types/models.types").Comment>(`/tasks/${taskId}/comments`, {
       method: "POST",
       body: JSON.stringify({ taskId, userId, message }),
       headers: { "X-Telegram-Id": telegramId },
@@ -370,7 +370,7 @@ export const statsApi = {
         totalHoursWorked: number
         completionRate: number
       }
-      topPerformers: Array<{ user: import("@/lib/store").User; completedCount: number }>
+      topPerformers: Array<{ user: import("@/types/models.types").User; completedCount: number }>
     }>(`/stats?companyId=${companyId}`, {
       method: "GET",
       headers: { "X-Telegram-Id": telegramId },
@@ -412,7 +412,7 @@ export const statsApi = {
       pendingTasks: number
       overdueTasks: number
       completionRate: number
-      topPerformers: Array<{ user: import("@/lib/store").User; completedCount: number }>
+      topPerformers: Array<{ user: import("@/types/models.types").User; completedCount: number }>
     }>(`/stats/team?companyId=${companyId}`, {
       method: "GET",
       headers: { "X-Telegram-Id": telegramId },

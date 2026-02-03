@@ -2,7 +2,7 @@
 
 import { FolderKanban, ClipboardList, Users, BarChart3, User, Bell } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { useAppStore } from "@/lib/store"
+import { useNotificationStore } from "@/lib/stores/notification.store"
 
 interface BottomNavProps {
   activeScreen: string
@@ -11,7 +11,7 @@ interface BottomNavProps {
 }
 
 export function BottomNav({ activeScreen, onNavigate, userRole }: BottomNavProps) {
-  const { getUnreadNotificationCount } = useAppStore()
+  const getUnreadNotificationCount = useNotificationStore((state) => state.getUnreadNotificationCount)
   const unreadCount = getUnreadNotificationCount()
 
   const navItems = [

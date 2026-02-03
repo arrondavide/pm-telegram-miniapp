@@ -6,7 +6,8 @@ import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Building2, UserPlus, ArrowRight, User, Loader2 } from "lucide-react"
-import { useAppStore } from "@/lib/store"
+import { useUserStore } from "@/lib/stores/user.store"
+import { useCompanyStore } from "@/lib/stores/company.store"
 import { useTelegram } from "@/hooks/use-telegram"
 import { companyApi } from "@/lib/api"
 import Image from "next/image"
@@ -18,8 +19,10 @@ interface OnboardingScreenProps {
 
 export function OnboardingScreen({ pendingInviteCode, onCodeUsed }: OnboardingScreenProps) {
   const { user, hapticFeedback } = useTelegram()
-  const { createCompany, registerUser, acceptInvitation, setCurrentUser, getUserByTelegramId, setCompanies } =
-    useAppStore()
+
+  const setCurrentUser = useUserStore((state) => state.setCurrentUser)
+  const createCompany = useCompanyStore((state) => state.createCompany)
+  const setCompanies = useCompanyStore((state) => state.setCompanies)
 
   const [companyName, setCompanyName] = useState("")
   const [inviteCode, setInviteCode] = useState("")

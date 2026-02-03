@@ -1,7 +1,10 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { useAppStore } from "@/lib/store"
+import { useUserStore } from "@/lib/stores/user.store"
+import { useCompanyStore } from "@/lib/stores/company.store"
+import { useProjectStore } from "@/lib/stores/project.store"
+import { useTaskStore } from "@/lib/stores/task.store"
 import { projectApi } from "@/lib/api"
 import { ProjectCard } from "@/components/project-card"
 import { Button } from "@/components/ui/button"
@@ -13,7 +16,11 @@ interface ProjectsScreenProps {
 }
 
 export function ProjectsScreen({ onProjectSelect, onCreateProject }: ProjectsScreenProps) {
-  const { currentUser, getActiveCompany, projects, loadProjects, tasks } = useAppStore()
+  const currentUser = useUserStore((state) => state.currentUser)
+  const getActiveCompany = useCompanyStore((state) => state.getActiveCompany)
+  const { projects, loadProjects } = useProjectStore()
+  const getTasksByProject = useTaskStore((state) => state.getTasksByProject)
+
   const [isLoading, setIsLoading] = useState(true)
   const activeCompany = getActiveCompany()
 
@@ -38,10 +45,10 @@ export function ProjectsScreen({ onProjectSelect, onCreateProject }: ProjectsScr
     }
 
     fetchProjects()
-  }, [activeCompany?.id, currentUser?.telegramId])
+  }, [activeCompany?.id, currentUser?.telegramId, loadProjects])
 
   const getProjectStats = (projectId: string) => {
-    const projectTasks = tasks.filter((t) => t.projectId === projectId)
+    const projectTasks = getTasksByProject(projectId)
     const completedTasks = projectTasks.filter((t) => t.status === "completed")
     return {
       taskCount: projectTasks.length,

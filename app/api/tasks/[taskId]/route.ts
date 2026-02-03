@@ -1,55 +1,9 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { connectToDatabase } from "@/lib/mongodb"
 import { Task, User, Update } from "@/lib/models"
+import { taskTransformer } from "@/lib/transformers"
+import { notificationService } from "@/lib/services"
 import mongoose from "mongoose"
-
-async function createNotification(
-  telegramId: string,
-  type: string,
-  title: string,
-  message: string,
-  taskId?: string,
-  sendTelegram = true,
-) {
-  try {
-    const NotificationSchema = new mongoose.Schema({
-      telegram_id: String,
-      type: String,
-      title: String,
-      message: String,
-      task_id: String,
-      read: { type: Boolean, default: false },
-      created_at: { type: Date, default: Date.now },
-    })
-
-    const AppNotification = mongoose.models.AppNotification || mongoose.model("AppNotification", NotificationSchema)
-
-    await AppNotification.create({
-      telegram_id: telegramId,
-      type,
-      title,
-      message,
-      task_id: taskId,
-      read: false,
-    })
-
-    const BOT_TOKEN = process.env.BOT_TOKEN
-    if (sendTelegram && BOT_TOKEN) {
-      const telegramMessage = `<b>${title}</b>\n\n${message}`
-      await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          chat_id: telegramId,
-          text: telegramMessage,
-          parse_mode: "HTML",
-        }),
-      })
-    }
-  } catch (error) {
-    console.error("Failed to create notification:", error)
-  }
-}
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ taskId: string }> }) {
   try {
@@ -67,40 +21,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     }
 
     return NextResponse.json({
-      task: {
-        id: (task as any)._id.toString(),
-        title: task.title,
-        description: task.description,
-        dueDate: task.due_date,
-        status: task.status,
-        priority: task.priority,
-        category: task.category,
-        tags: task.tags,
-        department: task.department,
-        projectId: (task as any).project_id?.toString() || null,
-        parentTaskId: (task as any).parent_task_id?.toString() || null,
-        depth: (task as any).depth || 0,
-        path: ((task as any).path || []).map((p: any) => p.toString()),
-        assignedTo: (task.assigned_to as any[]).map((u: any) => ({
-          id: u._id.toString(),
-          fullName: u.full_name,
-          username: u.username,
-          telegramId: u.telegram_id,
-        })),
-        createdBy: task.created_by
-          ? {
-              id: (task.created_by as any)._id.toString(),
-              fullName: (task.created_by as any).full_name,
-              username: (task.created_by as any).username,
-              telegramId: (task.created_by as any).telegram_id,
-            }
-          : null,
-        estimatedHours: task.estimated_hours,
-        actualHours: task.actual_hours,
-        completedAt: task.completed_at,
-        createdAt: (task as any).createdAt,
-        updatedAt: (task as any).updatedAt,
-      },
+      task: taskTransformer.toFrontend(task as any),
     })
   } catch (error) {
     console.error("Error fetching task:", error)
@@ -177,21 +98,25 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         peopleToNotify.add(creator.telegram_id)
       }
 
-      // Send notifications
+      // Send notifications using centralized service
       for (const notifyTelegramId of peopleToNotify) {
-        let notifTitle = "Task Updated"
-        let notifMessage = ""
-        let notifType = "task_updated"
-
         if (body.status === "completed") {
-          notifTitle = "Task Completed"
-          notifMessage = `${task.title}\n\nCompleted by: ${user.full_name}`
-          notifType = "task_completed"
+          await notificationService.notifyTaskCompleted({
+            telegramId: notifyTelegramId,
+            taskTitle: task.title,
+            taskId: task._id.toString(),
+            completedBy: user.full_name,
+          })
         } else {
-          notifMessage = `${task.title}\n\nStatus: ${oldStatus} → ${body.status}\nUpdated by: ${user.full_name}`
+          await notificationService.notifyTaskStatusChange({
+            telegramId: notifyTelegramId,
+            taskTitle: task.title,
+            taskId: task._id.toString(),
+            oldStatus,
+            newStatus: body.status,
+            changedBy: user.full_name,
+          })
         }
-
-        await createNotification(notifyTelegramId, notifType, notifTitle, notifMessage, task._id.toString())
       }
     }
 

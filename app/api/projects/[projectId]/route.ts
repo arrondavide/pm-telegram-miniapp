@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { connectToDatabase } from "@/lib/mongodb"
 import { Project, User, Task } from "@/lib/models"
+import { projectTransformer } from "@/lib/transformers"
 import mongoose from "mongoose"
 
 // GET /api/projects/{id}
@@ -46,27 +47,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     }
 
     return NextResponse.json({
-      project: {
-        id: project._id.toString(),
-        name: project.name,
-        description: project.description || "",
-        companyId: project.company_id.toString(),
-        status: project.status,
-        createdBy: {
-          id: project.created_by?._id?.toString() || "",
-          fullName: project.created_by?.full_name || "Unknown",
-          username: project.created_by?.username || "",
-          telegramId: project.created_by?.telegram_id || "",
-        },
-        color: project.color || "#3b82f6",
-        icon: project.icon || "📁",
-        startDate: project.start_date?.toISOString() || null,
-        targetEndDate: project.target_end_date?.toISOString() || null,
-        completedAt: project.completed_at?.toISOString() || null,
-        archivedAt: project.archived_at?.toISOString() || null,
-        createdAt: project.createdAt.toISOString(),
-        updatedAt: project.updatedAt.toISOString(),
-      },
+      project: projectTransformer.toFrontend(project),
     })
   } catch (error) {
     console.error("Error fetching project:", error)
@@ -145,27 +126,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       .lean()
 
     return NextResponse.json({
-      project: {
-        id: updatedProject!._id.toString(),
-        name: updatedProject!.name,
-        description: updatedProject!.description || "",
-        companyId: updatedProject!.company_id.toString(),
-        status: updatedProject!.status,
-        createdBy: {
-          id: (updatedProject!.created_by as any)?._id?.toString() || "",
-          fullName: (updatedProject!.created_by as any)?.full_name || "Unknown",
-          username: (updatedProject!.created_by as any)?.username || "",
-          telegramId: (updatedProject!.created_by as any)?.telegram_id || "",
-        },
-        color: updatedProject!.color || "#3b82f6",
-        icon: updatedProject!.icon || "📁",
-        startDate: updatedProject!.start_date?.toISOString() || null,
-        targetEndDate: updatedProject!.target_end_date?.toISOString() || null,
-        completedAt: updatedProject!.completed_at?.toISOString() || null,
-        archivedAt: updatedProject!.archived_at?.toISOString() || null,
-        createdAt: (updatedProject as any)!.createdAt.toISOString(),
-        updatedAt: (updatedProject as any)!.updatedAt.toISOString(),
-      },
+      project: projectTransformer.toFrontend(updatedProject as any),
     })
   } catch (error) {
     console.error("Error updating project:", error)

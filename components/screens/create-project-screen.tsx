@@ -1,7 +1,10 @@
 "use client"
 
 import { useState } from "react"
-import { useAppStore, type Project } from "@/lib/store"
+import { useUserStore } from "@/lib/stores/user.store"
+import { useCompanyStore } from "@/lib/stores/company.store"
+import { useProjectStore } from "@/lib/stores/project.store"
+import type { Project } from "@/types/models.types"
 import { projectApi } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -32,7 +35,9 @@ const PROJECT_COLORS = [
 ]
 
 export function CreateProjectScreen({ onBack, onSuccess, projectToEdit }: CreateProjectScreenProps) {
-  const { currentUser, getActiveCompany, createProject, updateProject, loadProjects, projects } = useAppStore()
+  const currentUser = useUserStore((state) => state.currentUser)
+  const getActiveCompany = useCompanyStore((state) => state.getActiveCompany)
+  const { projects, createProject, updateProject, loadProjects } = useProjectStore()
   const activeCompany = getActiveCompany()
 
   const [formData, setFormData] = useState({
@@ -73,14 +78,24 @@ export function CreateProjectScreen({ onBack, onSuccess, projectToEdit }: Create
             icon: formData.icon,
             color: formData.color,
             status: formData.status as Project["status"],
-            startDate: formData.startDate ? new Date(formData.startDate) : null,
-            targetEndDate: formData.targetEndDate ? new Date(formData.targetEndDate) : null,
+            startDate: formData.startDate ? new Date(formData.startDate).toISOString() : null,
+            targetEndDate: formData.targetEndDate ? new Date(formData.targetEndDate).toISOString() : null,
           },
           currentUser.telegramId,
         )
 
         if (response.success && response.data) {
-          updateProject(projectToEdit.id, response.data.project)
+          // Transform API response to match store types
+          const projectData = response.data.project
+          updateProject(projectToEdit.id, {
+            name: projectData.name,
+            description: projectData.description,
+            icon: projectData.icon,
+            color: projectData.color,
+            status: projectData.status,
+            startDate: projectData.startDate?.toString() || null,
+            targetEndDate: projectData.targetEndDate?.toString() || null,
+          })
           onSuccess()
         } else {
           setError(response.error || "Failed to update project")

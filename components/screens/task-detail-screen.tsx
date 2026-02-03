@@ -42,7 +42,12 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { TimeTracker } from "@/components/time-tracker"
 import { TaskCard } from "@/components/task-card"
-import { useAppStore, type Task } from "@/lib/store"
+import { useUserStore } from "@/lib/stores/user.store"
+import { useTaskStore } from "@/lib/stores/task.store"
+import { useTimeStore } from "@/lib/stores/time.store"
+import { useCommentStore } from "@/lib/stores/comment.store"
+import { useNotificationStore } from "@/lib/stores/notification.store"
+import type { Task } from "@/types/models.types"
 import { useTelegram } from "@/hooks/use-telegram"
 import { taskApi, commentApi, timeApi } from "@/lib/api"
 import { cn } from "@/lib/utils"
@@ -89,20 +94,19 @@ interface ApiComment {
 }
 
 export function TaskDetailScreen({ taskId, onBack, onCreateSubtask, onEditTask }: TaskDetailScreenProps) {
-  const {
-    getTaskById,
-    updateTaskStatus,
-    updateTask,
-    deleteTask,
-    addComment,
-    getCommentsForTask,
-    getTimeLogsForTask,
-    users,
-    currentUser,
-    activeTimeLog,
-    addNotification,
-    getUserRole,
-  } = useAppStore()
+  const currentUser = useUserStore((state) => state.currentUser)
+  const users = useUserStore((state) => state.users)
+  const getUserRole = useUserStore((state) => state.getUserRole)
+
+  const { getTaskById, updateTaskStatus, updateTask, deleteTask } = useTaskStore()
+
+  const activeTimeLog = useTimeStore((state) => state.activeTimeLog)
+  const getTimeLogsForTask = useTimeStore((state) => state.getTimeLogsForTask)
+
+  const { comments, addComment, getCommentsForTask } = useCommentStore()
+
+  const addNotification = useNotificationStore((state) => state.addNotification)
+
   const { hapticFeedback, showBackButton, hideBackButton, webApp, user } = useTelegram()
 
   const [newComment, setNewComment] = useState("")
@@ -325,7 +329,7 @@ export function TaskDetailScreen({ taskId, onBack, onCreateSubtask, onEditTask }
         title: editForm.title,
         description: editForm.description,
         priority: editForm.priority,
-        dueDate: new Date(editForm.dueDate),
+        dueDate: new Date(editForm.dueDate).toISOString(),
       }
 
       await taskApi.update(taskId, updates, telegramId)
@@ -338,7 +342,7 @@ export function TaskDetailScreen({ taskId, onBack, onCreateSubtask, onEditTask }
         title: editForm.title,
         description: editForm.description,
         priority: editForm.priority,
-        dueDate: new Date(editForm.dueDate),
+        dueDate: new Date(editForm.dueDate).toISOString(),
       })
       setShowEditDialog(false)
       hapticFeedback("success")

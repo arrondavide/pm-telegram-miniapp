@@ -4,7 +4,8 @@ import { useState, useEffect } from "react"
 import { Play, Square, Clock, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
-import { useAppStore } from "@/lib/store"
+import { useTaskStore } from "@/lib/stores/task.store"
+import { useTimeStore } from "@/lib/stores/time.store"
 import { useTelegram } from "@/hooks/use-telegram"
 import { timeApi } from "@/lib/api"
 import { cn } from "@/lib/utils"
@@ -16,7 +17,9 @@ interface TimeTrackerProps {
 }
 
 export function TimeTracker({ className, taskId }: TimeTrackerProps) {
-  const { activeTimeLog, clockIn, clockOut, getTaskById } = useAppStore()
+  const getTaskById = useTaskStore((state) => state.getTaskById)
+  const { activeTimeLog, clockIn, clockOut } = useTimeStore()
+
   const { hapticFeedback, webApp, user } = useTelegram()
   const [elapsed, setElapsed] = useState(0)
   const [isClockingIn, setIsClockingIn] = useState(false)

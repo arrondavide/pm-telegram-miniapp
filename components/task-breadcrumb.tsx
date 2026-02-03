@@ -1,6 +1,8 @@
 "use client"
 
-import { useAppStore, type Task, type Project } from "@/lib/store"
+import { useCompanyStore } from "@/lib/stores/company.store"
+import { useTaskStore } from "@/lib/stores/task.store"
+import type { Task, Project } from "@/types/models.types"
 import { ChevronRight } from "lucide-react"
 
 interface TaskBreadcrumbProps {
@@ -11,7 +13,9 @@ interface TaskBreadcrumbProps {
 }
 
 export function TaskBreadcrumb({ task, project, onTaskClick, onProjectClick }: TaskBreadcrumbProps) {
-  const { getTaskPath, getActiveCompany } = useAppStore()
+  const getActiveCompany = useCompanyStore((state) => state.getActiveCompany)
+  const getTaskPath = useTaskStore((state) => state.getTaskPath)
+
   const company = getActiveCompany()
   const taskPath = getTaskPath(task.id)
 

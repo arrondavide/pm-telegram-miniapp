@@ -4,7 +4,9 @@ import { useState, useEffect } from "react"
 import { ArrowLeft, Plus, Search } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { useAppStore } from "@/lib/store"
+import { useUserStore } from "@/lib/stores/user.store"
+import { useProjectStore } from "@/lib/stores/project.store"
+import { useTaskStore } from "@/lib/stores/task.store"
 import { TaskCard } from "@/components/task-card"
 import { taskApi } from "@/lib/api"
 import { useTelegram } from "@/hooks/use-telegram"
@@ -17,7 +19,11 @@ interface ProjectDetailScreenProps {
 }
 
 export function ProjectDetailScreen({ projectId, onBack, onTaskClick, onCreateTask }: ProjectDetailScreenProps) {
-  const { getProjectById, loadTasks, currentUser, getUserRole, tasks } = useAppStore()
+  const currentUser = useUserStore((state) => state.currentUser)
+  const getUserRole = useUserStore((state) => state.getUserRole)
+  const getProjectById = useProjectStore((state) => state.getProjectById)
+  const { tasks, loadTasks } = useTaskStore()
+
   const { hapticFeedback, showBackButton, hideBackButton } = useTelegram()
 
   const [searchQuery, setSearchQuery] = useState("")

@@ -41,14 +41,23 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { useAppStore, type Invitation } from "@/lib/store"
+import { useUserStore } from "@/lib/stores/user.store"
+import { useCompanyStore } from "@/lib/stores/company.store"
+import type { Invitation } from "@/types/models.types"
 import { useTelegram } from "@/hooks/use-telegram"
 import { companyApi } from "@/lib/api"
 
 const BOT_USERNAME = "whatstaskbot"
 
 export function TeamScreen() {
-  const { currentUser, getActiveCompany, getUserRole, getCompanyMembers, loadMembers, addInvitation } = useAppStore()
+  const currentUser = useUserStore((state) => state.currentUser)
+  const loadMembers = useUserStore((state) => state.loadMembers)
+  const getUserRole = useUserStore((state) => state.getUserRole)
+  const users = useUserStore((state) => state.users)
+
+  const getActiveCompany = useCompanyStore((state) => state.getActiveCompany)
+  const addInvitation = useCompanyStore((state) => state.addInvitation)
+
   const { hapticFeedback, shareInviteLink, getInviteLink } = useTelegram()
 
   const [inviteUsername, setInviteUsername] = useState("")
@@ -69,7 +78,10 @@ export function TeamScreen() {
 
   const company = getActiveCompany()
   const userRole = getUserRole()
-  const members = getCompanyMembers()
+  // Compute members from users filtered by current company
+  const members = currentUser?.activeCompanyId
+    ? users.filter((u) => u.companies.some((c) => c.companyId === currentUser.activeCompanyId))
+    : []
   const canInvite = userRole === "admin" || userRole === "manager"
 
   useEffect(() => {
@@ -113,9 +125,9 @@ export function TeamScreen() {
           department: inv.department || "",
           invitationCode: inv.code,
           status: inv.status,
-          expiresAt: new Date(inv.expiresAt),
-          acceptedAt: inv.acceptedAt ? new Date(inv.acceptedAt) : null,
-          createdAt: new Date(inv.createdAt),
+          expiresAt: new Date(inv.expiresAt).toISOString(),
+          acceptedAt: inv.acceptedAt ? new Date(inv.acceptedAt).toISOString() : null,
+          createdAt: new Date(inv.createdAt).toISOString(),
         }))
         setPendingInvitations(invs.filter((i: Invitation) => i.status === "pending"))
       }
@@ -159,9 +171,9 @@ export function TeamScreen() {
           department: inviteDepartment.trim(),
           invitationCode: inv.code,
           status: "pending",
-          expiresAt: new Date(inv.expiresAt),
+          expiresAt: new Date(inv.expiresAt).toISOString(),
           acceptedAt: null,
-          createdAt: new Date(),
+          createdAt: new Date().toISOString(),
         }
         setPendingInvitations((prev) => [newInvitation, ...prev])
         addInvitation(newInvitation)

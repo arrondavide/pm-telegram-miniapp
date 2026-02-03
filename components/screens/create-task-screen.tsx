@@ -10,7 +10,10 @@ import { Badge } from "@/components/ui/badge"
 import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { useAppStore, type Task } from "@/lib/store"
+import { useUserStore } from "@/lib/stores/user.store"
+import { useProjectStore } from "@/lib/stores/project.store"
+import { useTaskStore } from "@/lib/stores/task.store"
+import type { Task } from "@/types/models.types"
 import { useTelegram } from "@/hooks/use-telegram"
 import { taskApi, companyApi } from "@/lib/api"
 import { cn } from "@/lib/utils"
@@ -23,15 +26,13 @@ interface CreateTaskScreenProps {
 }
 
 export function CreateTaskScreen({ onBack, onSuccess, parentTaskId }: CreateTaskScreenProps) {
-  const {
-    createTask,
-    getCompanyMembers,
-    currentUser,
-    loadMembers,
-    activeProjectId,
-    getActiveProject,
-    getTaskById,
-  } = useAppStore()
+  const currentUser = useUserStore((state) => state.currentUser)
+  const loadMembers = useUserStore((state) => state.loadMembers)
+  const users = useUserStore((state) => state.users)
+
+  const { activeProjectId, getActiveProject } = useProjectStore()
+  const { createTask, getTaskById } = useTaskStore()
+
   const { hapticFeedback, showBackButton, hideBackButton, user } = useTelegram()
 
   const [title, setTitle] = useState("")
@@ -47,7 +48,10 @@ export function CreateTaskScreen({ onBack, onSuccess, parentTaskId }: CreateTask
   const [isLoadingMembers, setIsLoadingMembers] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const members = getCompanyMembers()
+  // Compute members from users filtered by current company
+  const members = currentUser?.activeCompanyId
+    ? users.filter((u) => u.companies.some((c) => c.companyId === currentUser.activeCompanyId))
+    : []
   const activeProject = getActiveProject()
   const parentTask = parentTaskId ? getTaskById(parentTaskId) : null
   const telegramId = user?.id?.toString() || currentUser?.telegramId || ""
@@ -164,7 +168,7 @@ export function CreateTaskScreen({ onBack, onSuccess, parentTaskId }: CreateTask
         createTask({
           title: title.trim(),
           description: description.trim(),
-          dueDate,
+          dueDate: dueDate?.toISOString() || new Date().toISOString(),
           priority,
           status: "pending",
           assignedTo: assignedToWithDetails as any,

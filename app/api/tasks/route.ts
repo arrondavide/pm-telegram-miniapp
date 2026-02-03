@@ -1,57 +1,9 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { connectToDatabase } from "@/lib/mongodb"
 import { Task, User, Update } from "@/lib/models"
+import { taskTransformer } from "@/lib/transformers"
+import { notificationService } from "@/lib/services"
 import mongoose from "mongoose"
-
-async function createNotification(
-  telegramId: string,
-  type: string,
-  title: string,
-  message: string,
-  taskId?: string,
-  sendTelegram = true,
-) {
-  try {
-    // Create in-app notification in database
-    const NotificationSchema = new mongoose.Schema({
-      telegram_id: String,
-      type: String,
-      title: String,
-      message: String,
-      task_id: String,
-      read: { type: Boolean, default: false },
-      created_at: { type: Date, default: Date.now },
-    })
-
-    const AppNotification = mongoose.models.AppNotification || mongoose.model("AppNotification", NotificationSchema)
-
-    await AppNotification.create({
-      telegram_id: telegramId,
-      type,
-      title,
-      message,
-      task_id: taskId,
-      read: false,
-    })
-
-    // Send Telegram notification
-    const BOT_TOKEN = process.env.BOT_TOKEN
-    if (sendTelegram && BOT_TOKEN) {
-      const telegramMessage = `<b>${title}</b>\n\n${message}`
-      await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          chat_id: telegramId,
-          text: telegramMessage,
-          parse_mode: "HTML",
-        }),
-      })
-    }
-  } catch (error) {
-    console.error("Failed to create notification:", error)
-  }
-}
 
 export async function POST(request: NextRequest) {
   try {
@@ -158,28 +110,17 @@ export async function POST(request: NextRequest) {
       message: `Task "${title}" created`,
     })
 
+    // Send notifications to assigned users using centralized service
     if (assignedUsers.length > 0) {
-      const formattedDate = new Date(dueDate).toLocaleDateString("en-US", {
-        month: "short",
-        day: "numeric",
-        year: "numeric",
+      await notificationService.notifyTaskAssignment({
+        assignedUsers,
+        taskTitle: title,
+        taskId: task._id.toString(),
+        assignedBy: user.full_name,
+        dueDate: new Date(dueDate),
+        priority: priority || "medium",
+        excludeTelegramId: telegramId,
       })
-
-      for (const assignedUser of assignedUsers) {
-        // Don't notify the creator if they assigned themselves
-        if (assignedUser.telegram_id === telegramId) continue
-
-        const notifTitle = "New Task Assigned"
-        const notifMessage = `${title}\n\nAssigned by: ${user.full_name}\nDue: ${formattedDate}\nPriority: ${priority || "medium"}`
-
-        await createNotification(
-          assignedUser.telegram_id,
-          "task_assigned",
-          notifTitle,
-          notifMessage,
-          task._id.toString(),
-        )
-      }
     }
 
     return NextResponse.json({
@@ -239,40 +180,8 @@ export async function GET(request: NextRequest) {
       .sort({ due_date: 1 })
       .lean()
 
-    const formattedTasks = tasks.map((task: any) => ({
-      id: task._id.toString(),
-      title: task.title,
-      description: task.description,
-      dueDate: task.due_date,
-      status: task.status,
-      priority: task.priority,
-      category: task.category,
-      tags: task.tags,
-      department: task.department,
-      projectId: task.project_id?.toString() || null,
-      parentTaskId: task.parent_task_id?.toString() || null,
-      depth: task.depth || 0,
-      path: (task.path || []).map((p: any) => p.toString()),
-      assignedTo: (task.assigned_to || []).map((u: any) => ({
-        id: u._id.toString(),
-        fullName: u.full_name,
-        username: u.username,
-        telegramId: u.telegram_id,
-      })),
-      createdBy: task.created_by
-        ? {
-            id: task.created_by._id.toString(),
-            fullName: task.created_by.full_name,
-            username: task.created_by.username,
-            telegramId: task.created_by.telegram_id,
-          }
-        : null,
-      estimatedHours: task.estimated_hours,
-      actualHours: task.actual_hours,
-      completedAt: task.completed_at,
-      createdAt: task.createdAt,
-      updatedAt: task.updatedAt,
-    }))
+    // Use centralized transformer instead of manual mapping
+    const formattedTasks = taskTransformer.toList(tasks as any[])
 
     return NextResponse.json({ tasks: formattedTasks })
   } catch (error) {

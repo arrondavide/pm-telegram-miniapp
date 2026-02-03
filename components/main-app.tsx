@@ -10,10 +10,11 @@ import { ProfileScreen } from "@/components/screens/profile-screen"
 import { CreateTaskScreen } from "@/components/screens/create-task-screen"
 import { TaskDetailScreen } from "@/components/screens/task-detail-screen"
 import { NotificationsScreen } from "@/components/screens/notifications-screen"
-import { TestScreen } from "@/components/screens/test-screen"
 import { CreateProjectScreen } from "@/components/screens/create-project-screen"
 import { InAppNotification } from "@/components/in-app-notification"
-import { useAppStore } from "@/lib/store"
+import { useUserStore } from "@/lib/stores/user.store"
+import { useCompanyStore } from "@/lib/stores/company.store"
+import { useProjectStore } from "@/lib/stores/project.store"
 import { useTelegram } from "@/hooks/use-telegram"
 import { companyApi } from "@/lib/api"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -30,7 +31,6 @@ export type Screen =
   | "create-task"
   | "task-detail"
   | "notifications"
-  | "test"
 
 interface MainAppProps {
   pendingInviteCode?: string | null
@@ -41,7 +41,12 @@ export function MainApp({ pendingInviteCode, onCodeUsed }: MainAppProps) {
   const [activeScreen, setActiveScreen] = useState<Screen>("projects")
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
   const [parentTaskIdForSubtask, setParentTaskIdForSubtask] = useState<string | null>(null)
-  const { currentUser, setCurrentUser, setCompanies, setActiveProject } = useAppStore()
+
+  const currentUser = useUserStore((state) => state.currentUser)
+  const setCurrentUser = useUserStore((state) => state.setCurrentUser)
+  const setCompanies = useCompanyStore((state) => state.setCompanies)
+  const { activeProjectId, setActiveProject } = useProjectStore()
+
   const { user, hapticFeedback } = useTelegram()
 
   const [showJoinDialog, setShowJoinDialog] = useState(false)
@@ -110,8 +115,6 @@ export function MainApp({ pendingInviteCode, onCodeUsed }: MainAppProps) {
   }
 
   const renderScreen = () => {
-    const { activeProjectId } = useAppStore()
-
     switch (activeScreen) {
       case "projects":
         return (
@@ -146,11 +149,9 @@ export function MainApp({ pendingInviteCode, onCodeUsed }: MainAppProps) {
       case "stats":
         return <StatsScreen />
       case "profile":
-        return <ProfileScreen onNavigateToTest={() => setActiveScreen("test")} />
+        return <ProfileScreen />
       case "notifications":
         return <NotificationsScreen onBack={() => setActiveScreen("projects")} onTaskSelect={handleTaskSelect} />
-      case "test":
-        return <TestScreen onBack={() => setActiveScreen("profile")} />
       case "create-task":
         return (
           <CreateTaskScreen
@@ -198,7 +199,7 @@ export function MainApp({ pendingInviteCode, onCodeUsed }: MainAppProps) {
     }
   }
 
-  const showBottomNav = !["project-detail", "create-project", "create-task", "task-detail", "test"].includes(
+  const showBottomNav = !["project-detail", "create-project", "create-task", "task-detail"].includes(
     activeScreen,
   )
 

@@ -4,23 +4,29 @@ import { useEffect, useState } from "react"
 import { MainApp } from "@/components/main-app"
 import { OnboardingScreen } from "@/components/screens/onboarding-screen"
 import { useTelegram } from "@/hooks/use-telegram"
-import { useAppStore } from "@/lib/store"
+import { useUserStore } from "@/lib/stores/user.store"
+import { useCompanyStore } from "@/lib/stores/company.store"
 import { userApi } from "@/lib/api"
 import { Spinner } from "@/components/ui/spinner"
 
 export function TelegramApp() {
   const { webApp, user, isReady, initData, startParam } = useTelegram()
-  const { currentUser, setCurrentUser, initialize, setCompanies } = useAppStore()
+
+  const currentUser = useUserStore((state) => state.currentUser)
+  const setCurrentUser = useUserStore((state) => state.setCurrentUser)
+  const getUserByTelegramId = useUserStore((state) => state.getUserByTelegramId)
+  const setCompanies = useCompanyStore((state) => state.setCompanies)
+
   const [isLoading, setIsLoading] = useState(true)
   const [pendingInviteCode, setPendingInviteCode] = useState<string | null>(null)
   const [isHydrated, setIsHydrated] = useState(false)
 
   useEffect(() => {
-    const unsubscribe = useAppStore.persist.onFinishHydration(() => {
+    const unsubscribe = useUserStore.persist.onFinishHydration(() => {
       setIsHydrated(true)
     })
 
-    if (useAppStore.persist.hasHydrated()) {
+    if (useUserStore.persist.hasHydrated()) {
       setIsHydrated(true)
     }
 
@@ -50,8 +56,7 @@ export function TelegramApp() {
     async function loadUserData() {
       if (!isReady || !user || !isHydrated) return
 
-      const persistedState = useAppStore.getState()
-      const persistedUser = persistedState.currentUser
+      const persistedUser = useUserStore.getState().currentUser
       const persistedActiveCompanyId = persistedUser?.activeCompanyId
 
       console.log("[v0] Hydrated. Persisted activeCompanyId:", persistedActiveCompanyId)
@@ -85,14 +90,13 @@ export function TelegramApp() {
             setCompanies(apiCompanies)
           }
         } else {
-          initialize()
           if (persistedUser) {
             setCurrentUser({
               ...persistedUser,
               telegramId: persistedUser.telegramId || user.id.toString(),
             })
           } else {
-            const existingUser = useAppStore.getState().getUserByTelegramId(user.id.toString())
+            const existingUser = getUserByTelegramId(user.id.toString())
             if (existingUser) {
               setCurrentUser(existingUser)
             }
@@ -100,14 +104,13 @@ export function TelegramApp() {
         }
       } catch (error) {
         console.error("[v0] Failed to load user data:", error)
-        initialize()
         if (persistedUser) {
           setCurrentUser({
             ...persistedUser,
             telegramId: persistedUser.telegramId || user.id.toString(),
           })
         } else {
-          const existingUser = useAppStore.getState().getUserByTelegramId(user.id.toString())
+          const existingUser = getUserByTelegramId(user.id.toString())
           if (existingUser) {
             setCurrentUser(existingUser)
           }
@@ -118,7 +121,7 @@ export function TelegramApp() {
     }
 
     loadUserData()
-  }, [isReady, user, initData, setCurrentUser, setCompanies, initialize, isHydrated])
+  }, [isReady, user, initData, setCurrentUser, setCompanies, getUserByTelegramId, isHydrated])
 
   useEffect(() => {
     if (webApp) {

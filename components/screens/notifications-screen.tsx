@@ -4,7 +4,8 @@ import { useState, useEffect } from "react"
 import { ArrowLeft, Bell, CheckCheck, Trash2, Clock, ClipboardList, MessageSquare, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { useAppStore, type Notification } from "@/lib/store"
+import { useNotificationStore } from "@/lib/stores/notification.store"
+import type { Notification } from "@/types/models.types"
 import { useTelegram } from "@/hooks/use-telegram"
 import { notificationApi } from "@/lib/api"
 import { cn } from "@/lib/utils"
@@ -16,8 +17,13 @@ interface NotificationsScreenProps {
 }
 
 export function NotificationsScreen({ onBack, onTaskSelect }: NotificationsScreenProps) {
-  const { notifications, markNotificationRead, markAllNotificationsRead, clearNotifications, addNotification } =
-    useAppStore()
+  const {
+    notifications,
+    markNotificationRead,
+    markAllNotificationsRead,
+    clearNotifications,
+    addNotification,
+  } = useNotificationStore()
   const { hapticFeedback, user } = useTelegram()
   const [filter, setFilter] = useState<"all" | "unread">("all")
   const [isLoading, setIsLoading] = useState(false)
@@ -131,7 +137,7 @@ export function NotificationsScreen({ onBack, onTaskSelect }: NotificationsScree
     }
   }
 
-  const formatTime = (date: Date) => {
+  const formatTime = (date: Date | string) => {
     const now = new Date()
     const diff = now.getTime() - new Date(date).getTime()
     const minutes = Math.floor(diff / 60000)
