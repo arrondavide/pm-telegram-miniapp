@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { ChevronRight, Shield, Bell, ListTodo, Plug, Settings2, Lock } from "lucide-react"
+import { ChevronRight, Shield, Bell, ListTodo, Plug, Settings2, Lock, Zap, Webhook } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { Badge } from "@/components/ui/badge"
@@ -12,6 +12,10 @@ import { useCompanySettingsStore } from "@/lib/stores/company-settings.store"
 import { useUserStore } from "@/lib/stores/user.store"
 import { useCompanyStore } from "@/lib/stores/company.store"
 import { SETTINGS_SECTIONS } from "@/types/company-settings.types"
+import { AutomationsSettings } from "./automations-settings"
+import { WebhooksSettings } from "./webhooks-settings"
+import type { AutomationRule } from "@/types/automation.types"
+import type { WebhookConfig } from "@/lib/services/webhook.service"
 
 interface CompanySettingsProps {
   onBack?: () => void
@@ -19,6 +23,10 @@ interface CompanySettingsProps {
 
 export function CompanySettings({ onBack }: CompanySettingsProps) {
   const [activeSection, setActiveSection] = useState<string | null>(null)
+
+  // Local state for automations and webhooks (in production, these would be in stores)
+  const [automationRules, setAutomationRules] = useState<AutomationRule[]>([])
+  const [webhooks, setWebhooks] = useState<WebhookConfig[]>([])
 
   const currentUser = useUserStore((state) => state.currentUser)
   const getUserRole = useUserStore((state) => state.getUserRole)
@@ -56,6 +64,8 @@ export function CompanySettings({ onBack }: CompanySettingsProps) {
     general: Settings2,
     notifications: Bell,
     taskDefaults: ListTodo,
+    automations: Zap,
+    webhooks: Webhook,
     enterprise: Shield,
     integrations: Plug,
   }
@@ -205,6 +215,65 @@ export function CompanySettings({ onBack }: CompanySettingsProps) {
                 />
               </SettingRow>
             </>
+          )}
+
+          {activeSection === "automations" && isAdmin && (
+            <AutomationsSettings
+              rules={automationRules}
+              onCreateRule={(rule) => {
+                const newRule: AutomationRule = {
+                  ...rule,
+                  id: `rule-${Date.now()}`,
+                  companyId: company.id,
+                  createdBy: currentUser.id,
+                  createdAt: new Date().toISOString(),
+                  updatedAt: new Date().toISOString(),
+                  triggerCount: 0,
+                }
+                setAutomationRules((prev) => [...prev, newRule])
+              }}
+              onUpdateRule={(ruleId, updates) => {
+                setAutomationRules((prev) =>
+                  prev.map((r) =>
+                    r.id === ruleId
+                      ? { ...r, ...updates, updatedAt: new Date().toISOString() }
+                      : r
+                  )
+                )
+              }}
+              onDeleteRule={(ruleId) => {
+                setAutomationRules((prev) => prev.filter((r) => r.id !== ruleId))
+              }}
+            />
+          )}
+
+          {activeSection === "webhooks" && isAdmin && (
+            <WebhooksSettings
+              webhooks={webhooks}
+              onCreateWebhook={(webhook) => {
+                const newWebhook: WebhookConfig = {
+                  ...webhook,
+                  id: `webhook-${Date.now()}`,
+                  companyId: company.id,
+                  createdAt: new Date().toISOString(),
+                  failureCount: 0,
+                }
+                setWebhooks((prev) => [...prev, newWebhook])
+              }}
+              onUpdateWebhook={(webhookId, updates) => {
+                setWebhooks((prev) =>
+                  prev.map((w) => (w.id === webhookId ? { ...w, ...updates } : w))
+                )
+              }}
+              onDeleteWebhook={(webhookId) => {
+                setWebhooks((prev) => prev.filter((w) => w.id !== webhookId))
+              }}
+              onTestWebhook={async (webhookId) => {
+                // Simulate webhook test
+                await new Promise((resolve) => setTimeout(resolve, 1000))
+                return true
+              }}
+            />
           )}
 
           {activeSection === "enterprise" && isAdmin && (

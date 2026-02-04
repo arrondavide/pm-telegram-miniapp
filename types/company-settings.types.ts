@@ -142,6 +142,18 @@ export const SETTINGS_SECTIONS = [
     adminOnly: false,
   },
   {
+    id: "automations",
+    label: "Automations",
+    description: "Automate workflows with rules and triggers",
+    adminOnly: true,
+  },
+  {
+    id: "webhooks",
+    label: "Webhooks",
+    description: "Send events to external services",
+    adminOnly: true,
+  },
+  {
     id: "enterprise",
     label: "Security & Compliance",
     description: "Audit logs, access control, and compliance features",

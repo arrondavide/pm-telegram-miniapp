@@ -11,7 +11,9 @@ import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { ArrowLeft } from "lucide-react"
+import { ArrowLeft, LayoutTemplate } from "lucide-react"
+import { TemplateSelector } from "@/components/project-templates"
+import type { ProjectTemplate } from "@/types/templates.types"
 
 interface CreateProjectScreenProps {
   onBack: () => void
@@ -54,6 +56,22 @@ export function CreateProjectScreen({ onBack, onSuccess, projectToEdit }: Create
 
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState("")
+  const [selectedTemplate, setSelectedTemplate] = useState<ProjectTemplate | null>(null)
+  const [showTemplates, setShowTemplates] = useState(!projectToEdit)
+
+  // Update form when template is selected
+  const handleTemplateSelect = (template: ProjectTemplate | null) => {
+    setSelectedTemplate(template)
+    if (template) {
+      setFormData((prev) => ({
+        ...prev,
+        name: template.name,
+        description: template.description,
+        icon: template.icon,
+        color: template.color,
+      }))
+    }
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -152,6 +170,37 @@ export function CreateProjectScreen({ onBack, onSuccess, projectToEdit }: Create
           {error && (
             <div className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive border border-destructive/20">
               {error}
+            </div>
+          )}
+
+          {/* Template Selection - Only for new projects */}
+          {!projectToEdit && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <Label className="flex items-center gap-2">
+                  <LayoutTemplate className="h-4 w-4" />
+                  Start from Template
+                </Label>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowTemplates(!showTemplates)}
+                >
+                  {showTemplates ? "Hide" : "Show"}
+                </Button>
+              </div>
+              {showTemplates && (
+                <TemplateSelector
+                  selectedTemplate={selectedTemplate}
+                  onSelect={handleTemplateSelect}
+                />
+              )}
+              {selectedTemplate && (
+                <p className="text-sm text-muted-foreground">
+                  This will create the project with {selectedTemplate.tasks.length} pre-configured tasks.
+                </p>
+              )}
             </div>
           )}
 

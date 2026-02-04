@@ -28,9 +28,10 @@ export interface WebhookPayload {
 export interface WebhookConfig {
   id: string
   companyId: string
+  name: string
   url: string
   secret?: string
-  events: WebhookEvent[] | "*"
+  events: WebhookEvent[]
   enabled: boolean
   createdAt: string
   lastTriggered?: string
@@ -60,13 +61,15 @@ const deliveries: WebhookDelivery[] = []
  */
 export function registerWebhook(
   companyId: string,
+  name: string,
   url: string,
-  events: WebhookEvent[] | "*",
+  events: WebhookEvent[],
   secret?: string
 ): WebhookConfig {
   const webhook: WebhookConfig = {
     id: generateId(),
     companyId,
+    name,
     url,
     secret,
     events,
@@ -115,7 +118,7 @@ export async function triggerWebhooks(
     (w) =>
       w.companyId === companyId &&
       w.enabled &&
-      (w.events === "*" || w.events.includes(event))
+      w.events.includes(event)
   )
 
   // Fire and forget - don't block the main flow

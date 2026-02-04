@@ -15,6 +15,8 @@ import {
   Loader2,
   Trash2,
   AlertTriangle,
+  Link2,
+  Repeat,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -52,6 +54,10 @@ import { useTelegram } from "@/hooks/use-telegram"
 import { taskApi, commentApi, timeApi } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import { formatDuration, formatHoursEstimate } from "@/lib/format-time"
+import { MentionInput, renderTextWithMentions } from "@/components/mention-input"
+import { RecurringConfig } from "@/components/task-settings/recurring-config"
+import { DependencySelector } from "@/components/task-settings/dependency-selector"
+import type { RecurrencePattern } from "@/types/recurring.types"
 
 interface TaskDetailScreenProps {
   taskId: string
@@ -98,7 +104,7 @@ export function TaskDetailScreen({ taskId, onBack, onCreateSubtask, onEditTask }
   const users = useUserStore((state) => state.users)
   const getUserRole = useUserStore((state) => state.getUserRole)
 
-  const { getTaskById, updateTaskStatus, updateTask, deleteTask } = useTaskStore()
+  const { tasks, getTaskById, updateTaskStatus, updateTask, deleteTask } = useTaskStore()
 
   const activeTimeLog = useTimeStore((state) => state.activeTimeLog)
   const getTimeLogsForTask = useTimeStore((state) => state.getTimeLogsForTask)
@@ -128,6 +134,10 @@ export function TaskDetailScreen({ taskId, onBack, onCreateSubtask, onEditTask }
     description: "",
     priority: "medium" as Task["priority"],
     dueDate: "",
+    recurringEnabled: false,
+    recurringPattern: null as RecurrencePattern | null,
+    blockedBy: [] as string[],
+    blocking: [] as string[],
   })
 
   const task = getTaskById(taskId)
@@ -224,6 +234,10 @@ export function TaskDetailScreen({ taskId, onBack, onCreateSubtask, onEditTask }
         description: task.description || "",
         priority: task.priority,
         dueDate: new Date(task.dueDate).toISOString().split("T")[0],
+        recurringEnabled: task.recurring?.enabled || false,
+        recurringPattern: task.recurring?.enabled ? { frequency: "weekly", interval: 1, endType: "never" as const } : null,
+        blockedBy: task.blockedBy || [],
+        blocking: task.blocking || [],
       })
     }
   }, [task])
@@ -586,6 +600,63 @@ export function TaskDetailScreen({ taskId, onBack, onCreateSubtask, onEditTask }
           </Card>
         )}
 
+        {/* Dependencies */}
+        {((task.blockedBy && task.blockedBy.length > 0) || (task.blocking && task.blocking.length > 0)) && (
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 font-heading text-sm font-medium">
+                <Link2 className="h-4 w-4" />
+                Dependencies
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {task.blockedBy && task.blockedBy.length > 0 && (
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground mb-2">Blocked By</p>
+                  <div className="flex flex-wrap gap-2">
+                    {task.blockedBy.map((id) => {
+                      const blockerTask = getTaskById(id)
+                      return (
+                        <Badge key={id} variant="outline" className="bg-red-50 border-red-200">
+                          {blockerTask?.title || id}
+                        </Badge>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+              {task.blocking && task.blocking.length > 0 && (
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground mb-2">Blocking</p>
+                  <div className="flex flex-wrap gap-2">
+                    {task.blocking.map((id) => {
+                      const blockedTask = getTaskById(id)
+                      return (
+                        <Badge key={id} variant="outline" className="bg-orange-50 border-orange-200">
+                          {blockedTask?.title || id}
+                        </Badge>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Recurring Info */}
+        {task.recurring?.enabled && (
+          <Card>
+            <CardContent className="flex items-center gap-3 p-4">
+              <Repeat className="h-5 w-5 text-muted-foreground" />
+              <div>
+                <p className="font-body text-xs text-muted-foreground">Recurring Task</p>
+                <p className="font-body font-medium">{task.recurring.pattern}</p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Comments */}
         <Card>
           <CardHeader className="pb-3">
@@ -597,12 +668,12 @@ export function TaskDetailScreen({ taskId, onBack, onCreateSubtask, onEditTask }
           <CardContent className="space-y-4">
             {/* Add Comment */}
             <div className="flex gap-2">
-              <Textarea
-                placeholder="Add an update or comment..."
+              <MentionInput
                 value={newComment}
-                onChange={(e) => setNewComment(e.target.value)}
+                onChange={setNewComment}
+                users={users}
+                placeholder="Add a comment... Use @ to mention someone"
                 rows={2}
-                className="font-body"
               />
               <Button
                 size="icon"
@@ -640,7 +711,9 @@ export function TaskDetailScreen({ taskId, onBack, onCreateSubtask, onEditTask }
                             {new Date(comment.createdAt).toLocaleDateString()}
                           </span>
                         </div>
-                        <p className="mt-1 font-body text-sm text-muted-foreground">{comment.message}</p>
+                        <p className="mt-1 font-body text-sm text-muted-foreground">
+                          {renderTextWithMentions(comment.message)}
+                        </p>
                       </div>
                     </div>
                   )
@@ -720,6 +793,36 @@ export function TaskDetailScreen({ taskId, onBack, onCreateSubtask, onEditTask }
                   onChange={(e) => setEditForm((f) => ({ ...f, dueDate: e.target.value }))}
                 />
               </div>
+            </div>
+
+            {/* Recurring Configuration */}
+            <div className="border-t pt-4">
+              <RecurringConfig
+                enabled={editForm.recurringEnabled}
+                pattern={editForm.recurringPattern}
+                onEnabledChange={(enabled) =>
+                  setEditForm((f) => ({
+                    ...f,
+                    recurringEnabled: enabled,
+                    recurringPattern: enabled ? { frequency: "weekly", interval: 1, endType: "never" as const } : null,
+                  }))
+                }
+                onPatternChange={(pattern) =>
+                  setEditForm((f) => ({ ...f, recurringPattern: pattern }))
+                }
+              />
+            </div>
+
+            {/* Dependencies */}
+            <div className="border-t pt-4">
+              <DependencySelector
+                currentTaskId={taskId}
+                blockedBy={editForm.blockedBy}
+                blocking={editForm.blocking}
+                allTasks={tasks.filter((t) => t.id !== taskId)}
+                onBlockedByChange={(ids) => setEditForm((f) => ({ ...f, blockedBy: ids }))}
+                onBlockingChange={(ids) => setEditForm((f) => ({ ...f, blocking: ids }))}
+              />
             </div>
           </div>
           <DialogFooter>
