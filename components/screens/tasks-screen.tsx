@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Plus, Filter, Clock, AlertTriangle, RefreshCw, Bell, Info, List, LayoutGrid, Calendar, GanttChart } from "lucide-react"
+import { Plus, Filter, Clock, AlertTriangle, RefreshCw, Bell, Info, List, LayoutGrid, Calendar, GanttChart, Table2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { TaskCard } from "@/components/task-card"
@@ -9,6 +9,7 @@ import { TimeTracker } from "@/components/time-tracker"
 import { KanbanBoard } from "@/components/kanban"
 import { CalendarView } from "@/components/calendar-view"
 import { GanttView } from "@/components/gantt-view"
+import { TableView } from "@/components/table-view"
 import { useUserStore } from "@/lib/stores/user.store"
 import { useCompanyStore } from "@/lib/stores/company.store"
 import { useProjectStore } from "@/lib/stores/project.store"
@@ -305,6 +306,18 @@ export function TasksScreen({ onTaskSelect, onCreateTask }: TasksScreenProps) {
               <GanttChart className="h-4 w-4" />
               <span className="hidden sm:inline">Timeline</span>
             </Button>
+            <Button
+              size="sm"
+              variant={taskViewMode === "table" ? "default" : "ghost"}
+              className={cn(
+                "h-8 px-2 gap-1",
+                taskViewMode === "table" && "bg-foreground text-background"
+              )}
+              onClick={() => setTaskViewMode("table")}
+            >
+              <Table2 className="h-4 w-4" />
+              <span className="hidden sm:inline">Table</span>
+            </Button>
           </div>
 
           {/* Filters - hide status filter for Kanban view */}
@@ -362,6 +375,14 @@ export function TasksScreen({ onTaskSelect, onCreateTask }: TasksScreenProps) {
           <GanttView
             tasks={kanbanTasks}
             onTaskClick={onTaskSelect}
+            isLoading={isLoading}
+          />
+        ) : taskViewMode === "table" ? (
+          /* Table View */
+          <TableView
+            tasks={kanbanTasks}
+            onTaskClick={onTaskSelect}
+            onStatusChange={handleStatusChange}
             isLoading={isLoading}
           />
         ) : (

@@ -78,6 +78,7 @@ export interface Task {
   title: string
   description: string
   dueDate: string
+  startDate?: string
   status: TaskStatus
   priority: TaskPriority
   assignedTo: (string | TaskAssignee)[]
@@ -96,6 +97,19 @@ export interface Task {
   createdAt: string
   updatedAt?: string
   customFields?: CustomFieldValue[]
+
+  // Recurring task config
+  recurring?: {
+    enabled: boolean
+    pattern: string // Serialized RecurrencePattern
+    lastCreated?: string
+    nextDue?: string
+    instanceCount: number
+  }
+
+  // Dependencies
+  blockedBy?: string[]  // Task IDs that block this task
+  blocking?: string[]   // Task IDs this task blocks
 }
 
 // Time tracking types
@@ -119,7 +133,10 @@ export interface Comment {
   userId: string
   userName?: string
   message: string
+  mentions?: Mention[]
   createdAt: string
+  updatedAt?: string
+  parentCommentId?: string // For threaded comments
 }
 
 // Invitation types
@@ -138,8 +155,25 @@ export interface Invitation {
   createdAt: string
 }
 
+// Mention types
+export interface Mention {
+  userId: string
+  username: string
+  startIndex: number
+  endIndex: number
+}
+
 // Notification types
-export type NotificationType = "task_assigned" | "task_updated" | "task_completed" | "comment" | "reminder" | "general"
+export type NotificationType =
+  | "task_assigned"
+  | "task_updated"
+  | "task_completed"
+  | "comment"
+  | "mention"
+  | "reminder"
+  | "dependency_resolved"
+  | "recurring_created"
+  | "general"
 
 export interface Notification {
   id: string
