@@ -174,11 +174,34 @@ export async function GET(request: NextRequest) {
     if (priority && priority !== "all") query.priority = priority
     if (assignedTo) query.assigned_to = new mongoose.Types.ObjectId(assignedTo)
 
+    console.log("[Tasks API] Query:", JSON.stringify(query, null, 2))
+
     const tasks = await Task.find(query)
       .populate("assigned_to", "full_name username telegram_id")
       .populate("created_by", "full_name username telegram_id")
       .sort({ due_date: 1 })
       .lean()
+
+    console.log(`[Tasks API] Found ${tasks.length} tasks for query`)
+
+    // Debug: Log first task's details
+    if (tasks.length > 0) {
+      const firstTask = tasks[0] as any
+      console.log("[Tasks API] First task:", JSON.stringify({
+        _id: firstTask._id?.toString(),
+        title: firstTask.title,
+        project_id: firstTask.project_id?.toString(),
+        parent_task_id: firstTask.parent_task_id?.toString() || null,
+        depth: firstTask.depth,
+        assigned_to: firstTask.assigned_to?.map((a: any) => ({
+          _id: a._id?.toString(),
+          telegram_id: a.telegram_id,
+          full_name: a.full_name
+        }))
+      }, null, 2))
+    } else {
+      console.log("[Tasks API] No tasks found!")
+    }
 
     // Use centralized transformer instead of manual mapping
     const formattedTasks = taskTransformer.toList(tasks as any[])

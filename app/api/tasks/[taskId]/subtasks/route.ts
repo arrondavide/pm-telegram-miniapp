@@ -37,7 +37,14 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       .sort({ createdAt: -1 })
       .lean()
 
-    return NextResponse.json({ subtasks: taskTransformer.toList(subtasks as any[]) })
+    return NextResponse.json(
+      { subtasks: taskTransformer.toList(subtasks as any[]) },
+      {
+        headers: {
+          "Cache-Control": "no-store, no-cache, must-revalidate",
+        },
+      }
+    )
   } catch (error) {
     console.error("Error fetching subtasks:", error)
     return NextResponse.json({ error: "Failed to fetch subtasks" }, { status: 500 })

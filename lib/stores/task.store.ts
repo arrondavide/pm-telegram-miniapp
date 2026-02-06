@@ -107,27 +107,26 @@ export const useTaskStore = create<TaskState & TaskActions>()(
           return []
         }
 
+        // Use telegramId as the PRIMARY identifier since it's consistent
+        // between local store and MongoDB (unlike id which can be random locally)
         const userTelegramId = currentUser.telegramId?.toString()
-        const userId = currentUser.id
 
         const userTasks = get().tasks.filter((t) => {
           const companyMatch = t.companyId === currentUser.activeCompanyId
           if (!companyMatch) return false
 
           return t.assignedTo.some((assignee) => {
+            // If assignee is a string, compare with telegramId
             if (typeof assignee === "string") {
-              return assignee === userId || assignee === userTelegramId
+              return assignee === userTelegramId
             }
 
+            // If assignee is an object, check telegramId first (most reliable)
             if (typeof assignee === "object" && assignee !== null) {
               const a = assignee as TaskAssignee
               const assigneeTelegramId = a.telegramId?.toString()
-              return (
-                a.id === userId ||
-                a.id === userTelegramId ||
-                assigneeTelegramId === userTelegramId ||
-                assigneeTelegramId === userId
-              )
+              // Primary match: telegramId to telegramId
+              return assigneeTelegramId === userTelegramId
             }
             return false
           })

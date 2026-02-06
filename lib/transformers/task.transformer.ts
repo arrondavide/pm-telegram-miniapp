@@ -72,6 +72,7 @@ export const taskTransformer = {
     }
 
     // Handle assigned_to array - normalize to consistent format
+    // IMPORTANT: Always include telegramId as string (even empty) for frontend matching
     const assignedTo: (string | TaskAssignee)[] = (doc.assigned_to || []).map((assignee) => {
       if (typeof assignee === "string") {
         return assignee
@@ -80,8 +81,8 @@ export const taskTransformer = {
         const a = assignee as DbTaskAssignee
         return {
           id: a._id?.toString() || "",
-          telegramId: a.telegram_id || undefined,
-          fullName: a.full_name || undefined,
+          telegramId: a.telegram_id?.toString() || "",
+          fullName: a.full_name || "",
         }
       }
       if (assignee && typeof (assignee as { toString(): string }).toString === "function") {

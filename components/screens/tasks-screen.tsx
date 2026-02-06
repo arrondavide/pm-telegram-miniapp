@@ -77,8 +77,8 @@ export function TasksScreen({ onTaskSelect, onCreateTask }: TasksScreenProps) {
     setIsLoading(true)
     setDebugInfo(null)
     try {
-      // Fetch tasks filtered by project and only root tasks
-      const response = await taskApi.getAll(company.id, telegramId)
+      // Fetch tasks filtered by project
+      const response = await taskApi.getAll(company.id, telegramId, activeProjectId)
 
       if (response.success && response.data) {
         const tasksData = (response.data as any).tasks || response.data
@@ -119,18 +119,23 @@ export function TasksScreen({ onTaskSelect, onCreateTask }: TasksScreenProps) {
             })
           : []
 
-        if (formattedTasks.length > 0) {
+        if (formattedTasks.length > 0 && !isManagerOrAdmin) {
+          // Use telegramId as the PRIMARY identifier (consistent between local and MongoDB)
           const userTelegramId = currentUser.telegramId?.toString()
           const matchingTasks = formattedTasks.filter((t: any) =>
             t.assignedTo.some((a: any) => {
-              if (typeof a === "string") return a === userTelegramId
-              return a.telegramId === userTelegramId
+              if (typeof a === "string") {
+                return a === userTelegramId
+              }
+              // Object format - check telegramId (most reliable)
+              const assigneeTelegramId = a.telegramId?.toString()
+              return assigneeTelegramId === userTelegramId
             }),
           )
 
           if (matchingTasks.length === 0 && formattedTasks.length > 0) {
             setDebugInfo(
-              `Found ${formattedTasks.length} task(s) in company, but none assigned to you (ID: ${userTelegramId})`,
+              `Found ${formattedTasks.length} task(s) in project, but none assigned to you (ID: ${userTelegramId})`,
             )
           }
         }

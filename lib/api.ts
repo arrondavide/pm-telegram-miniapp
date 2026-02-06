@@ -179,11 +179,14 @@ export const projectApi = {
 
 // Task APIs
 export const taskApi = {
-  getAll: (companyId: string, telegramId: string) =>
-    fetchApi<import("@/types/models.types").Task[]>(`/tasks?companyId=${companyId}`, {
-      method: "GET",
-      headers: { "X-Telegram-Id": telegramId },
-    }),
+  getAll: (companyId: string, telegramId: string, projectId?: string) =>
+    fetchApi<import("@/types/models.types").Task[]>(
+      `/tasks?companyId=${companyId}${projectId ? `&projectId=${projectId}` : ""}`,
+      {
+        method: "GET",
+        headers: { "X-Telegram-Id": telegramId },
+      }
+    ),
 
   getByUser: (companyId: string, userId: string, telegramId: string) =>
     fetchApi<import("@/types/models.types").Task[]>(`/tasks?companyId=${companyId}&assignedTo=${userId}`, {
@@ -191,11 +194,14 @@ export const taskApi = {
       headers: { "X-Telegram-Id": telegramId },
     }),
 
-  getByProject: (projectId: string, telegramId: string, rootOnly = true) =>
-    fetchApi<{ tasks: import("@/types/models.types").Task[] }>(`/api/projects/${projectId}/tasks?rootOnly=${rootOnly}`, {
-      method: "GET",
-      headers: { "X-Telegram-Id": telegramId },
-    }),
+  getByProject: (companyId: string, projectId: string, telegramId: string, rootOnly = true) =>
+    fetchApi<{ tasks: import("@/types/models.types").Task[] }>(
+      `/tasks?companyId=${companyId}&projectId=${projectId}${rootOnly ? "&rootOnly=true" : ""}`,
+      {
+        method: "GET",
+        headers: { "X-Telegram-Id": telegramId },
+      }
+    ),
 
   getById: (taskId: string, telegramId: string) =>
     fetchApi<import("@/types/models.types").Task>(`/tasks/${taskId}`, {

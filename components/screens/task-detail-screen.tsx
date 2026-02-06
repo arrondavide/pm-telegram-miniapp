@@ -357,12 +357,15 @@ export function TaskDetailScreen({ taskId, onBack, onCreateSubtask, onEditTask, 
     .filter(Boolean)
   const creator = users.find((u) => u.id === task.createdBy)
 
+  // Use telegramId as PRIMARY identifier (consistent between local store and MongoDB)
+  const userTelegramId = currentUser?.telegramId?.toString()
   const isAssigned =
     currentUser &&
+    userTelegramId &&
     task.assignedTo.some((a) => {
-      if (typeof a === "string") return a === currentUser.id || a === currentUser.telegramId
+      if (typeof a === "string") return a === userTelegramId
       const taskAssignee = a as TaskAssignee
-      return taskAssignee.id === currentUser.id || taskAssignee.telegramId === currentUser.telegramId
+      return taskAssignee.telegramId?.toString() === userTelegramId
     })
   const allTimeLogs = apiTimeLogs.length > 0 ? apiTimeLogs : timeLogs
   const totalTimeSeconds = allTimeLogs.reduce((sum, tl) => {
