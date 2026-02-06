@@ -52,7 +52,7 @@ export function NotificationsScreen({ onBack, onTaskSelect }: NotificationsScree
         })
       }
     } catch (error) {
-      console.error("Failed to load notifications:", error)
+      
     } finally {
       setIsLoading(false)
     }
@@ -156,11 +156,11 @@ export function NotificationsScreen({ onBack, onTaskSelect }: NotificationsScree
       {/* Header */}
       <div className="sticky top-0 z-10 border-b border-border/50 bg-background p-4">
         <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon" onClick={onBack} className="shrink-0">
+          <Button variant="ghost" size="icon" onClick={onBack} className="shrink-0" aria-label="Go back">
             <ArrowLeft className="h-5 w-5" />
           </Button>
           <div className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#040404]">
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-foreground">
               <Image src="/logo-dark.png" alt="WhatsTask" width={20} height={20} className="invert" />
             </div>
             <div>
@@ -174,6 +174,7 @@ export function NotificationsScreen({ onBack, onTaskSelect }: NotificationsScree
             onClick={loadNotificationsFromApi}
             disabled={isLoading}
             className="ml-auto"
+            aria-label="Refresh notifications"
           >
             <RefreshCw className={cn("h-5 w-5", isLoading && "animate-spin")} />
           </Button>
@@ -186,7 +187,7 @@ export function NotificationsScreen({ onBack, onTaskSelect }: NotificationsScree
               variant={filter === "all" ? "default" : "outline"}
               size="sm"
               onClick={() => setFilter("all")}
-              className={filter === "all" ? "bg-[#040404] text-white" : ""}
+              className={filter === "all" ? "bg-foreground text-background" : ""}
             >
               All
             </Button>
@@ -194,7 +195,7 @@ export function NotificationsScreen({ onBack, onTaskSelect }: NotificationsScree
               variant={filter === "unread" ? "default" : "outline"}
               size="sm"
               onClick={() => setFilter("unread")}
-              className={filter === "unread" ? "bg-[#040404] text-white" : ""}
+              className={filter === "unread" ? "bg-foreground text-background" : ""}
             >
               Unread ({unreadCount})
             </Button>

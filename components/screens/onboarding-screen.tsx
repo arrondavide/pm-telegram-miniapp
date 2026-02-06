@@ -121,7 +121,7 @@ export function OnboardingScreen({ pendingInviteCode, onCodeUsed }: OnboardingSc
     <div className="flex min-h-screen flex-col items-center justify-center bg-background p-4">
       <div className="mb-8 text-center">
         <div className="mb-6 flex justify-center">
-          <div className="relative flex h-24 w-24 items-center justify-center rounded-full bg-[#040404]">
+          <div className="relative flex h-24 w-24 items-center justify-center rounded-full bg-foreground">
             <Image src="/logo-dark.png" alt="WhatsTask" width={64} height={64} className="object-contain" priority />
           </div>
         </div>
@@ -169,6 +169,8 @@ export function OnboardingScreen({ pendingInviteCode, onCodeUsed }: OnboardingSc
                   onChange={(e) => setCompanyName(e.target.value)}
                   disabled={isLoading}
                   className="border-border/50"
+                  autoCapitalize="words"
+                  autoComplete="organization"
                 />
               </div>
               <Button
@@ -197,6 +199,8 @@ export function OnboardingScreen({ pendingInviteCode, onCodeUsed }: OnboardingSc
                   placeholder="Enter invitation code"
                   value={inviteCode}
                   onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
+                  autoCapitalize="characters"
+                  autoComplete="off"
                   disabled={isLoading}
                   className="border-border/50 font-mono uppercase tracking-widest"
                 />

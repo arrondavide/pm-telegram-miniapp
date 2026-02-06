@@ -1,9 +1,8 @@
 "use client"
 
-import { useState, useCallback } from "react"
-import { Plus, MoreHorizontal, GripVertical } from "lucide-react"
+import { useState, useCallback, useMemo, useRef } from "react"
+import { Plus } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import type { Task, TaskStatus } from "@/types/models.types"
@@ -39,43 +38,51 @@ export function KanbanBoard({
 }: KanbanBoardProps) {
   const [draggedTask, setDraggedTask] = useState<Task | null>(null)
   const [dragOverColumn, setDragOverColumn] = useState<TaskStatus | null>(null)
+  const [touchedTask, setTouchedTask] = useState<Task | null>(null)
 
-  const getTasksByStatus = useCallback(
-    (status: TaskStatus) => {
-      // Map "started" to "pending" for display purposes
-      return tasks.filter((task) => {
-        if (status === "pending") {
-          return task.status === "pending" || task.status === "started"
-        }
-        if (status === "in_progress") {
-          return task.status === "in_progress"
-        }
-        if (status === "completed") {
-          return task.status === "completed"
-        }
-        return task.status === status
-      })
-    },
-    [tasks]
-  )
+  // Throttle ref for touch move
+  const lastTouchMoveTime = useRef(0)
+  const TOUCH_THROTTLE_MS = 50
 
-  const handleDragStart = (e: React.DragEvent, task: Task) => {
+  // Memoize task grouping by status
+  const tasksByStatus = useMemo(() => {
+    const grouped: Record<string, Task[]> = {
+      pending: [],
+      in_progress: [],
+      completed: [],
+    }
+
+    for (const task of tasks) {
+      if (task.status === "pending" || task.status === "started") {
+        grouped.pending.push(task)
+      } else if (task.status === "in_progress") {
+        grouped.in_progress.push(task)
+      } else if (task.status === "completed") {
+        grouped.completed.push(task)
+      }
+    }
+
+    return grouped
+  }, [tasks])
+
+  // Memoized drag handlers
+  const handleDragStart = useCallback((e: React.DragEvent, task: Task) => {
     setDraggedTask(task)
     e.dataTransfer.effectAllowed = "move"
     e.dataTransfer.setData("text/plain", task.id)
-  }
+  }, [])
 
-  const handleDragOver = (e: React.DragEvent, columnId: TaskStatus) => {
+  const handleDragOver = useCallback((e: React.DragEvent, columnId: TaskStatus) => {
     e.preventDefault()
     e.dataTransfer.dropEffect = "move"
     setDragOverColumn(columnId)
-  }
+  }, [])
 
-  const handleDragLeave = () => {
+  const handleDragLeave = useCallback(() => {
     setDragOverColumn(null)
-  }
+  }, [])
 
-  const handleDrop = (e: React.DragEvent, columnId: TaskStatus) => {
+  const handleDrop = useCallback((e: React.DragEvent, columnId: TaskStatus) => {
     e.preventDefault()
     setDragOverColumn(null)
 
@@ -83,54 +90,60 @@ export function KanbanBoard({
       onStatusChange(draggedTask.id, columnId)
     }
     setDraggedTask(null)
-  }
+  }, [draggedTask, onStatusChange])
 
-  const handleDragEnd = () => {
+  const handleDragEnd = useCallback(() => {
     setDraggedTask(null)
     setDragOverColumn(null)
-  }
+  }, [])
 
-  // Touch handling for mobile drag and drop
-  const [touchedTask, setTouchedTask] = useState<Task | null>(null)
-  const [touchStartY, setTouchStartY] = useState(0)
-
-  const handleTouchStart = (task: Task, e: React.TouchEvent) => {
+  // Memoized touch handlers with throttling
+  const handleTouchStart = useCallback((task: Task, e: React.TouchEvent) => {
     setTouchedTask(task)
-    setTouchStartY(e.touches[0].clientY)
-  }
+  }, [])
 
-  const handleTouchMove = (e: React.TouchEvent) => {
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
     if (!touchedTask) return
 
+    // Throttle touch move events
+    const now = Date.now()
+    if (now - lastTouchMoveTime.current < TOUCH_THROTTLE_MS) return
+    lastTouchMoveTime.current = now
+
     const touch = e.touches[0]
-    const elements = document.elementsFromPoint(touch.clientX, touch.clientY)
-    const columnElement = elements.find((el) => el.getAttribute("data-column-id"))
+    const element = document.elementFromPoint(touch.clientX, touch.clientY)
 
-    if (columnElement) {
-      const columnId = columnElement.getAttribute("data-column-id") as TaskStatus
-      setDragOverColumn(columnId)
+    if (element) {
+      // Walk up the DOM to find column
+      let current: Element | null = element
+      while (current && !current.getAttribute("data-column-id")) {
+        current = current.parentElement
+      }
+
+      if (current) {
+        const columnId = current.getAttribute("data-column-id") as TaskStatus
+        setDragOverColumn(columnId)
+      }
     }
-  }
+  }, [touchedTask])
 
-  const handleTouchEnd = (e: React.TouchEvent) => {
-    if (!touchedTask || !dragOverColumn) {
-      setTouchedTask(null)
-      setDragOverColumn(null)
-      return
-    }
-
-    if (touchedTask.status !== dragOverColumn) {
+  const handleTouchEnd = useCallback(() => {
+    if (touchedTask && dragOverColumn && touchedTask.status !== dragOverColumn) {
       onStatusChange(touchedTask.id, dragOverColumn)
     }
-
     setTouchedTask(null)
     setDragOverColumn(null)
-  }
+  }, [touchedTask, dragOverColumn, onStatusChange])
+
+  // Memoized handlers for creating tasks
+  const handleCreateTask = useCallback((status: TaskStatus) => {
+    onCreateTask?.(status)
+  }, [onCreateTask])
 
   return (
     <div className="flex gap-3 overflow-x-auto pb-4 px-1 -mx-1 snap-x snap-mandatory">
       {COLUMNS.map((column) => {
-        const columnTasks = getTasksByStatus(column.id)
+        const columnTasks = tasksByStatus[column.id] || []
         const isOver = dragOverColumn === column.id
 
         return (
@@ -160,7 +173,7 @@ export function KanbanBoard({
                   variant="ghost"
                   size="icon"
                   className="h-6 w-6"
-                  onClick={() => onCreateTask(column.id)}
+                  onClick={() => handleCreateTask(column.id)}
                 >
                   <Plus className="h-4 w-4" />
                 </Button>
@@ -181,7 +194,7 @@ export function KanbanBoard({
                       variant="link"
                       size="sm"
                       className="text-xs mt-1"
-                      onClick={() => onCreateTask(column.id)}
+                      onClick={() => handleCreateTask(column.id)}
                     >
                       Add a task
                     </Button>
@@ -198,7 +211,7 @@ export function KanbanBoard({
                     onTouchStart={(e) => handleTouchStart(task, e)}
                     onTouchMove={handleTouchMove}
                     onTouchEnd={handleTouchEnd}
-                    isDragging={draggedTask?.id === task.id}
+                    isDragging={draggedTask?.id === task.id || touchedTask?.id === task.id}
                   />
                 ))
               )}

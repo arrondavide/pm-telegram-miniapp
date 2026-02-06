@@ -25,6 +25,8 @@ export function ProjectsScreen({ onProjectSelect, onCreateProject }: ProjectsScr
   const activeCompany = getActiveCompany()
 
   useEffect(() => {
+    let isMounted = true
+
     async function fetchProjects() {
       if (!activeCompany || !currentUser) {
         setIsLoading(false)
@@ -34,17 +36,19 @@ export function ProjectsScreen({ onProjectSelect, onCreateProject }: ProjectsScr
       setIsLoading(true)
       try {
         const response = await projectApi.getAll(activeCompany.id, currentUser.telegramId)
+        if (!isMounted) return
         if (response.success && response.data) {
           loadProjects(response.data.projects)
         }
-      } catch (error) {
-        console.error("Error fetching projects:", error)
+      } catch {
+        // Silently fail - projects will show from cache
       } finally {
-        setIsLoading(false)
+        if (isMounted) setIsLoading(false)
       }
     }
 
     fetchProjects()
+    return () => { isMounted = false }
   }, [activeCompany?.id, currentUser?.telegramId, loadProjects])
 
   const getProjectStats = (projectId: string) => {

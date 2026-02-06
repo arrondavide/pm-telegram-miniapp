@@ -1,11 +1,12 @@
 "use client"
 
-import { useState, useMemo } from "react"
-import { ChevronLeft, ChevronRight, Plus } from "lucide-react"
+import { useState, useMemo, useCallback } from "react"
+import { ChevronLeft, ChevronRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import type { Task, TaskStatus } from "@/types/models.types"
+import { MAX_TASKS_WEEK_VIEW, MAX_TASKS_MONTH_VIEW } from "@/lib/constants/task-display"
 
 interface CalendarViewProps {
   tasks: Task[]
@@ -106,55 +107,59 @@ export function CalendarView({
     return map
   }, [tasks])
 
-  const getTasksForDate = (date: Date | null): Task[] => {
+  const getTasksForDate = useCallback((date: Date | null): Task[] => {
     if (!date) return []
     const key = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`
     return tasksByDate.get(key) || []
-  }
+  }, [tasksByDate])
 
-  const navigatePrev = () => {
-    const newDate = new Date(currentDate)
-    if (viewMode === "month") {
-      newDate.setMonth(newDate.getMonth() - 1)
-    } else {
-      newDate.setDate(newDate.getDate() - 7)
-    }
-    setCurrentDate(newDate)
-  }
+  const navigatePrev = useCallback(() => {
+    setCurrentDate((prev) => {
+      const newDate = new Date(prev)
+      if (viewMode === "month") {
+        newDate.setMonth(newDate.getMonth() - 1)
+      } else {
+        newDate.setDate(newDate.getDate() - 7)
+      }
+      return newDate
+    })
+  }, [viewMode])
 
-  const navigateNext = () => {
-    const newDate = new Date(currentDate)
-    if (viewMode === "month") {
-      newDate.setMonth(newDate.getMonth() + 1)
-    } else {
-      newDate.setDate(newDate.getDate() + 7)
-    }
-    setCurrentDate(newDate)
-  }
+  const navigateNext = useCallback(() => {
+    setCurrentDate((prev) => {
+      const newDate = new Date(prev)
+      if (viewMode === "month") {
+        newDate.setMonth(newDate.getMonth() + 1)
+      } else {
+        newDate.setDate(newDate.getDate() + 7)
+      }
+      return newDate
+    })
+  }, [viewMode])
 
-  const goToToday = () => {
+  const goToToday = useCallback(() => {
     setCurrentDate(new Date())
-  }
+  }, [])
 
-  const isToday = (date: Date | null): boolean => {
+  const isToday = useCallback((date: Date | null): boolean => {
     if (!date) return false
     return date.toDateString() === today.toDateString()
-  }
+  }, [today])
 
-  const isCurrentMonth = (date: Date | null): boolean => {
+  const isCurrentMonth = useCallback((date: Date | null): boolean => {
     if (!date) return false
     return date.getMonth() === currentDate.getMonth()
-  }
+  }, [currentDate])
 
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="icon" onClick={navigatePrev}>
+          <Button variant="outline" size="icon" onClick={navigatePrev} aria-label="Previous">
             <ChevronLeft className="h-4 w-4" />
           </Button>
-          <Button variant="outline" size="icon" onClick={navigateNext}>
+          <Button variant="outline" size="icon" onClick={navigateNext} aria-label="Next">
             <ChevronRight className="h-4 w-4" />
           </Button>
           <Button variant="ghost" size="sm" onClick={goToToday}>
@@ -207,10 +212,12 @@ export function CalendarView({
           const dayTasks = getTasksForDate(date)
           const isCurrentDay = isToday(date)
           const inCurrentMonth = isCurrentMonth(date)
+          // Use date ISO string for stable key, fallback to position for null dates
+          const cellKey = date ? date.toISOString() : `empty-${index}`
 
           return (
             <div
-              key={index}
+              key={cellKey}
               className={cn(
                 "border rounded-lg p-1 min-h-[80px] transition-colors",
                 viewMode === "week" && "min-h-[200px]",
@@ -241,7 +248,7 @@ export function CalendarView({
 
                   {/* Tasks */}
                   <div className="space-y-0.5 overflow-hidden">
-                    {dayTasks.slice(0, viewMode === "week" ? 10 : 3).map((task) => (
+                    {dayTasks.slice(0, viewMode === "week" ? MAX_TASKS_WEEK_VIEW : MAX_TASKS_MONTH_VIEW).map((task) => (
                       <div
                         key={task.id}
                         onClick={(e) => {
@@ -262,9 +269,9 @@ export function CalendarView({
                         {task.title}
                       </div>
                     ))}
-                    {dayTasks.length > (viewMode === "week" ? 10 : 3) && (
+                    {dayTasks.length > (viewMode === "week" ? MAX_TASKS_WEEK_VIEW : MAX_TASKS_MONTH_VIEW) && (
                       <div className="text-[10px] text-muted-foreground px-1.5">
-                        +{dayTasks.length - (viewMode === "week" ? 10 : 3)} more
+                        +{dayTasks.length - (viewMode === "week" ? MAX_TASKS_WEEK_VIEW : MAX_TASKS_MONTH_VIEW)} more
                       </div>
                     )}
                   </div>

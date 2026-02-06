@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { Play, Square, Clock, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -46,7 +46,7 @@ export function TimeTracker({ className, taskId }: TimeTrackerProps) {
     return () => clearInterval(interval)
   }, [activeTimeLog])
 
-  const handleClockIn = async () => {
+  const handleClockIn = useCallback(async () => {
     if (!taskId) return
     hapticFeedback("medium")
     setIsClockingIn(true)
@@ -63,17 +63,16 @@ export function TimeTracker({ className, taskId }: TimeTrackerProps) {
         clockIn(taskId)
         hapticFeedback("success")
       }
-    } catch (error) {
-      console.error("Failed to clock in:", error)
-      // Fallback to local
+    } catch {
+      // Fallback to local on error
       clockIn(taskId)
       hapticFeedback("success")
     } finally {
       setIsClockingIn(false)
     }
-  }
+  }, [taskId, user?.id, hapticFeedback, clockIn])
 
-  const handleClockOut = async () => {
+  const handleClockOut = useCallback(async () => {
     hapticFeedback("medium")
     setIsClockingOut(true)
 
@@ -88,9 +87,8 @@ export function TimeTracker({ className, taskId }: TimeTrackerProps) {
           window.location.reload()
         }
       }
-    } catch (error) {
-      console.error("Failed to clock out:", error)
-      // Fallback to local
+    } catch {
+      // Fallback to local on error
       const log = clockOut()
       if (log) {
         hapticFeedback("success")
@@ -101,7 +99,7 @@ export function TimeTracker({ className, taskId }: TimeTrackerProps) {
     } finally {
       setIsClockingOut(false)
     }
-  }
+  }, [user?.id, hapticFeedback, clockOut])
 
   if (isTracking && activeTask) {
     return (

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import Image from "next/image"
 import {
   Users,
@@ -76,6 +76,10 @@ export function TeamScreen() {
   const [isDeletingInvite, setIsDeletingInvite] = useState(false)
   const [isLoadingMembers, setIsLoadingMembers] = useState(false)
 
+  // Refs for timeout cleanup
+  const copiedTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const copiedLinkTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+
   const company = getActiveCompany()
   const userRole = getUserRole()
   // Compute members from users filtered by current company
@@ -91,22 +95,21 @@ export function TeamScreen() {
     }
   }, [company, currentUser])
 
-  const loadMembersFromApi = async () => {
+  const loadMembersFromApi = useCallback(async () => {
     if (!company || !currentUser) return
 
     setIsLoadingMembers(true)
     try {
       const response = await companyApi.getMembers(company.id, currentUser.telegramId)
-      console.log("[v0] Members API response:", response)
       if (response.success && response.data?.members) {
         loadMembers(response.data.members)
       }
-    } catch (error) {
-      console.error("[v0] Error loading members:", error)
+    } catch {
+      // Silently fail - members will show from cache
     } finally {
       setIsLoadingMembers(false)
     }
-  }
+  }, [company, currentUser, loadMembers])
 
   const loadPendingInvitations = async () => {
     if (!company || !currentUser) return
@@ -132,7 +135,7 @@ export function TeamScreen() {
         setPendingInvitations(invs.filter((i: Invitation) => i.status === "pending"))
       }
     } catch (error) {
-      console.error("Error loading invitations:", error)
+      
     } finally {
       setIsLoadingInvitations(false)
     }
@@ -214,23 +217,33 @@ export function TeamScreen() {
     }
   }
 
-  const copyCode = () => {
+  const copyCode = useCallback(() => {
     if (generatedCode) {
       navigator.clipboard.writeText(generatedCode)
       setCopied(true)
       hapticFeedback("success")
-      setTimeout(() => setCopied(false), 2000)
+      if (copiedTimeoutRef.current) clearTimeout(copiedTimeoutRef.current)
+      copiedTimeoutRef.current = setTimeout(() => setCopied(false), 2000)
     }
-  }
+  }, [generatedCode, hapticFeedback])
 
-  const copyLink = () => {
+  const copyLink = useCallback(() => {
     if (generatedLink) {
       navigator.clipboard.writeText(generatedLink)
       setCopiedLink(true)
       hapticFeedback("success")
-      setTimeout(() => setCopiedLink(false), 2000)
+      if (copiedLinkTimeoutRef.current) clearTimeout(copiedLinkTimeoutRef.current)
+      copiedLinkTimeoutRef.current = setTimeout(() => setCopiedLink(false), 2000)
     }
-  }
+  }, [generatedLink, hapticFeedback])
+
+  // Cleanup timeouts on unmount
+  useEffect(() => {
+    return () => {
+      if (copiedTimeoutRef.current) clearTimeout(copiedTimeoutRef.current)
+      if (copiedLinkTimeoutRef.current) clearTimeout(copiedLinkTimeoutRef.current)
+    }
+  }, [])
 
   const copyInviteCode = (code: string) => {
     navigator.clipboard.writeText(code)
@@ -276,7 +289,7 @@ export function TeamScreen() {
       <header className="sticky top-0 z-40 border-b border-border/50 bg-background/95 px-4 py-4 backdrop-blur supports-[backdrop-filter]:bg-background/80">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="relative flex h-10 w-10 items-center justify-center rounded-full bg-[#040404]">
+            <div className="relative flex h-10 w-10 items-center justify-center rounded-full bg-foreground">
               <Image src="/logo-dark.png" alt="WhatsTask" width={28} height={28} className="object-contain" />
             </div>
             <div>

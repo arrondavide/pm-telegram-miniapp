@@ -1,7 +1,7 @@
 "use client"
 
-import { useState, useMemo, useRef } from "react"
-import { ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Calendar } from "lucide-react"
+import { useState, useMemo, useRef, useCallback } from "react"
+import { ChevronLeft, ChevronRight, Calendar } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
@@ -134,39 +134,66 @@ export function GanttView({
     )
   }, [tasks])
 
-  // Calculate task position and width
-  const getTaskPosition = (task: Task) => {
-    const taskStart = new Date(task.createdAt)
-    const taskEnd = new Date(task.dueDate)
-
+  // Memoize task positions to avoid recalculation on every render
+  const taskPositions = useMemo(() => {
     const totalDays = (dateRange.end.getTime() - dateRange.start.getTime()) / (1000 * 60 * 60 * 24)
     const totalWidth = columns.length * columnWidth
 
-    // Days from start
-    const startDays = Math.max(0, (taskStart.getTime() - dateRange.start.getTime()) / (1000 * 60 * 60 * 24))
-    const endDays = Math.min(totalDays, (taskEnd.getTime() - dateRange.start.getTime()) / (1000 * 60 * 60 * 24))
+    const positions = new Map<string, { left: number; width: number }>()
 
-    const left = (startDays / totalDays) * totalWidth
-    const width = Math.max(20, ((endDays - startDays) / totalDays) * totalWidth)
+    for (const task of sortedTasks) {
+      const taskStart = new Date(task.createdAt)
+      const taskEnd = new Date(task.dueDate)
 
-    return { left, width }
-  }
+      // Days from start
+      const startDays = Math.max(0, (taskStart.getTime() - dateRange.start.getTime()) / (1000 * 60 * 60 * 24))
+      const endDays = Math.min(totalDays, (taskEnd.getTime() - dateRange.start.getTime()) / (1000 * 60 * 60 * 24))
 
-  // Calculate progress percentage
-  const getProgress = (task: Task): number => {
-    if (task.status === "completed") return 100
-    if (task.status === "pending") return 0
-    if (task.estimatedHours > 0) {
-      return Math.min(100, (task.actualHours / task.estimatedHours) * 100)
+      const left = (startDays / totalDays) * totalWidth
+      const width = Math.max(20, ((endDays - startDays) / totalDays) * totalWidth)
+
+      positions.set(task.id, { left, width })
     }
-    // Estimate based on status
-    switch (task.status) {
-      case "started": return 10
-      case "in_progress": return 50
-      case "blocked": return 30
-      default: return 0
+
+    return positions
+  }, [sortedTasks, dateRange, columns.length, columnWidth])
+
+  // Get position for a task
+  const getTaskPosition = useCallback((taskId: string) => {
+    return taskPositions.get(taskId) || { left: 0, width: 20 }
+  }, [taskPositions])
+
+  // Memoize progress calculations
+  const taskProgress = useMemo(() => {
+    const progress = new Map<string, number>()
+
+    for (const task of sortedTasks) {
+      let value: number
+      if (task.status === "completed") {
+        value = 100
+      } else if (task.status === "pending") {
+        value = 0
+      } else if (task.estimatedHours > 0) {
+        value = Math.min(100, (task.actualHours / task.estimatedHours) * 100)
+      } else {
+        // Estimate based on status
+        switch (task.status) {
+          case "started": value = 10; break
+          case "in_progress": value = 50; break
+          case "blocked": value = 30; break
+          default: value = 0
+        }
+      }
+      progress.set(task.id, value)
     }
-  }
+
+    return progress
+  }, [sortedTasks])
+
+  // Get progress for a task
+  const getProgress = useCallback((taskId: string): number => {
+    return taskProgress.get(taskId) || 0
+  }, [taskProgress])
 
   const navigatePrev = () => {
     const newDate = new Date(startDate)
@@ -221,10 +248,10 @@ export function GanttView({
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="icon" onClick={navigatePrev}>
+          <Button variant="outline" size="icon" onClick={navigatePrev} aria-label="Previous">
             <ChevronLeft className="h-4 w-4" />
           </Button>
-          <Button variant="outline" size="icon" onClick={navigateNext}>
+          <Button variant="outline" size="icon" onClick={navigateNext} aria-label="Next">
             <ChevronRight className="h-4 w-4" />
           </Button>
           <Button variant="ghost" size="sm" onClick={goToToday}>
@@ -298,8 +325,8 @@ export function GanttView({
             </div>
           ) : (
             sortedTasks.map((task) => {
-              const { left, width } = getTaskPosition(task)
-              const progress = getProgress(task)
+              const { left, width } = getTaskPosition(task.id)
+              const progress = getProgress(task.id)
               const isOverdue = task.status !== "completed" && new Date(task.dueDate) < today
 
               return (

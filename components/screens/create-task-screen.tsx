@@ -72,7 +72,7 @@ export function CreateTaskScreen({ onBack, onSuccess, parentTaskId }: CreateTask
           loadMembers(response.data.members)
         }
       } catch (error) {
-        console.error("Failed to load members:", error)
+        
       } finally {
         setIsLoadingMembers(false)
       }
@@ -231,7 +231,7 @@ export function CreateTaskScreen({ onBack, onSuccess, parentTaskId }: CreateTask
           <Label htmlFor="title" className="font-body">
             Task Title *
           </Label>
-          <Input id="title" placeholder="Enter task title" value={title} onChange={(e) => setTitle(e.target.value)} />
+          <Input id="title" placeholder="Enter task title" value={title} onChange={(e) => setTitle(e.target.value)} autoCapitalize="sentences" />
         </div>
 
         {/* Description */}
@@ -245,6 +245,7 @@ export function CreateTaskScreen({ onBack, onSuccess, parentTaskId }: CreateTask
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             rows={3}
+            autoCapitalize="sentences"
           />
         </div>
 
@@ -356,7 +357,7 @@ export function CreateTaskScreen({ onBack, onSuccess, parentTaskId }: CreateTask
               onChange={(e) => setNewTag(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), handleAddTag())}
             />
-            <Button type="button" variant="outline" size="icon" onClick={handleAddTag}>
+            <Button type="button" variant="outline" size="icon" onClick={handleAddTag} aria-label="Add tag">
               <Plus className="h-4 w-4" />
             </Button>
           </div>
@@ -382,15 +383,13 @@ export function CreateTaskScreen({ onBack, onSuccess, parentTaskId }: CreateTask
                 <p className="text-xs text-muted-foreground">
                   Creating root-level task • Add subtasks from task details after creation
                 </p>
-                <p className="text-xs text-blue-600 mt-1">DEBUG: Project ID = {activeProjectId}</p>
               </div>
             </div>
           </div>
         ) : (
-          <div className="rounded-lg border-2 border-red-500 bg-red-50 p-3">
-            <p className="text-sm font-semibold text-red-800">⚠️ WARNING: No active project!</p>
-            <p className="text-xs text-red-600 mt-1">activeProjectId = {String(activeProjectId)} ({typeof activeProjectId})</p>
-            <p className="text-xs text-red-600">This will create a task with NO projectId!</p>
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+            <p className="text-sm font-medium text-amber-800">Please select a project first</p>
+            <p className="text-xs text-amber-600 mt-1">Go back and select a project to create tasks</p>
           </div>
         )}
       </div>

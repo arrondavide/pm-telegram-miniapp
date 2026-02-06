@@ -1,5 +1,6 @@
 "use client"
 
+import { memo, useMemo } from "react"
 import { Calendar, CheckCircle2, Clock, Users } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -7,6 +8,10 @@ import { Progress } from "@/components/ui/progress"
 import type { Task } from "@/types/models.types"
 import { useUserStore } from "@/lib/stores/user.store"
 import { cn } from "@/lib/utils"
+
+// Constants
+const MAX_ASSIGNEES_DISPLAY = 3
+const MAX_TAGS_DISPLAY = 3
 
 interface TaskCardProps {
   task: Task
@@ -30,19 +35,28 @@ const statusConfig = {
   cancelled: { color: "bg-muted-foreground/30", label: "Cancelled" },
 }
 
-export function TaskCard({ task, onClick, showAssignees = false }: TaskCardProps) {
+export const TaskCard = memo(function TaskCard({ task, onClick, showAssignees = false }: TaskCardProps) {
   const users = useUserStore((state) => state.users)
   const priority = priorityConfig[task.priority]
   const status = statusConfig[task.status]
 
-  const isOverdue = task.status !== "completed" && new Date(task.dueDate) < new Date()
-  const dueDate = new Date(task.dueDate)
-  const daysUntilDue = Math.ceil((dueDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+  // Memoize date calculations
+  const { isOverdue, daysUntilDue } = useMemo(() => {
+    const dueDate = new Date(task.dueDate)
+    const days = Math.ceil((dueDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+    return {
+      isOverdue: task.status !== "completed" && dueDate < new Date(),
+      daysUntilDue: days,
+    }
+  }, [task.dueDate, task.status])
 
-  const assignees = task.assignedTo
-    .map((id) => users.find((u) => u.id === id))
-    .filter(Boolean)
-    .slice(0, 3)
+  // Memoize assignees lookup
+  const assignees = useMemo(() => {
+    return task.assignedTo
+      .map((id) => users.find((u) => u.id === id))
+      .filter(Boolean)
+      .slice(0, MAX_ASSIGNEES_DISPLAY)
+  }, [task.assignedTo, users])
 
   return (
     <Card
@@ -116,9 +130,9 @@ export function TaskCard({ task, onClick, showAssignees = false }: TaskCardProps
                         .slice(0, 2)}
                     </div>
                   ))}
-                  {task.assignedTo.length > 3 && (
+                  {task.assignedTo.length > MAX_ASSIGNEES_DISPLAY && (
                     <div className="flex h-6 w-6 items-center justify-center rounded-full border-2 border-background bg-muted text-[10px] font-medium">
-                      +{task.assignedTo.length - 3}
+                      +{task.assignedTo.length - MAX_ASSIGNEES_DISPLAY}
                     </div>
                   )}
                 </div>
@@ -128,7 +142,7 @@ export function TaskCard({ task, onClick, showAssignees = false }: TaskCardProps
             {/* Tags */}
             {task.tags.length > 0 && (
               <div className="mt-2 flex flex-wrap gap-1">
-                {task.tags.slice(0, 3).map((tag) => (
+                {task.tags.slice(0, MAX_TAGS_DISPLAY).map((tag) => (
                   <Badge key={tag} variant="outline" className="text-[10px] px-1.5 py-0 border-border/50">
                     #{tag}
                   </Badge>
@@ -140,4 +154,4 @@ export function TaskCard({ task, onClick, showAssignees = false }: TaskCardProps
       </CardContent>
     </Card>
   )
-}
+})

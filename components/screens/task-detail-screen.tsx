@@ -49,7 +49,7 @@ import { useTaskStore } from "@/lib/stores/task.store"
 import { useTimeStore } from "@/lib/stores/time.store"
 import { useCommentStore } from "@/lib/stores/comment.store"
 import { useNotificationStore } from "@/lib/stores/notification.store"
-import type { Task } from "@/types/models.types"
+import type { Task, TaskAssignee, TimeLog } from "@/types/models.types"
 import { useTelegram } from "@/hooks/use-telegram"
 import { taskApi, commentApi, timeApi } from "@/lib/api"
 import { cn } from "@/lib/utils"
@@ -64,6 +64,7 @@ interface TaskDetailScreenProps {
   onBack: () => void
   onCreateSubtask?: () => void
   onEditTask?: () => void
+  onSubtaskClick?: (subtaskId: string) => void
 }
 
 const statusOptions: Array<{ value: Task["status"]; label: string; color: string }> = [
@@ -99,7 +100,7 @@ interface ApiComment {
   createdAt: string
 }
 
-export function TaskDetailScreen({ taskId, onBack, onCreateSubtask, onEditTask }: TaskDetailScreenProps) {
+export function TaskDetailScreen({ taskId, onBack, onCreateSubtask, onEditTask, onSubtaskClick }: TaskDetailScreenProps) {
   const currentUser = useUserStore((state) => state.currentUser)
   const users = useUserStore((state) => state.users)
   const getUserRole = useUserStore((state) => state.getUserRole)
@@ -152,14 +153,16 @@ export function TaskDetailScreen({ taskId, onBack, onCreateSubtask, onEditTask }
   }, [showBackButton, hideBackButton, onBack])
 
   useEffect(() => {
-    const loadTimeLogs = async () => {
-      const telegramId = currentUser?.telegramId || user?.id?.toString()
-      if (!telegramId) return
+    let isMounted = true
+    const telegramId = currentUser?.telegramId || user?.id?.toString()
+    if (!telegramId) return
 
+    const loadTimeLogs = async () => {
       setIsLoadingTimeLogs(true)
       setTimeLogsError("")
       try {
         const response = await timeApi.getTaskTimeLogs(taskId, telegramId)
+        if (!isMounted) return
         if (response.success && response.data?.timeLogs) {
           const completedLogs = response.data.timeLogs
             .filter((log) => log.endTime && log.durationSeconds > 0)
@@ -179,52 +182,60 @@ export function TaskDetailScreen({ taskId, onBack, onCreateSubtask, onEditTask }
         } else {
           setTimeLogsError(response.error || "Failed to load time logs")
         }
-      } catch (error) {
-        console.error("[v0] Failed to load time logs:", error)
-        setTimeLogsError("Network error loading time logs")
+      } catch {
+        if (isMounted) setTimeLogsError("Network error loading time logs")
       } finally {
-        setIsLoadingTimeLogs(false)
+        if (isMounted) setIsLoadingTimeLogs(false)
       }
     }
     loadTimeLogs()
+    return () => { isMounted = false }
   }, [taskId, currentUser?.telegramId, user?.id, activeTimeLog])
 
   useEffect(() => {
+    let isMounted = true
+    const initData = webApp?.initData || ""
+
     const loadComments = async () => {
       setIsLoadingComments(true)
       try {
-        const initData = webApp?.initData || ""
         const response = await commentApi.getForTask(taskId, initData)
+        if (!isMounted) return
         if (response.success && response.data) {
-          setApiComments((response.data as any).comments || [])
+          const data = response.data as { comments?: ApiComment[] }
+          setApiComments(data.comments || [])
         }
-      } catch (error) {
-        // Silently fail
+      } catch {
+        // Silently fail - comments will show from local cache
       } finally {
-        setIsLoadingComments(false)
+        if (isMounted) setIsLoadingComments(false)
       }
     }
     loadComments()
-  }, [taskId])
+    return () => { isMounted = false }
+  }, [taskId, webApp?.initData])
 
   useEffect(() => {
-    const loadSubtasks = async () => {
-      const telegramId = currentUser?.telegramId || user?.id?.toString()
-      if (!telegramId) return
+    let isMounted = true
+    const telegramId = currentUser?.telegramId || user?.id?.toString()
+    if (!telegramId) return
 
+    const loadSubtasks = async () => {
       setIsLoadingSubtasks(true)
       try {
         const response = await taskApi.getSubtasks(taskId, telegramId)
+        if (!isMounted) return
         if (response.success && response.data) {
           setSubtasks(response.data.subtasks || [])
         }
-      } catch (error) {
-        console.error("Failed to load subtasks:", error)
+      } catch {
+        // Silently fail - subtasks will show empty
       } finally {
-        setIsLoadingSubtasks(false)
+        if (isMounted) setIsLoadingSubtasks(false)
       }
     }
     loadSubtasks()
+    return () => { isMounted = false }
   }, [taskId, currentUser?.telegramId, user?.id])
 
   useEffect(() => {
@@ -254,11 +265,12 @@ export function TaskDetailScreen({ taskId, onBack, onCreateSubtask, onEditTask }
   const isOverdue = task.status !== "completed" && new Date(task.dueDate) < new Date()
 
   const assignees = task.assignedTo
-    .map((id) => {
-      if (typeof id === "string") {
-        return users.find((u) => u.id === id || u.telegramId === id)
+    .map((assignee) => {
+      if (typeof assignee === "string") {
+        return users.find((u) => u.id === assignee || u.telegramId === assignee)
       }
-      return users.find((u) => u.id === (id as any).id || u.telegramId === (id as any).telegramId)
+      const taskAssignee = assignee as TaskAssignee
+      return users.find((u) => u.id === taskAssignee.id || u.telegramId === taskAssignee.telegramId)
     })
     .filter(Boolean)
   const creator = users.find((u) => u.id === task.createdBy)
@@ -267,11 +279,13 @@ export function TaskDetailScreen({ taskId, onBack, onCreateSubtask, onEditTask }
     currentUser &&
     task.assignedTo.some((a) => {
       if (typeof a === "string") return a === currentUser.id || a === currentUser.telegramId
-      return (a as any).id === currentUser.id || (a as any).telegramId === currentUser.telegramId
+      const taskAssignee = a as TaskAssignee
+      return taskAssignee.id === currentUser.id || taskAssignee.telegramId === currentUser.telegramId
     })
   const allTimeLogs = apiTimeLogs.length > 0 ? apiTimeLogs : timeLogs
   const totalTimeSeconds = allTimeLogs.reduce((sum, tl) => {
-    const seconds = (tl as any).durationSeconds ?? ((tl as any).durationMinutes || 0) * 60
+    const log = tl as TimeLog
+    const seconds = log.durationSeconds ?? (log.durationMinutes || 0) * 60
     return sum + seconds
   }, 0)
   const formattedTimeSpent = formatDuration(totalTimeSeconds)
@@ -307,24 +321,28 @@ export function TaskDetailScreen({ taskId, onBack, onCreateSubtask, onEditTask }
   const handleAddComment = async () => {
     if (!newComment.trim() || !currentUser) return
 
+    const commentText = newComment.trim()
     hapticFeedback("medium")
     setIsSubmittingComment(true)
+    setNewComment("") // Clear immediately for better UX
 
     try {
       const telegramId = currentUser?.telegramId || user?.id?.toString() || ""
-      const response = await commentApi.create(taskId, currentUser.id, newComment.trim(), telegramId)
+      const response = await commentApi.create(taskId, currentUser.id, commentText, telegramId)
 
       if (response.success && response.data) {
-        const newApiComment = (response.data as any).comment
-        setApiComments((prev) => [...prev, newApiComment])
+        const data = response.data as { comment?: ApiComment }
+        if (data.comment) {
+          setApiComments((prev) => [...prev, data.comment!])
+        }
+      } else {
+        // API failed - add to local store as fallback
+        addComment(taskId, commentText)
       }
-
-      addComment(taskId, newComment.trim())
-      setNewComment("")
       hapticFeedback("success")
-    } catch (error) {
-      addComment(taskId, newComment.trim())
-      setNewComment("")
+    } catch {
+      // Network error - add to local store as fallback
+      addComment(taskId, commentText)
       hapticFeedback("success")
     } finally {
       setIsSubmittingComment(false)
@@ -399,7 +417,7 @@ export function TaskDetailScreen({ taskId, onBack, onCreateSubtask, onEditTask }
           {isManagerOrAdmin && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon">
+                <Button variant="ghost" size="icon" aria-label="Task options">
                   <MoreVertical className="h-5 w-5" />
                 </Button>
               </DropdownMenuTrigger>
@@ -565,9 +583,8 @@ export function TaskDetailScreen({ taskId, onBack, onCreateSubtask, onEditTask }
                     key={subtask.id}
                     task={subtask}
                     onClick={() => {
-                      // Navigate to subtask detail
                       hapticFeedback("light")
-                      // TODO: Implement subtask navigation
+                      onSubtaskClick?.(subtask.id)
                     }}
                     showAssignees={true}
                   />

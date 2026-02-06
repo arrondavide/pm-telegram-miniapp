@@ -1,8 +1,23 @@
 "use client"
 
+import { memo, useMemo } from "react"
 import type { Project } from "@/types/models.types"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+
+const statusColors = {
+  active: "bg-green-500/10 text-green-500 border-green-500/20",
+  on_hold: "bg-yellow-500/10 text-yellow-500 border-yellow-500/20",
+  completed: "bg-blue-500/10 text-blue-500 border-blue-500/20",
+  archived: "bg-gray-500/10 text-gray-500 border-gray-500/20",
+}
+
+const statusLabels = {
+  active: "Active",
+  on_hold: "On Hold",
+  completed: "Completed",
+  archived: "Archived",
+}
 
 interface ProjectCardProps {
   project: Project
@@ -11,27 +26,40 @@ interface ProjectCardProps {
   onSelect: () => void
 }
 
-export function ProjectCard({ project, taskCount = 0, completedTaskCount = 0, onSelect }: ProjectCardProps) {
-  const completionPercentage = taskCount > 0 ? Math.round((completedTaskCount / taskCount) * 100) : 0
+export const ProjectCard = memo(function ProjectCard({ project, taskCount = 0, completedTaskCount = 0, onSelect }: ProjectCardProps) {
+  // Memoize completion percentage
+  const completionPercentage = useMemo(() => {
+    return taskCount > 0 ? Math.round((completedTaskCount / taskCount) * 100) : 0
+  }, [taskCount, completedTaskCount])
 
-  const statusColors = {
-    active: "bg-green-500/10 text-green-500 border-green-500/20",
-    on_hold: "bg-yellow-500/10 text-yellow-500 border-yellow-500/20",
-    completed: "bg-blue-500/10 text-blue-500 border-blue-500/20",
-    archived: "bg-gray-500/10 text-gray-500 border-gray-500/20",
-  }
+  // Memoize border style to prevent inline object recreation
+  const borderStyle = useMemo(() => ({
+    borderColor: `${project.color}20`
+  }), [project.color])
 
-  const statusLabels = {
-    active: "Active",
-    on_hold: "On Hold",
-    completed: "Completed",
-    archived: "Archived",
-  }
+  // Memoize progress bar style
+  const progressStyle = useMemo(() => ({
+    width: `${completionPercentage}%`,
+    backgroundColor: project.color,
+  }), [completionPercentage, project.color])
+
+  // Memoize date formatting
+  const formattedStartDate = useMemo(() => {
+    return project.startDate
+      ? new Date(project.startDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })
+      : null
+  }, [project.startDate])
+
+  const formattedEndDate = useMemo(() => {
+    return project.targetEndDate
+      ? new Date(project.targetEndDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })
+      : null
+  }, [project.targetEndDate])
 
   return (
     <Card
       className="cursor-pointer transition-all hover:shadow-md hover:scale-[1.02] border-2"
-      style={{ borderColor: `${project.color}20` }}
+      style={borderStyle}
       onClick={onSelect}
     >
       <CardHeader className="pb-3">
@@ -65,34 +93,23 @@ export function ProjectCard({ project, taskCount = 0, completedTaskCount = 0, on
               <div className="h-2 w-full rounded-full bg-secondary overflow-hidden">
                 <div
                   className="h-full rounded-full transition-all"
-                  style={{
-                    width: `${completionPercentage}%`,
-                    backgroundColor: project.color,
-                  }}
+                  style={progressStyle}
                 />
               </div>
             </div>
           )}
 
           {/* Dates */}
-          {(project.startDate || project.targetEndDate) && (
+          {(formattedStartDate || formattedEndDate) && (
             <div className="flex gap-2 text-xs text-muted-foreground pt-2 border-t">
-              {project.startDate && (
+              {formattedStartDate && (
                 <div>
-                  <span className="font-medium">Start:</span>{" "}
-                  {new Date(project.startDate).toLocaleDateString("en-US", {
-                    month: "short",
-                    day: "numeric",
-                  })}
+                  <span className="font-medium">Start:</span> {formattedStartDate}
                 </div>
               )}
-              {project.targetEndDate && (
+              {formattedEndDate && (
                 <div>
-                  <span className="font-medium">Due:</span>{" "}
-                  {new Date(project.targetEndDate).toLocaleDateString("en-US", {
-                    month: "short",
-                    day: "numeric",
-                  })}
+                  <span className="font-medium">Due:</span> {formattedEndDate}
                 </div>
               )}
             </div>
@@ -101,4 +118,4 @@ export function ProjectCard({ project, taskCount = 0, completedTaskCount = 0, on
       </CardContent>
     </Card>
   )
-}
+})

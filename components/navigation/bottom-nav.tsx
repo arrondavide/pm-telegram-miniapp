@@ -1,5 +1,6 @@
 "use client"
 
+import { memo, useMemo, useCallback } from "react"
 import { FolderKanban, ClipboardList, Users, BarChart3, User, Bell } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useNotificationStore } from "@/lib/stores/notification.store"
@@ -10,17 +11,16 @@ interface BottomNavProps {
   userRole: "admin" | "manager" | "employee"
 }
 
-export function BottomNav({ activeScreen, onNavigate, userRole }: BottomNavProps) {
-  const getUnreadNotificationCount = useNotificationStore((state) => state.getUnreadNotificationCount)
-  const unreadCount = getUnreadNotificationCount()
+export const BottomNav = memo(function BottomNav({ activeScreen, onNavigate, userRole }: BottomNavProps) {
+  const unreadCount = useNotificationStore((state) => state.getUnreadNotificationCount())
 
-  const navItems = [
+  const navItems = useMemo(() => [
     { id: "projects", label: "Projects", icon: FolderKanban },
     { id: "notifications", label: "Alerts", icon: Bell, badge: unreadCount },
     ...(userRole !== "employee" ? [{ id: "team", label: "Team", icon: Users }] : []),
     { id: "stats", label: "Stats", icon: BarChart3 },
     { id: "profile", label: "Profile", icon: User },
-  ]
+  ], [userRole, unreadCount])
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-border/50 bg-background">
@@ -58,4 +58,4 @@ export function BottomNav({ activeScreen, onNavigate, userRole }: BottomNavProps
       </div>
     </nav>
   )
-}
+})

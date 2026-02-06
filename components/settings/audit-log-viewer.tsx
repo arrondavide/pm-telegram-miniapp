@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Search, Filter, Download, RefreshCw } from "lucide-react"
+import { Search, Download, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
@@ -58,7 +58,7 @@ export function AuditLogViewer() {
       setLogs(result.logs)
       setTotal(result.total)
     } catch (error) {
-      console.error("Failed to load audit logs:", error)
+      
     } finally {
       setIsLoading(false)
     }

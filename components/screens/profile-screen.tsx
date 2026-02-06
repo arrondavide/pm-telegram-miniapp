@@ -215,7 +215,7 @@ export function ProfileScreen() {
     <div className="flex flex-col">
       <header className="sticky top-0 z-40 border-b border-border/50 bg-background px-4 py-4">
         <div className="flex items-center gap-3">
-          <div className="relative flex h-10 w-10 items-center justify-center rounded-full bg-[#040404]">
+          <div className="relative flex h-10 w-10 items-center justify-center rounded-full bg-foreground">
             <Image src="/logo-dark.png" alt="WhatsTask" width={28} height={28} className="object-contain" />
           </div>
           <h1 className="text-xl font-bold">Profile</h1>

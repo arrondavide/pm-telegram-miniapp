@@ -84,8 +84,8 @@ export function StatsScreen() {
       } else {
         setStats(data)
       }
-    } catch (err) {
-      console.error("[v0] Failed to load stats:", err)
+    } catch {
+      // Stats loading failed - show empty state
       setStats({
         company: {
           totalTasks: 0,
@@ -157,7 +157,7 @@ export function StatsScreen() {
       <div className="flex flex-col">
         <header className="sticky top-0 z-40 border-b border-border/50 bg-background/95 px-4 py-4 backdrop-blur supports-[backdrop-filter]:bg-background/80">
           <div className="flex items-center gap-3">
-            <div className="relative flex h-10 w-10 items-center justify-center rounded-full bg-[#040404]">
+            <div className="relative flex h-10 w-10 items-center justify-center rounded-full bg-foreground">
               <Image src="/logo-dark.png" alt="WhatsTask" width={28} height={28} className="object-contain" />
             </div>
             <div>
@@ -178,7 +178,7 @@ export function StatsScreen() {
       <div className="flex flex-col">
         <header className="sticky top-0 z-40 border-b border-border/50 bg-background/95 px-4 py-4 backdrop-blur supports-[backdrop-filter]:bg-background/80">
           <div className="flex items-center gap-3">
-            <div className="relative flex h-10 w-10 items-center justify-center rounded-full bg-[#040404]">
+            <div className="relative flex h-10 w-10 items-center justify-center rounded-full bg-foreground">
               <Image src="/logo-dark.png" alt="WhatsTask" width={28} height={28} className="object-contain" />
             </div>
             <div>
@@ -227,7 +227,7 @@ export function StatsScreen() {
       <header className="sticky top-0 z-40 border-b border-border/50 bg-background/95 px-4 py-4 backdrop-blur supports-[backdrop-filter]:bg-background/80">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="relative flex h-10 w-10 items-center justify-center rounded-full bg-[#040404]">
+            <div className="relative flex h-10 w-10 items-center justify-center rounded-full bg-foreground">
               <Image src="/logo-dark.png" alt="WhatsTask" width={28} height={28} className="object-contain" />
             </div>
             <div>
@@ -235,7 +235,7 @@ export function StatsScreen() {
               <p className="text-sm text-muted-foreground">{company?.name}</p>
             </div>
           </div>
-          <Button onClick={loadStats} variant="ghost" size="icon">
+          <Button onClick={loadStats} variant="ghost" size="icon" aria-label="Refresh statistics">
             <RefreshCw className="h-4 w-4" />
           </Button>
         </div>

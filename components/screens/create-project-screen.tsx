@@ -146,7 +146,7 @@ export function CreateProjectScreen({ onBack, onSuccess, projectToEdit }: Create
       }
     } catch (err) {
       setError("An error occurred")
-      console.error("Project save error:", err)
+      
     } finally {
       setIsSubmitting(false)
     }
@@ -212,6 +212,7 @@ export function CreateProjectScreen({ onBack, onSuccess, projectToEdit }: Create
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
               placeholder="Enter project name"
               required
+              autoCapitalize="words"
             />
           </div>
 
@@ -223,6 +224,7 @@ export function CreateProjectScreen({ onBack, onSuccess, projectToEdit }: Create
               onChange={(e) => setFormData({ ...formData, description: e.target.value })}
               placeholder="Describe your project"
               rows={3}
+              autoCapitalize="sentences"
             />
           </div>
 

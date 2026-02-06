@@ -96,24 +96,17 @@ export function useTelegram() {
     const tgWebApp = window.Telegram?.WebApp
 
     if (tgWebApp) {
-      console.log("[v0] Telegram WebApp detected")
-      console.log("[v0] initDataUnsafe:", JSON.stringify(tgWebApp.initDataUnsafe, null, 2))
-
       setWebApp(tgWebApp)
       setUser(tgWebApp.initDataUnsafe.user || null)
       setInitData(tgWebApp.initData || "")
 
       // Get start_param from Telegram
       const tgStartParam = tgWebApp.initDataUnsafe.start_param
-      console.log("[v0] Telegram start_param:", tgStartParam)
       setStartParam(tgStartParam || null)
     } else {
-      console.log("[v0] Telegram WebApp NOT detected, using demo mode")
-
-      // Check URL for testing with startapp param
+      // Demo mode for development - check URL for testing with startapp param
       const urlParams = new URLSearchParams(window.location.search)
       const testStartParam = urlParams.get("startapp") || urlParams.get("tgWebAppStartParam")
-      console.log("[v0] Test startParam from URL:", testStartParam)
 
       setUser({
         id: 123456789,
@@ -202,9 +195,6 @@ export function useTelegram() {
   const shareInviteLink = useCallback(
     (inviteCode: string, companyName: string, botUsername: string) => {
       const deepLink = `https://t.me/${botUsername}/app?startapp=join_${inviteCode}`
-      const message = `Join "${companyName}" on WhatsTask!\n\nClick to join: ${deepLink}`
-
-      console.log("[v0] Sharing invite link:", deepLink)
 
       if (!webApp) {
         const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(deepLink)}&text=${encodeURIComponent(`Join "${companyName}" on WhatsTask!`)}`

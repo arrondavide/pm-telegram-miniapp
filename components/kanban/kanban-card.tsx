@@ -1,10 +1,11 @@
 "use client"
 
+import { memo, useMemo } from "react"
 import { Calendar, Clock, GripVertical, Users, MessageSquare } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
-import type { Task } from "@/types/models.types"
+import type { Task, User } from "@/types/models.types"
 import { useUserStore } from "@/lib/stores/user.store"
 import { useTaskStore } from "@/lib/stores/task.store"
 
@@ -26,7 +27,7 @@ const priorityConfig = {
   urgent: { color: "bg-red-500", borderColor: "border-l-red-500", indicator: "!" },
 }
 
-export function KanbanCard({
+export const KanbanCard = memo(function KanbanCard({
   task,
   onClick,
   onDragStart,
@@ -40,25 +41,37 @@ export function KanbanCard({
   const getSubtaskCount = useTaskStore((state) => state.getSubtaskCount)
   const getCompletedSubtaskCount = useTaskStore((state) => state.getCompletedSubtaskCount)
 
-  const priority = priorityConfig[task.priority]
-  const isOverdue = task.status !== "completed" && new Date(task.dueDate) < new Date()
-  const dueDate = new Date(task.dueDate)
-  const daysUntilDue = Math.ceil((dueDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+  // Memoize expensive calculations
+  const { priority, isOverdue, daysUntilDue, dueDate } = useMemo(() => {
+    const due = new Date(task.dueDate)
+    const now = Date.now()
+    const days = Math.ceil((due.getTime() - now) / (1000 * 60 * 60 * 24))
+    return {
+      priority: priorityConfig[task.priority],
+      isOverdue: task.status !== "completed" && due < new Date(),
+      daysUntilDue: days,
+      dueDate: due,
+    }
+  }, [task.dueDate, task.priority, task.status])
 
   const subtaskCount = getSubtaskCount(task.id)
   const completedSubtaskCount = getCompletedSubtaskCount(task.id)
 
-  const assignees = task.assignedTo
-    .map((id) => {
-      if (typeof id === "string") {
-        return users.find((u) => u.id === id || u.telegramId === id)
-      }
-      return id
-    })
-    .filter(Boolean)
-    .slice(0, 3)
+  // Memoize assignees lookup
+  const assignees = useMemo(() => {
+    return task.assignedTo
+      .map((id) => {
+        if (typeof id === "string") {
+          return users.find((u) => u.id === id || u.telegramId === id)
+        }
+        return id
+      })
+      .filter(Boolean)
+      .slice(0, 3)
+  }, [task.assignedTo, users])
 
-  const formatDueDate = () => {
+  // Memoize date formatting
+  const formattedDueDate = useMemo(() => {
     if (isOverdue) {
       return `${Math.abs(daysUntilDue)}d overdue`
     }
@@ -66,7 +79,7 @@ export function KanbanCard({
     if (daysUntilDue === 1) return "Tomorrow"
     if (daysUntilDue <= 7) return `${daysUntilDue}d`
     return dueDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })
-  }
+  }, [isOverdue, daysUntilDue, dueDate])
 
   return (
     <Card
@@ -112,7 +125,7 @@ export function KanbanCard({
             )}
           >
             <Calendar className="mr-1 h-3 w-3" />
-            {formatDueDate()}
+            {formattedDueDate}
           </Badge>
 
           {/* Priority indicator */}
@@ -161,8 +174,9 @@ export function KanbanCard({
         {assignees.length > 0 && (
           <div className="flex items-center justify-between mt-2.5 ml-6">
             <div className="flex -space-x-1.5">
-              {assignees.map((user: any, i) => {
-                const name = user?.fullName || user?.username || "?"
+              {assignees.map((user, i) => {
+                const typedUser = user as User | undefined
+                const name = typedUser?.fullName || typedUser?.username || "?"
                 const initials = name
                   .split(" ")
                   .map((n: string) => n[0])
@@ -172,9 +186,9 @@ export function KanbanCard({
 
                 return (
                   <div
-                    key={user?.id || i}
+                    key={typedUser?.id || `assignee-${i}`}
                     className="flex h-6 w-6 items-center justify-center rounded-full border-2 border-background bg-foreground text-[9px] font-medium text-background"
-                    title={name}
+                    title={typedUser?.fullName || name}
                   >
                     {initials}
                   </div>
@@ -191,4 +205,4 @@ export function KanbanCard({
       </CardContent>
     </Card>
   )
-}
+})

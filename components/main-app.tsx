@@ -175,6 +175,7 @@ export function MainApp({ pendingInviteCode, onCodeUsed }: MainAppProps) {
               setParentTaskIdForSubtask(selectedTaskId)
               setActiveScreen("create-task")
             }}
+            onSubtaskClick={handleTaskSelect}
           />
         ) : activeProjectId ? (
           <ProjectDetailScreen

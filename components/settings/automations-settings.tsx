@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { Zap, Plus, Trash2, Play, Pause, ChevronDown, Settings2 } from "lucide-react"
+import { Zap, Plus, Trash2, ChevronDown, Settings2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"

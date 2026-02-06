@@ -71,7 +71,7 @@ export function ProjectDetailScreen({ projectId, onBack, onTaskClick, onCreateTa
           loadTasks(response.data.tasks)
         }
       } catch (error) {
-        console.error("Failed to load tasks:", error)
+        
       } finally {
         setIsLoadingTasks(false)
       }
@@ -106,7 +106,7 @@ export function ProjectDetailScreen({ projectId, onBack, onTaskClick, onCreateTa
       {/* Header */}
       <header className="border-b bg-background/95 p-4 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon" onClick={onBack}>
+          <Button variant="ghost" size="icon" onClick={onBack} aria-label="Go back">
             <ArrowLeft className="h-5 w-5" />
           </Button>
           <div className="flex-1">

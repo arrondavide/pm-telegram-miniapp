@@ -155,7 +155,7 @@ export function TasksScreen({ onTaskSelect, onCreateTask }: TasksScreenProps) {
     try {
       await taskApi.updateStatus(taskId, newStatus, telegramId)
     } catch (error) {
-      console.error("Failed to update task status:", error)
+      
       // Optionally revert the optimistic update on error
       loadTasksFromApi()
     }
@@ -199,7 +199,7 @@ export function TasksScreen({ onTaskSelect, onCreateTask }: TasksScreenProps) {
       <header className="sticky top-0 z-40 border-b border-border/50 bg-background px-4 py-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="relative flex h-10 w-10 items-center justify-center rounded-full bg-[#040404]">
+            <div className="relative flex h-10 w-10 items-center justify-center rounded-full bg-foreground">
               <Image src="/logo-dark.png" alt="WhatsTask" width={28} height={28} className="object-contain" />
             </div>
             <div>
@@ -210,7 +210,7 @@ export function TasksScreen({ onTaskSelect, onCreateTask }: TasksScreenProps) {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <Button size="icon" variant="ghost" onClick={loadTasksFromApi} disabled={isLoading} className="relative">
+            <Button size="icon" variant="ghost" onClick={loadTasksFromApi} disabled={isLoading} className="relative" aria-label="Refresh tasks">
               <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
             </Button>
             {unreadCount > 0 && (

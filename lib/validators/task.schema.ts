@@ -8,11 +8,17 @@ import { z } from "zod"
 export const taskStatusSchema = z.enum(["pending", "started", "in_progress", "completed", "blocked", "cancelled"])
 export const taskPrioritySchema = z.enum(["low", "medium", "high", "urgent"])
 
+// Date string validator - accepts ISO datetime or date-only strings
+const dateStringSchema = z.string().refine(
+  (val) => !isNaN(Date.parse(val)),
+  { message: "Invalid date format" }
+)
+
 // Create task input
 export const createTaskSchema = z.object({
   title: z.string().min(1, "Title is required").max(200, "Title must be 200 characters or less"),
   description: z.string().max(2000, "Description must be 2000 characters or less").optional(),
-  dueDate: z.string().datetime("Due date must be a valid ISO date"),
+  dueDate: dateStringSchema,
   priority: taskPrioritySchema.optional().default("medium"),
   assignedTo: z.array(z.string()).optional().default([]),
   companyId: z.string().min(1, "Company ID is required"),
@@ -28,7 +34,7 @@ export const createTaskSchema = z.object({
 export const updateTaskSchema = z.object({
   title: z.string().min(1).max(200).optional(),
   description: z.string().max(2000).optional(),
-  dueDate: z.string().datetime().optional(),
+  dueDate: dateStringSchema.optional(),
   status: taskStatusSchema.optional(),
   priority: taskPrioritySchema.optional(),
   assignedTo: z.array(z.string()).optional(),
@@ -43,7 +49,7 @@ export const updateTaskSchema = z.object({
 export const createSubtaskSchema = z.object({
   title: z.string().min(1).max(200),
   description: z.string().max(2000).optional(),
-  dueDate: z.string().datetime().optional(),
+  dueDate: dateStringSchema.optional(),
   priority: taskPrioritySchema.optional().default("medium"),
   assignedTo: z.array(z.string()).optional(),
   category: z.string().max(50).optional(),

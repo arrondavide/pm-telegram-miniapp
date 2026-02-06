@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useCallback, useEffect, useRef, memo } from "react"
 import { ChevronDown, ChevronUp, ArrowUpDown, Search } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
 import { cn } from "@/lib/utils"
 import type { Task, TaskStatus, TaskPriority } from "@/types/models.types"
+import { priorityOrder, statusOrder, SEARCH_DEBOUNCE_MS } from "@/lib/constants/task-display"
 
 interface TableViewProps {
   tasks: Task[]
@@ -19,22 +20,7 @@ interface TableViewProps {
 type SortField = "title" | "status" | "priority" | "dueDate" | "assignedTo"
 type SortDirection = "asc" | "desc"
 
-const priorityOrder: Record<TaskPriority, number> = {
-  urgent: 0,
-  high: 1,
-  medium: 2,
-  low: 3,
-}
-
-const statusOrder: Record<TaskStatus, number> = {
-  blocked: 0,
-  in_progress: 1,
-  started: 2,
-  pending: 3,
-  completed: 4,
-  cancelled: 5,
-}
-
+// Table-specific display colors (different from card displays)
 const priorityColors: Record<TaskPriority, string> = {
   low: "bg-gray-100 text-gray-700",
   medium: "bg-yellow-100 text-yellow-700",
@@ -60,23 +46,40 @@ export function TableView({
   const [sortField, setSortField] = useState<SortField>("dueDate")
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc")
   const [searchQuery, setSearchQuery] = useState("")
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("")
   const [selectedTasks, setSelectedTasks] = useState<Set<string>>(new Set())
+  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
-  const handleSort = (field: SortField) => {
+  // Debounce search query to avoid filtering on every keystroke
+  useEffect(() => {
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current)
+    }
+    searchTimeoutRef.current = setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery)
+    }, SEARCH_DEBOUNCE_MS)
+    return () => {
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current)
+      }
+    }
+  }, [searchQuery])
+
+  const handleSort = useCallback((field: SortField) => {
     if (sortField === field) {
       setSortDirection((d) => (d === "asc" ? "desc" : "asc"))
     } else {
       setSortField(field)
       setSortDirection("asc")
     }
-  }
+  }, [sortField])
 
   const filteredAndSortedTasks = useMemo(() => {
     let result = [...tasks]
 
-    // Filter
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase()
+    // Filter using debounced query
+    if (debouncedSearchQuery) {
+      const query = debouncedSearchQuery.toLowerCase()
       result = result.filter(
         (t) =>
           t.title.toLowerCase().includes(query) ||
@@ -111,27 +114,31 @@ export function TableView({
     })
 
     return result
-  }, [tasks, sortField, sortDirection, searchQuery])
+  }, [tasks, sortField, sortDirection, debouncedSearchQuery])
 
-  const toggleTaskSelection = (taskId: string) => {
-    const newSelected = new Set(selectedTasks)
-    if (newSelected.has(taskId)) {
-      newSelected.delete(taskId)
-    } else {
-      newSelected.add(taskId)
-    }
-    setSelectedTasks(newSelected)
-  }
+  const toggleTaskSelection = useCallback((taskId: string) => {
+    setSelectedTasks((prev) => {
+      const newSelected = new Set(prev)
+      if (newSelected.has(taskId)) {
+        newSelected.delete(taskId)
+      } else {
+        newSelected.add(taskId)
+      }
+      return newSelected
+    })
+  }, [])
 
-  const toggleAllSelection = () => {
-    if (selectedTasks.size === filteredAndSortedTasks.length) {
-      setSelectedTasks(new Set())
-    } else {
-      setSelectedTasks(new Set(filteredAndSortedTasks.map((t) => t.id)))
-    }
-  }
+  const toggleAllSelection = useCallback(() => {
+    setSelectedTasks((prev) => {
+      if (prev.size === filteredAndSortedTasks.length) {
+        return new Set()
+      } else {
+        return new Set(filteredAndSortedTasks.map((t) => t.id))
+      }
+    })
+  }, [filteredAndSortedTasks])
 
-  const formatDate = (dateString: string) => {
+  const formatDate = useCallback((dateString: string) => {
     const date = new Date(dateString)
     const now = new Date()
     const isOverdue = date < now
@@ -140,7 +147,7 @@ export function TableView({
       text: date.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
       isOverdue,
     }
-  }
+  }, [])
 
   const SortIcon = ({ field }: { field: SortField }) => {
     if (sortField !== field) {
