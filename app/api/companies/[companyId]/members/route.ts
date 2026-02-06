@@ -45,7 +45,14 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       formattedMembers.map((m: any) => ({ name: m.fullName, role: m.role })),
     )
 
-    return NextResponse.json({ members: formattedMembers })
+    return NextResponse.json(
+      { members: formattedMembers },
+      {
+        headers: {
+          "Cache-Control": "no-store, no-cache, must-revalidate",
+        },
+      }
+    )
   } catch (error) {
     console.error("[v0] Error fetching members:", error)
     return NextResponse.json({ error: "Failed to fetch members" }, { status: 500 })

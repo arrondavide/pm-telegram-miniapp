@@ -47,7 +47,14 @@ export async function GET(request: NextRequest) {
       createdAt: n.created_at,
     }))
 
-    return NextResponse.json({ notifications: formatted })
+    return NextResponse.json(
+      { notifications: formatted },
+      {
+        headers: {
+          "Cache-Control": "no-store, no-cache, must-revalidate",
+        },
+      }
+    )
   } catch (error) {
     console.error("Error fetching notifications:", error)
     return NextResponse.json({ error: "Failed to fetch notifications" }, { status: 500 })

@@ -183,7 +183,14 @@ export async function GET(request: NextRequest) {
     // Use centralized transformer instead of manual mapping
     const formattedTasks = taskTransformer.toList(tasks as any[])
 
-    return NextResponse.json({ tasks: formattedTasks })
+    return NextResponse.json(
+      { tasks: formattedTasks },
+      {
+        headers: {
+          "Cache-Control": "no-store, no-cache, must-revalidate",
+        },
+      }
+    )
   } catch (error) {
     console.error("Error fetching tasks:", error)
     return NextResponse.json({ error: "Failed to fetch tasks" }, { status: 500 })

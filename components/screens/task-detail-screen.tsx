@@ -105,7 +105,7 @@ export function TaskDetailScreen({ taskId, onBack, onCreateSubtask, onEditTask, 
   const users = useUserStore((state) => state.users)
   const getUserRole = useUserStore((state) => state.getUserRole)
 
-  const { tasks, getTaskById, updateTaskStatus, updateTask, deleteTask } = useTaskStore()
+  const { tasks, getTaskById, updateTaskStatus, updateTask, deleteTask, loadTasks } = useTaskStore()
 
   const activeTimeLog = useTimeStore((state) => state.activeTimeLog)
   const getTimeLogsForTask = useTimeStore((state) => state.getTimeLogsForTask)
@@ -130,6 +130,8 @@ export function TaskDetailScreen({ taskId, onBack, onCreateSubtask, onEditTask, 
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
+  const [isLoadingTask, setIsLoadingTask] = useState(false)
+  const [taskLoadError, setTaskLoadError] = useState<string | null>(null)
   const [editForm, setEditForm] = useState({
     title: "",
     description: "",
@@ -142,6 +144,70 @@ export function TaskDetailScreen({ taskId, onBack, onCreateSubtask, onEditTask, 
   })
 
   const task = getTaskById(taskId)
+
+  // Fetch task from API if not found in local store
+  useEffect(() => {
+    let isMounted = true
+    const telegramId = currentUser?.telegramId || user?.id?.toString()
+
+    if (!task && taskId && telegramId && !isLoadingTask && !taskLoadError) {
+      setIsLoadingTask(true)
+      setTaskLoadError(null)
+
+      taskApi.getById(taskId, telegramId)
+        .then((response) => {
+          if (!isMounted) return
+          if (response.success && response.data) {
+            const taskData = (response.data as any).task || response.data
+            // Transform and add to store
+            const formattedTask: Task = {
+              id: taskData.id,
+              title: taskData.title,
+              description: taskData.description || "",
+              dueDate: new Date(taskData.dueDate).toISOString(),
+              status: taskData.status,
+              priority: taskData.priority,
+              companyId: taskData.companyId,
+              projectId: taskData.projectId,
+              parentTaskId: taskData.parentTaskId || null,
+              depth: taskData.depth || 0,
+              path: taskData.path || [],
+              assignedTo: (taskData.assignedTo || []).map((a: any) => {
+                if (typeof a === "string") return a
+                return {
+                  id: a.id || a._id,
+                  telegramId: a.telegramId?.toString(),
+                  fullName: a.fullName,
+                }
+              }),
+              createdBy: taskData.createdBy?.id || taskData.createdBy || "",
+              category: taskData.category || "",
+              tags: taskData.tags || [],
+              department: taskData.department || "",
+              estimatedHours: taskData.estimatedHours || 0,
+              actualHours: taskData.actualHours || 0,
+              completedAt: taskData.completedAt ? new Date(taskData.completedAt).toISOString() : null,
+              createdAt: new Date(taskData.createdAt).toISOString(),
+            }
+            loadTasks([formattedTask])
+          } else {
+            setTaskLoadError(response.error || "Task not found")
+          }
+        })
+        .catch((error) => {
+          if (isMounted) {
+            setTaskLoadError(error instanceof Error ? error.message : "Failed to load task")
+          }
+        })
+        .finally(() => {
+          if (isMounted) {
+            setIsLoadingTask(false)
+          }
+        })
+    }
+
+    return () => { isMounted = false }
+  }, [task, taskId, currentUser?.telegramId, user?.id, isLoadingTask, taskLoadError, loadTasks])
   const localComments = getCommentsForTask(taskId)
   const timeLogs = getTimeLogsForTask(taskId)
   const role = getUserRole()
@@ -254,9 +320,25 @@ export function TaskDetailScreen({ taskId, onBack, onCreateSubtask, onEditTask, 
   }, [task])
 
   if (!task) {
+    if (isLoadingTask) {
+      return (
+        <div className="flex h-screen items-center justify-center">
+          <div className="flex flex-col items-center gap-3">
+            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            <p className="font-body text-muted-foreground">Loading task...</p>
+          </div>
+        </div>
+      )
+    }
     return (
-      <div className="flex h-screen items-center justify-center">
-        <p className="font-body">Task not found</p>
+      <div className="flex h-screen flex-col items-center justify-center gap-4 p-4">
+        <p className="font-body text-lg">Task not found</p>
+        {taskLoadError && (
+          <p className="font-body text-sm text-muted-foreground text-center">{taskLoadError}</p>
+        )}
+        <Button variant="outline" onClick={onBack}>
+          Go Back
+        </Button>
       </div>
     )
   }

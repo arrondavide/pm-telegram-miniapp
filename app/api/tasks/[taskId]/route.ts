@@ -20,9 +20,16 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       return NextResponse.json({ error: "Task not found" }, { status: 404 })
     }
 
-    return NextResponse.json({
-      task: taskTransformer.toFrontend(task as any),
-    })
+    return NextResponse.json(
+      {
+        task: taskTransformer.toFrontend(task as any),
+      },
+      {
+        headers: {
+          "Cache-Control": "no-store, no-cache, must-revalidate",
+        },
+      }
+    )
   } catch (error) {
     console.error("Error fetching task:", error)
     return NextResponse.json({ error: "Failed to fetch task" }, { status: 500 })

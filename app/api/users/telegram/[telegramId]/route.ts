@@ -60,10 +60,17 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       }
     })
 
-    return NextResponse.json({
-      user: formattedUser,
-      companies: formattedCompanies,
-    })
+    return NextResponse.json(
+      {
+        user: formattedUser,
+        companies: formattedCompanies,
+      },
+      {
+        headers: {
+          "Cache-Control": "no-store, no-cache, must-revalidate",
+        },
+      }
+    )
   } catch (error) {
     console.error("Error fetching user:", error)
     return NextResponse.json({ error: "Failed to fetch user" }, { status: 500 })
