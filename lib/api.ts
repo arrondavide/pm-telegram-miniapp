@@ -204,7 +204,7 @@ export const taskApi = {
     ),
 
   getById: (taskId: string, telegramId: string) =>
-    fetchApi<import("@/types/models.types").Task>(`/tasks/${taskId}`, {
+    fetchApi<{ task: import("@/types/models.types").Task }>(`/tasks/${taskId}`, {
       method: "GET",
       headers: { "X-Telegram-Id": telegramId },
     }),

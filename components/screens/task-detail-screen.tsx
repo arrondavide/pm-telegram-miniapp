@@ -154,11 +154,13 @@ export function TaskDetailScreen({ taskId, onBack, onCreateSubtask, onEditTask, 
       setIsLoadingTask(true)
       setTaskLoadError(null)
 
+      console.log("[TaskDetail] Fetching task:", taskId)
       taskApi.getById(taskId, telegramId)
         .then((response) => {
           if (!isMounted) return
-          if (response.success && response.data) {
-            const taskData = (response.data as any).task || response.data
+          console.log("[TaskDetail] API response:", response)
+          if (response.success && response.data?.task) {
+            const taskData = response.data.task
             // Transform and add to store
             const formattedTask: Task = {
               id: taskData.id,
@@ -180,7 +182,7 @@ export function TaskDetailScreen({ taskId, onBack, onCreateSubtask, onEditTask, 
                   fullName: a.fullName,
                 }
               }),
-              createdBy: taskData.createdBy?.id || taskData.createdBy || "",
+              createdBy: typeof taskData.createdBy === 'object' ? (taskData.createdBy as any)?.id : taskData.createdBy || "",
               category: taskData.category || "",
               tags: taskData.tags || [],
               department: taskData.department || "",

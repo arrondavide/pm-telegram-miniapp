@@ -218,30 +218,28 @@ export function ProjectDetailScreen({ projectId, onBack, onTaskClick, onCreateTa
                 <Plus className="mr-2 h-4 w-4" />
                 Add Task
               </Button>
-              {userRole === "admin" && (
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button size="sm" variant="ghost">
-                      <MoreVertical className="h-4 w-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    {onEditProject && (
-                      <DropdownMenuItem onClick={onEditProject}>
-                        <Edit className="mr-2 h-4 w-4" />
-                        Edit Project
-                      </DropdownMenuItem>
-                    )}
-                    <DropdownMenuItem
-                      onClick={() => setShowDeleteDialog(true)}
-                      className="text-destructive focus:text-destructive"
-                    >
-                      <Trash2 className="mr-2 h-4 w-4" />
-                      Delete Project
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button size="sm" variant="ghost">
+                    <MoreVertical className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  {onEditProject && (
+                    <DropdownMenuItem onClick={onEditProject}>
+                      <Edit className="mr-2 h-4 w-4" />
+                      Edit Project
                     </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              )}
+                  )}
+                  <DropdownMenuItem
+                    onClick={() => setShowDeleteDialog(true)}
+                    className="text-destructive focus:text-destructive"
+                  >
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Delete Project
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           )}
         </div>
