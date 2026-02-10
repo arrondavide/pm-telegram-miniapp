@@ -403,3 +403,206 @@ export const Template: Model<ITemplate> =
 
 export const Notification: Model<INotification> =
   mongoose.models.Notification || mongoose.model<INotification>("Notification", notificationSchema)
+
+// ==================== AI FEATURES ====================
+
+// Project Template - reusable project structures
+export interface ITaskTemplateItem {
+  title: string
+  description: string
+  estimatedDays: number
+  priority: "low" | "medium" | "high" | "urgent"
+  children: ITaskTemplateItem[]
+  order: number
+}
+
+export interface IProjectTemplate extends Document {
+  _id: mongoose.Types.ObjectId
+  name: string
+  description: string
+  category: string // "mobile-app", "web-app", "marketing", "agency", "startup", "enterprise"
+  structure: ITaskTemplateItem[]
+  created_by: mongoose.Types.ObjectId | null // null = system template
+  company_id: mongoose.Types.ObjectId | null // null = global template
+  is_public: boolean
+  usage_count: number
+  tags: string[]
+  createdAt: Date
+  updatedAt: Date
+}
+
+// AI Generation - tracks AI-generated content for learning
+export interface IAIGeneration extends Document {
+  _id: mongoose.Types.ObjectId
+  user_id: mongoose.Types.ObjectId
+  company_id: mongoose.Types.ObjectId
+  project_id?: mongoose.Types.ObjectId
+  type: "project_structure" | "task_parse" | "daily_digest" | "restructure"
+  input_prompt: string
+  input_context?: Record<string, unknown> // additional context like team size, duration
+  generated_output: Record<string, unknown>
+  user_edits?: Record<string, unknown> // what user changed after generation
+  status: "pending" | "accepted" | "rejected" | "modified"
+  accepted_at?: Date
+  rejected_at?: Date
+  feedback?: string
+  createdAt: Date
+  updatedAt: Date
+}
+
+// User AI Preferences
+export interface IUserAIPreferences extends Document {
+  _id: mongoose.Types.ObjectId
+  user_id: mongoose.Types.ObjectId
+  enable_ai: boolean
+  prefer_voice_input: boolean
+  auto_suggest_tasks: boolean
+  daily_digest_enabled: boolean
+  learn_from_edits: boolean
+  default_task_priority: "low" | "medium" | "high" | "urgent"
+  createdAt: Date
+  updatedAt: Date
+}
+
+// User Patterns - learned from user behavior
+export interface IUserPatterns extends Document {
+  _id: mongoose.Types.ObjectId
+  user_id: mongoose.Types.ObjectId
+  company_id: mongoose.Types.ObjectId
+  common_assignees: { user_id: mongoose.Types.ObjectId; count: number }[]
+  task_duration_patterns: { category: string; avg_hours: number; count: number }[]
+  preferred_structures: { project_type: string; structure: ITaskTemplateItem[]; count: number }[]
+  common_tags: { tag: string; count: number }[]
+  working_hours: { day: number; start: string; end: string }[]
+  last_updated: Date
+  createdAt: Date
+  updatedAt: Date
+}
+
+// Schemas for AI features
+const taskTemplateItemSchema = new Schema<ITaskTemplateItem>(
+  {
+    title: { type: String, required: true },
+    description: { type: String, default: "" },
+    estimatedDays: { type: Number, default: 1 },
+    priority: { type: String, enum: ["low", "medium", "high", "urgent"], default: "medium" },
+    children: { type: [Object], default: [] }, // recursive structure
+    order: { type: Number, default: 0 },
+  },
+  { _id: false }
+)
+
+const projectTemplateSchema = new Schema<IProjectTemplate>(
+  {
+    name: { type: String, required: true, trim: true },
+    description: { type: String, default: "" },
+    category: {
+      type: String,
+      enum: ["mobile-app", "web-app", "marketing", "agency", "startup", "enterprise", "other"],
+      default: "other"
+    },
+    structure: [taskTemplateItemSchema],
+    created_by: { type: Schema.Types.ObjectId, ref: "User", default: null },
+    company_id: { type: Schema.Types.ObjectId, ref: "Company", default: null },
+    is_public: { type: Boolean, default: false },
+    usage_count: { type: Number, default: 0 },
+    tags: [{ type: String }],
+  },
+  { timestamps: true }
+)
+
+const aiGenerationSchema = new Schema<IAIGeneration>(
+  {
+    user_id: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
+    company_id: { type: Schema.Types.ObjectId, ref: "Company", required: true },
+    project_id: { type: Schema.Types.ObjectId, ref: "Project" },
+    type: {
+      type: String,
+      enum: ["project_structure", "task_parse", "daily_digest", "restructure"],
+      required: true
+    },
+    input_prompt: { type: String, required: true },
+    input_context: { type: Schema.Types.Mixed },
+    generated_output: { type: Schema.Types.Mixed, required: true },
+    user_edits: { type: Schema.Types.Mixed },
+    status: {
+      type: String,
+      enum: ["pending", "accepted", "rejected", "modified"],
+      default: "pending"
+    },
+    accepted_at: { type: Date },
+    rejected_at: { type: Date },
+    feedback: { type: String },
+  },
+  { timestamps: true }
+)
+
+const userAIPreferencesSchema = new Schema<IUserAIPreferences>(
+  {
+    user_id: { type: Schema.Types.ObjectId, ref: "User", required: true, unique: true },
+    enable_ai: { type: Boolean, default: true },
+    prefer_voice_input: { type: Boolean, default: false },
+    auto_suggest_tasks: { type: Boolean, default: true },
+    daily_digest_enabled: { type: Boolean, default: true },
+    learn_from_edits: { type: Boolean, default: true },
+    default_task_priority: {
+      type: String,
+      enum: ["low", "medium", "high", "urgent"],
+      default: "medium"
+    },
+  },
+  { timestamps: true }
+)
+
+const userPatternsSchema = new Schema<IUserPatterns>(
+  {
+    user_id: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
+    company_id: { type: Schema.Types.ObjectId, ref: "Company", required: true },
+    common_assignees: [{
+      user_id: { type: Schema.Types.ObjectId, ref: "User" },
+      count: { type: Number, default: 0 },
+    }],
+    task_duration_patterns: [{
+      category: { type: String },
+      avg_hours: { type: Number },
+      count: { type: Number, default: 0 },
+    }],
+    preferred_structures: [{
+      project_type: { type: String },
+      structure: [taskTemplateItemSchema],
+      count: { type: Number, default: 0 },
+    }],
+    common_tags: [{
+      tag: { type: String },
+      count: { type: Number, default: 0 },
+    }],
+    working_hours: [{
+      day: { type: Number }, // 0-6, Sunday-Saturday
+      start: { type: String },
+      end: { type: String },
+    }],
+    last_updated: { type: Date, default: Date.now },
+  },
+  { timestamps: true }
+)
+
+// Indexes for AI features
+projectTemplateSchema.index({ category: 1, is_public: 1 })
+projectTemplateSchema.index({ company_id: 1 })
+projectTemplateSchema.index({ usage_count: -1 })
+aiGenerationSchema.index({ user_id: 1, type: 1, createdAt: -1 })
+aiGenerationSchema.index({ status: 1, createdAt: -1 })
+userPatternsSchema.index({ user_id: 1, company_id: 1 }, { unique: true })
+
+// Models for AI features
+export const ProjectTemplate: Model<IProjectTemplate> =
+  mongoose.models.ProjectTemplate || mongoose.model<IProjectTemplate>("ProjectTemplate", projectTemplateSchema)
+
+export const AIGeneration: Model<IAIGeneration> =
+  mongoose.models.AIGeneration || mongoose.model<IAIGeneration>("AIGeneration", aiGenerationSchema)
+
+export const UserAIPreferences: Model<IUserAIPreferences> =
+  mongoose.models.UserAIPreferences || mongoose.model<IUserAIPreferences>("UserAIPreferences", userAIPreferencesSchema)
+
+export const UserPatterns: Model<IUserPatterns> =
+  mongoose.models.UserPatterns || mongoose.model<IUserPatterns>("UserPatterns", userPatternsSchema)

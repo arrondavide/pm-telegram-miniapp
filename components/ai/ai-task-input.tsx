@@ -1,226 +1,179 @@
 "use client"
 
 import { useState, useCallback } from "react"
-import { Sparkles, Wand2, Loader2, Check, X } from "lucide-react"
+import { Sparkles, Loader2, Check, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Textarea } from "@/components/ui/textarea"
+import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
-import { Card, CardContent } from "@/components/ui/card"
-import { cn } from "@/lib/utils"
-import { useAI } from "@/hooks/use-ai"
-import type { ParsedTask } from "@/lib/services/ai.service"
+import { Card } from "@/components/ui/card"
+
+interface ParsedTask {
+  title: string
+  description: string | null
+  dueDate: string | null
+  dueDateRelative: string | null
+  priority: "low" | "medium" | "high" | "urgent"
+  assignee: string | null
+  tags: string[]
+  category: string | null
+  confidence: number
+}
 
 interface AITaskInputProps {
-  onTaskParsed: (task: ParsedTask) => void
+  projectId?: string
+  onTaskCreate: (task: ParsedTask) => void
   onCancel?: () => void
-  teamMembers?: Array<{ id: string; name: string }>
-  existingTags?: string[]
-  projectName?: string
-  className?: string
+  placeholder?: string
 }
 
 export function AITaskInput({
-  onTaskParsed,
+  projectId,
+  onTaskCreate,
   onCancel,
-  teamMembers,
-  existingTags,
-  projectName,
-  className,
+  placeholder = "Describe your task naturally... (e.g., 'Fix login bug by Friday')",
 }: AITaskInputProps) {
   const [input, setInput] = useState("")
-  const [parsedResult, setParsedResult] = useState<ParsedTask | null>(null)
-  const [showPreview, setShowPreview] = useState(false)
+  const [isLoading, setIsLoading] = useState(false)
+  const [parsedTask, setParsedTask] = useState<ParsedTask | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
-  const { parseTask, isProcessing } = useAI({
-    teamMembers,
-    existingTags,
-    projectName,
-  })
-
-  const handleParse = useCallback(async () => {
+  const parseTask = useCallback(async () => {
     if (!input.trim()) return
 
-    const result = await parseTask(input)
-    if (result) {
-      setParsedResult(result)
-      setShowPreview(true)
-    }
-  }, [input, parseTask])
+    setIsLoading(true)
+    setError(null)
 
-  const handleConfirm = useCallback(() => {
-    if (parsedResult) {
-      onTaskParsed(parsedResult)
+    try {
+      const response = await fetch("/api/ai/parse-task", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: input,
+          projectId,
+        }),
+      })
+
+      const data = await response.json()
+
+      if (data.success) {
+        setParsedTask(data.data.task)
+      } else {
+        setError(data.error || "Failed to parse task")
+      }
+    } catch (err) {
+      setError("Failed to connect to AI service")
+    } finally {
+      setIsLoading(false)
+    }
+  }, [input, projectId])
+
+  const handleConfirm = () => {
+    if (parsedTask) {
+      onTaskCreate(parsedTask)
       setInput("")
-      setParsedResult(null)
-      setShowPreview(false)
+      setParsedTask(null)
     }
-  }, [parsedResult, onTaskParsed])
+  }
 
-  const handleReject = useCallback(() => {
-    setParsedResult(null)
-    setShowPreview(false)
-  }, [])
+  const handleReject = () => {
+    setParsedTask(null)
+    setInput("")
+    onCancel?.()
+  }
 
-  const examples = [
-    "Review PR #123 due tomorrow high priority",
-    "Create user documentation for the API #docs",
-    "Fix login bug assigned to @john urgent 4h",
-    "Prepare quarterly report due next week #finance",
-  ]
+  const priorityColors = {
+    low: "bg-gray-100 text-gray-700",
+    medium: "bg-blue-100 text-blue-700",
+    high: "bg-orange-100 text-orange-700",
+    urgent: "bg-red-100 text-red-700",
+  }
 
-  return (
-    <div className={cn("space-y-4", className)}>
-      {/* Input Area */}
-      <div className="relative">
-        <div className="absolute left-3 top-3 text-muted-foreground">
-          <Sparkles className="h-5 w-5" />
-        </div>
-        <Textarea
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="Describe your task in natural language..."
-          className="pl-10 min-h-[100px] resize-none"
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && e.metaKey) {
-              handleParse()
-            }
-          }}
-        />
-        <div className="absolute right-2 bottom-2">
-          <Button
-            size="sm"
-            onClick={handleParse}
-            disabled={!input.trim() || isProcessing}
-            className="gap-2"
-          >
-            {isProcessing ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Parsing...
-              </>
-            ) : (
-              <>
-                <Wand2 className="h-4 w-4" />
-                Parse
-              </>
+  if (parsedTask) {
+    return (
+      <Card className="p-4 space-y-3 border-2 border-primary/20">
+        <div className="flex items-start justify-between">
+          <div className="flex-1">
+            <h4 className="font-medium">{parsedTask.title}</h4>
+            {parsedTask.description && (
+              <p className="text-sm text-muted-foreground mt-1">
+                {parsedTask.description}
+              </p>
             )}
-          </Button>
+          </div>
+          <Badge className={priorityColors[parsedTask.priority]}>
+            {parsedTask.priority}
+          </Badge>
         </div>
-      </div>
 
-      {/* Examples */}
-      {!showPreview && (
-        <div className="space-y-2">
-          <p className="text-xs text-muted-foreground">Try these examples:</p>
-          <div className="flex flex-wrap gap-2">
-            {examples.map((example, i) => (
-              <Badge
-                key={i}
-                variant="outline"
-                className="cursor-pointer hover:bg-muted transition-colors"
-                onClick={() => setInput(example)}
-              >
-                {example.length > 40 ? example.slice(0, 40) + "..." : example}
-              </Badge>
-            ))}
+        <div className="flex flex-wrap gap-2 text-sm">
+          {parsedTask.dueDateRelative && (
+            <Badge variant="outline">Due: {parsedTask.dueDateRelative}</Badge>
+          )}
+          {parsedTask.assignee && (
+            <Badge variant="outline">@{parsedTask.assignee}</Badge>
+          )}
+          {parsedTask.category && (
+            <Badge variant="secondary">{parsedTask.category}</Badge>
+          )}
+          {parsedTask.tags.map((tag) => (
+            <Badge key={tag} variant="secondary" className="text-xs">
+              #{tag}
+            </Badge>
+          ))}
+        </div>
+
+        <div className="flex items-center justify-between pt-2 border-t">
+          <span className="text-xs text-muted-foreground">
+            Confidence: {Math.round(parsedTask.confidence * 100)}%
+          </span>
+          <div className="flex gap-2">
+            <Button size="sm" variant="ghost" onClick={handleReject}>
+              <X className="h-4 w-4 mr-1" />
+              Cancel
+            </Button>
+            <Button size="sm" onClick={handleConfirm}>
+              <Check className="h-4 w-4 mr-1" />
+              Create Task
+            </Button>
           </div>
         </div>
-      )}
+      </Card>
+    )
+  }
 
-      {/* Parsed Preview */}
-      {showPreview && parsedResult && (
-        <Card className="border-primary/30 bg-primary/5">
-          <CardContent className="pt-4 space-y-3">
-            <div className="flex items-start justify-between">
-              <h4 className="font-medium">AI Parsed Task</h4>
-              <Badge variant="secondary" className="text-xs">
-                {Math.round(parsedResult.confidence * 100)}% confident
-              </Badge>
-            </div>
-
-            <div className="space-y-2">
-              <div>
-                <span className="text-xs text-muted-foreground">Title</span>
-                <p className="font-medium">{parsedResult.title}</p>
-              </div>
-
-              <div className="flex flex-wrap gap-4">
-                {parsedResult.dueDate && (
-                  <div>
-                    <span className="text-xs text-muted-foreground">Due Date</span>
-                    <p className="text-sm">
-                      {new Date(parsedResult.dueDate).toLocaleDateString()}
-                    </p>
-                  </div>
-                )}
-
-                {parsedResult.priority && (
-                  <div>
-                    <span className="text-xs text-muted-foreground">Priority</span>
-                    <Badge
-                      variant="secondary"
-                      className={cn(
-                        "ml-1 capitalize",
-                        parsedResult.priority === "urgent" && "bg-red-500/20 text-red-500",
-                        parsedResult.priority === "high" && "bg-orange-500/20 text-orange-500",
-                        parsedResult.priority === "medium" && "bg-yellow-500/20 text-yellow-500",
-                        parsedResult.priority === "low" && "bg-gray-500/20 text-gray-500"
-                      )}
-                    >
-                      {parsedResult.priority}
-                    </Badge>
-                  </div>
-                )}
-
-                {parsedResult.estimatedHours && (
-                  <div>
-                    <span className="text-xs text-muted-foreground">Estimate</span>
-                    <p className="text-sm">{parsedResult.estimatedHours}h</p>
-                  </div>
-                )}
-
-                {parsedResult.assignee && (
-                  <div>
-                    <span className="text-xs text-muted-foreground">Assignee</span>
-                    <p className="text-sm">{parsedResult.assignee}</p>
-                  </div>
-                )}
-              </div>
-
-              {parsedResult.tags && parsedResult.tags.length > 0 && (
-                <div>
-                  <span className="text-xs text-muted-foreground">Tags</span>
-                  <div className="flex flex-wrap gap-1 mt-1">
-                    {parsedResult.tags.map((tag) => (
-                      <Badge key={tag} variant="outline" className="text-xs">
-                        #{tag}
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className="flex justify-end gap-2 pt-2">
-              <Button variant="outline" size="sm" onClick={handleReject}>
-                <X className="h-4 w-4 mr-1" />
-                Edit
-              </Button>
-              <Button size="sm" onClick={handleConfirm}>
-                <Check className="h-4 w-4 mr-1" />
-                Create Task
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Cancel Button */}
-      {onCancel && (
-        <Button variant="ghost" size="sm" onClick={onCancel} className="w-full">
-          Cancel
+  return (
+    <div className="space-y-2">
+      <div className="flex gap-2">
+        <div className="relative flex-1">
+          <Input
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder={placeholder}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault()
+                parseTask()
+              }
+            }}
+            disabled={isLoading}
+            className="pr-10"
+          />
+          <Sparkles className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        </div>
+        <Button onClick={parseTask} disabled={isLoading || !input.trim()}>
+          {isLoading ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Sparkles className="h-4 w-4" />
+          )}
         </Button>
-      )}
+      </div>
+
+      {error && <p className="text-sm text-destructive">{error}</p>}
+
+      <p className="text-xs text-muted-foreground">
+        Try: "Review PR #42 urgently" or "Add dark mode feature by next week @john"
+      </p>
     </div>
   )
 }

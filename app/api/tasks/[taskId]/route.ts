@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { connectToDatabase } from "@/lib/mongodb"
-import { Task, User, Update } from "@/lib/models"
+import { Task, User, Update, Project } from "@/lib/models"
 import { taskTransformer } from "@/lib/transformers"
 import { notificationService } from "@/lib/services"
 import mongoose from "mongoose"
@@ -89,39 +89,62 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         message: `Status changed from ${oldStatus} to ${body.status}`,
       })
 
-      const peopleToNotify = new Set<string>()
+      // Get project details for notifications
+      let projectName: string | undefined
+      let projectId: string | undefined
+      if (task.project_id) {
+        const project = await Project.findById(task.project_id).lean()
+        projectName = project?.name
+        projectId = project?._id?.toString()
+      }
+
+      const peopleToNotify = new Map<string, { telegramId: string; fullName: string }>()
 
       // Add all assigned users
       const assignedUsers = task.assigned_to as any[]
       for (const assignedUser of assignedUsers) {
         if (assignedUser.telegram_id && assignedUser.telegram_id !== telegramId) {
-          peopleToNotify.add(assignedUser.telegram_id)
+          peopleToNotify.set(assignedUser.telegram_id, {
+            telegramId: assignedUser.telegram_id,
+            fullName: assignedUser.full_name || "User",
+          })
         }
       }
 
       // Add task creator (admin notification)
       const creator = task.created_by as any
       if (creator?.telegram_id && creator.telegram_id !== telegramId) {
-        peopleToNotify.add(creator.telegram_id)
+        peopleToNotify.set(creator.telegram_id, {
+          telegramId: creator.telegram_id,
+          fullName: creator.full_name || "User",
+        })
       }
 
       // Send notifications using centralized service
-      for (const notifyTelegramId of peopleToNotify) {
+      for (const [notifyTelegramId, recipient] of peopleToNotify) {
         if (body.status === "completed") {
           await notificationService.notifyTaskCompleted({
             telegramId: notifyTelegramId,
+            recipientName: recipient.fullName,
             taskTitle: task.title,
             taskId: task._id.toString(),
             completedBy: user.full_name,
+            completedByTelegramId: telegramId,
+            projectName,
+            projectId,
           })
         } else {
           await notificationService.notifyTaskStatusChange({
             telegramId: notifyTelegramId,
+            recipientName: recipient.fullName,
             taskTitle: task.title,
             taskId: task._id.toString(),
             oldStatus,
             newStatus: body.status,
             changedBy: user.full_name,
+            changedByTelegramId: telegramId,
+            projectName,
+            projectId,
           })
         }
       }

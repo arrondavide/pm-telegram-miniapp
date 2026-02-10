@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { Building2, Bell, Clock, ChevronRight, Check, Moon, Sun, Settings, Trash2, UserPlus, Plus } from "lucide-react"
+import { Building2, Bell, Clock, ChevronRight, Check, Moon, Sun, Settings, Trash2, UserPlus, Plus, Sparkles, Mic } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Switch } from "@/components/ui/switch"
 import { Badge } from "@/components/ui/badge"
@@ -64,6 +64,9 @@ export function ProfileScreen() {
   const [isDarkMode, setIsDarkMode] = useState(
     typeof document !== "undefined" && document.documentElement.classList.contains("dark"),
   )
+  const [aiEnabled, setAiEnabled] = useState(true)
+  const [aiVoiceInput, setAiVoiceInput] = useState(false)
+  const [aiAutoSuggest, setAiAutoSuggest] = useState(true)
 
   const activeCompany = getActiveCompany()
   const userRole = getUserRole()
@@ -331,6 +334,73 @@ export function ProfileScreen() {
                 <span>Reminder Time</span>
               </div>
               <span className="text-muted-foreground">{currentUser.preferences.reminderTime}</span>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* AI Settings */}
+        <Card className="border-border/50">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-primary" />
+              AI Features
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-1 p-2">
+            {/* AI Enabled */}
+            <div className="flex items-center justify-between rounded-lg p-3">
+              <div className="flex items-center gap-3">
+                <Sparkles className="h-5 w-5 text-muted-foreground" />
+                <div>
+                  <span>AI Assistant</span>
+                  <p className="text-xs text-muted-foreground">Enable AI-powered features</p>
+                </div>
+              </div>
+              <Switch
+                checked={aiEnabled}
+                onCheckedChange={(checked) => {
+                  setAiEnabled(checked)
+                  hapticFeedback("light")
+                }}
+              />
+            </div>
+
+            {/* Voice Input */}
+            <div className="flex items-center justify-between rounded-lg p-3">
+              <div className="flex items-center gap-3">
+                <Mic className="h-5 w-5 text-muted-foreground" />
+                <div>
+                  <span>Voice Input</span>
+                  <p className="text-xs text-muted-foreground">Create tasks by voice</p>
+                </div>
+              </div>
+              <Switch
+                checked={aiVoiceInput}
+                disabled={!aiEnabled}
+                onCheckedChange={(checked) => {
+                  setAiVoiceInput(checked)
+                  hapticFeedback("light")
+                }}
+              />
+            </div>
+
+            {/* Auto Suggestions */}
+            <div className="flex items-center justify-between rounded-lg p-3">
+              <div className="flex items-center gap-3">
+                <Settings className="h-5 w-5 text-muted-foreground" />
+                <div>
+                  <span>Smart Suggestions</span>
+                  <p className="text-xs text-muted-foreground">AI suggests task improvements</p>
+                </div>
+              </div>
+              <Switch
+                checked={aiAutoSuggest}
+                disabled={!aiEnabled}
+                onCheckedChange={(checked) => {
+                  setAiAutoSuggest(checked)
+                  hapticFeedback("light")
+                }}
+              />
             </div>
           </CardContent>
         </Card>

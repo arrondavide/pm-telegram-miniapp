@@ -4,16 +4,20 @@ import { useState } from "react"
 import { useUserStore } from "@/lib/stores/user.store"
 import { useCompanyStore } from "@/lib/stores/company.store"
 import { useProjectStore } from "@/lib/stores/project.store"
+import { useTaskStore } from "@/lib/stores/task.store"
 import type { Project } from "@/types/models.types"
-import { projectApi } from "@/lib/api"
+import { projectApi, taskApi } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { ArrowLeft, LayoutTemplate } from "lucide-react"
+import { ArrowLeft, LayoutTemplate, Sparkles, FileEdit } from "lucide-react"
 import { TemplateSelector } from "@/components/project-templates"
+import { AIProjectWizard } from "@/components/ai"
 import type { ProjectTemplate } from "@/types/templates.types"
+
+type CreationMode = "choice" | "traditional" | "ai"
 
 interface CreateProjectScreenProps {
   onBack: () => void
@@ -40,7 +44,11 @@ export function CreateProjectScreen({ onBack, onSuccess, projectToEdit }: Create
   const currentUser = useUserStore((state) => state.currentUser)
   const getActiveCompany = useCompanyStore((state) => state.getActiveCompany)
   const { projects, createProject, updateProject, loadProjects } = useProjectStore()
+  const loadTasks = useTaskStore((state) => state.loadTasks)
   const activeCompany = getActiveCompany()
+
+  // If editing, skip choice screen
+  const [creationMode, setCreationMode] = useState<CreationMode>(projectToEdit ? "traditional" : "choice")
 
   const [formData, setFormData] = useState({
     name: projectToEdit?.name || "",
@@ -152,12 +160,253 @@ export function CreateProjectScreen({ onBack, onSuccess, projectToEdit }: Create
     }
   }
 
+  // Handle AI project creation
+  const handleAIProjectComplete = async (aiProject: {
+    projectName: string
+    description: string
+    estimatedTotalDays: number
+    phases: Array<{
+      title: string
+      description: string
+      estimatedDays: number
+      priority: "low" | "medium" | "high" | "urgent"
+      order: number
+      children: Array<{
+        title: string
+        description: string
+        estimatedDays: number
+        priority: "low" | "medium" | "high" | "urgent"
+        order: number
+        children: Array<unknown>
+      }>
+    }>
+    suggestedTags: string[]
+    risks: string[]
+    confidence: number
+  }) => {
+    if (!activeCompany || !currentUser) return
+
+    setIsSubmitting(true)
+    setError("")
+
+    try {
+      // Create the project first
+      const startDate = new Date()
+      const endDate = new Date()
+      endDate.setDate(endDate.getDate() + aiProject.estimatedTotalDays)
+
+      const response = await projectApi.create(
+        {
+          companyId: activeCompany.id,
+          name: aiProject.projectName,
+          description: aiProject.description,
+          icon: "🚀",
+          color: "#8b5cf6",
+          startDate: startDate.toISOString(),
+          targetEndDate: endDate.toISOString(),
+        },
+        currentUser.telegramId
+      )
+
+      if (response.success && response.data) {
+        const newProject = response.data.project
+
+        // Create tasks from AI-generated phases
+        let currentDate = new Date()
+        for (const phase of aiProject.phases) {
+          const phaseDueDate = new Date(currentDate)
+          phaseDueDate.setDate(phaseDueDate.getDate() + phase.estimatedDays)
+
+          // Create phase as parent task
+          const phaseResponse = await taskApi.create({
+            title: phase.title,
+            description: phase.description,
+            dueDate: phaseDueDate.toISOString(),
+            priority: phase.priority,
+            status: "pending",
+            companyId: activeCompany.id,
+            projectId: newProject.id,
+            createdBy: currentUser.telegramId,
+            assignedTo: [],
+            tags: aiProject.suggestedTags,
+            estimatedHours: phase.estimatedDays * 8,
+            parentTaskId: null,
+            depth: 0,
+            path: [],
+            category: "",
+            department: "",
+          }, currentUser.telegramId)
+
+          // Create child tasks
+          if (phaseResponse.success && phaseResponse.data && phase.children) {
+            const parentTaskId = phaseResponse.data.id
+            let childDate = new Date(currentDate)
+
+            for (const child of phase.children) {
+              const childDueDate = new Date(childDate)
+              childDueDate.setDate(childDueDate.getDate() + child.estimatedDays)
+
+              await taskApi.create({
+                title: child.title,
+                description: child.description,
+                dueDate: childDueDate.toISOString(),
+                priority: child.priority,
+                status: "pending",
+                companyId: activeCompany.id,
+                projectId: newProject.id,
+                parentTaskId,
+                createdBy: currentUser.telegramId,
+                assignedTo: [],
+                estimatedHours: child.estimatedDays * 8,
+                depth: 1,
+                path: [parentTaskId],
+                category: "",
+                tags: [],
+                department: "",
+              }, currentUser.telegramId)
+
+              childDate = childDueDate
+            }
+          }
+
+          currentDate = phaseDueDate
+        }
+
+        // Reload projects
+        const projectsResponse = await projectApi.getAll(activeCompany.id, currentUser.telegramId)
+        if (projectsResponse.success && projectsResponse.data) {
+          loadProjects(projectsResponse.data.projects)
+        }
+
+        onSuccess()
+      } else {
+        setError(response.error || "Failed to create project")
+      }
+    } catch (err) {
+      setError("An error occurred while creating the project")
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  // Choice screen for new projects
+  if (creationMode === "choice") {
+    return (
+      <div className="flex h-full flex-col">
+        <div className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+          <div className="flex items-center gap-2 p-4">
+            <Button variant="ghost" size="sm" onClick={onBack}>
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+            <h1 className="text-xl font-bold">New Project</h1>
+          </div>
+        </div>
+        <div className="flex-1 overflow-auto p-4">
+          <div className="mx-auto max-w-2xl space-y-4">
+            <div className="text-center mb-6">
+              <p className="text-muted-foreground">
+                Choose how you want to set up your project
+              </p>
+            </div>
+
+            <div
+              className="cursor-pointer rounded-lg border-2 p-6 hover:border-primary/50 transition-colors"
+              onClick={() => setCreationMode("ai")}
+            >
+              <div className="flex items-center gap-3 mb-3">
+                <div className="p-2 rounded-lg bg-primary/10">
+                  <Sparkles className="h-5 w-5 text-primary" />
+                </div>
+                <h3 className="text-lg font-semibold">AI-Assisted Setup</h3>
+              </div>
+              <p className="text-sm text-muted-foreground mb-3">
+                Describe your project and let AI generate a complete task structure with phases, milestones, and estimates.
+              </p>
+              <ul className="text-sm text-muted-foreground space-y-1">
+                <li className="flex items-center gap-2">
+                  <span className="text-primary">✓</span> Auto-generate task hierarchy
+                </li>
+                <li className="flex items-center gap-2">
+                  <span className="text-primary">✓</span> Smart time estimates
+                </li>
+                <li className="flex items-center gap-2">
+                  <span className="text-primary">✓</span> Risk identification
+                </li>
+              </ul>
+            </div>
+
+            <div
+              className="cursor-pointer rounded-lg border-2 p-6 hover:border-primary/50 transition-colors"
+              onClick={() => setCreationMode("traditional")}
+            >
+              <div className="flex items-center gap-3 mb-3">
+                <div className="p-2 rounded-lg bg-muted">
+                  <FileEdit className="h-5 w-5" />
+                </div>
+                <h3 className="text-lg font-semibold">Traditional Setup</h3>
+              </div>
+              <p className="text-sm text-muted-foreground mb-3">
+                Create your project manually with full control over every detail.
+              </p>
+              <ul className="text-sm text-muted-foreground space-y-1">
+                <li className="flex items-center gap-2">
+                  <span>✓</span> Full manual control
+                </li>
+                <li className="flex items-center gap-2">
+                  <span>✓</span> Use templates
+                </li>
+                <li className="flex items-center gap-2">
+                  <span>✓</span> Step-by-step setup
+                </li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // AI-assisted creation mode
+  if (creationMode === "ai") {
+    return (
+      <div className="flex h-full flex-col">
+        <div className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+          <div className="flex items-center gap-2 p-4">
+            <Button variant="ghost" size="sm" onClick={() => setCreationMode("choice")}>
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+            <h1 className="text-xl font-bold">AI Project Setup</h1>
+          </div>
+        </div>
+        <div className="flex-1 overflow-auto p-4">
+          <div className="mx-auto max-w-2xl">
+            {error && (
+              <div className="mb-4 rounded-lg bg-destructive/10 p-3 text-sm text-destructive border border-destructive/20">
+                {error}
+              </div>
+            )}
+            <AIProjectWizard
+              onComplete={handleAIProjectComplete}
+              onCancel={() => setCreationMode("choice")}
+            />
+            {isSubmitting && (
+              <div className="mt-4 text-center text-muted-foreground">
+                Creating project and tasks...
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // Traditional creation mode
   return (
     <div className="flex h-full flex-col">
       {/* Header */}
       <div className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="flex items-center gap-2 p-4">
-          <Button variant="ghost" size="sm" onClick={onBack}>
+          <Button variant="ghost" size="sm" onClick={projectToEdit ? onBack : () => setCreationMode("choice")}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <h1 className="text-xl font-bold">{projectToEdit ? "Edit Project" : "New Project"}</h1>

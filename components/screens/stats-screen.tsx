@@ -2,7 +2,7 @@
 
 import type React from "react"
 import { useEffect, useState } from "react"
-import { CheckCircle2, Clock, AlertTriangle, TrendingUp, Trophy, BarChart3, RefreshCw, Users } from "lucide-react"
+import { CheckCircle2, Clock, AlertTriangle, TrendingUp, Trophy, BarChart3, RefreshCw, Users, Sparkles } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -13,6 +13,7 @@ import { useTimeStore } from "@/lib/stores/time.store"
 import { cn } from "@/lib/utils"
 import Image from "next/image"
 import { formatDuration } from "@/lib/format-time"
+import { DailyDigestCard } from "@/components/ai"
 
 interface StatsData {
   company: {
@@ -243,13 +244,19 @@ export function StatsScreen() {
 
       <div className="flex-1 p-4">
         <Tabs defaultValue="personal">
-          <TabsList className="grid w-full grid-cols-2 bg-muted">
+          <TabsList className={cn("grid w-full bg-muted", canViewTeamStats ? "grid-cols-3" : "grid-cols-2")}>
             <TabsTrigger value="personal" className="data-[state=active]:bg-background">
               My Stats
             </TabsTrigger>
             {canViewTeamStats && (
               <TabsTrigger value="team" className="data-[state=active]:bg-background">
-                Team Stats
+                Team
+              </TabsTrigger>
+            )}
+            {canViewTeamStats && (
+              <TabsTrigger value="digest" className="data-[state=active]:bg-background">
+                <Sparkles className="h-3 w-3 mr-1" />
+                Digest
               </TabsTrigger>
             )}
           </TabsList>
@@ -411,6 +418,25 @@ export function StatsScreen() {
                     <Trophy className="h-12 w-12 text-muted-foreground/30 mb-3" />
                     <p className="text-muted-foreground">No completed tasks yet</p>
                     <p className="text-sm text-muted-foreground">Top performers will appear here</p>
+                  </CardContent>
+                </Card>
+              )}
+            </TabsContent>
+          )}
+
+          {/* AI Daily Digest */}
+          {canViewTeamStats && (
+            <TabsContent value="digest" className="mt-4">
+              {company?.id ? (
+                <DailyDigestCard
+                  companyId={company.id}
+                  telegramId={currentUser?.telegramId}
+                />
+              ) : (
+                <Card className="border-border/50">
+                  <CardContent className="flex flex-col items-center justify-center py-8 text-center">
+                    <Sparkles className="h-12 w-12 text-muted-foreground/30 mb-3" />
+                    <p className="text-muted-foreground">No company selected</p>
                   </CardContent>
                 </Card>
               )}

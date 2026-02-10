@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { connectToDatabase } from "@/lib/mongodb"
-import { Task, User, Update } from "@/lib/models"
+import { Task, User, Update, Project } from "@/lib/models"
 import { taskTransformer } from "@/lib/transformers"
 import { notificationService } from "@/lib/services"
 import mongoose from "mongoose"
@@ -110,6 +110,13 @@ export async function POST(request: NextRequest) {
       message: `Task "${title}" created`,
     })
 
+    // Get project details for notifications
+    let projectName: string | undefined
+    if (projectId) {
+      const project = await Project.findById(projectId).lean()
+      projectName = project?.name
+    }
+
     // Send notifications to assigned users using centralized service
     if (assignedUsers.length > 0) {
       await notificationService.notifyTaskAssignment({
@@ -119,6 +126,9 @@ export async function POST(request: NextRequest) {
         assignedBy: user.full_name,
         dueDate: new Date(dueDate),
         priority: priority || "medium",
+        projectName,
+        projectId,
+        taskDescription: description,
         excludeTelegramId: telegramId,
       })
     }

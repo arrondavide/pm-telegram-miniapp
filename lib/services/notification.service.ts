@@ -1,9 +1,17 @@
 /**
  * Notification Service
  * Centralized notification creation and delivery
+ * Uses rich Telegram notifications via task-notifier
  */
 
 import mongoose from "mongoose"
+import {
+  notifyTaskAssigned,
+  notifyTaskCompleted,
+  notifyTaskStatusChanged,
+  notifyMention,
+  notifyNewComment as notifyNewCommentTelegram,
+} from "@/lib/telegram"
 
 // In-app notification model (created once, reused)
 const NotificationSchema = new mongoose.Schema({
@@ -62,7 +70,7 @@ export async function createNotification({
       read: false,
     })
 
-    // Send Telegram notification
+    // Send Telegram notification (basic fallback)
     const BOT_TOKEN = process.env.BOT_TOKEN
     if (sendTelegram && BOT_TOKEN) {
       const telegramMessage = `<b>${title}</b>\n\n${message}`
@@ -84,104 +92,251 @@ export async function createNotification({
 /**
  * Notify users about task assignment
  */
-export async function notifyTaskAssignment(params: {
+export async function notifyTaskAssignmentFn(params: {
   assignedUsers: Array<{ telegram_id: string; full_name?: string }>
   taskTitle: string
   taskId: string
   assignedBy: string
   dueDate: Date
   priority: string
+  projectName?: string
+  projectId?: string
+  taskDescription?: string
   excludeTelegramId?: string
 }): Promise<void> {
-  const { assignedUsers, taskTitle, taskId, assignedBy, dueDate, priority, excludeTelegramId } = params
-
-  const formattedDate = dueDate.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  })
+  const { assignedUsers, taskTitle, taskId, assignedBy, dueDate, priority, projectName, projectId, taskDescription, excludeTelegramId } = params
 
   for (const user of assignedUsers) {
     // Don't notify the creator if they assigned themselves
     if (user.telegram_id === excludeTelegramId) continue
 
-    await createNotification({
-      telegramId: user.telegram_id,
+    // Create in-app notification
+    const AppNotification = getNotificationModel()
+    await AppNotification.create({
+      telegram_id: user.telegram_id,
       type: "task_assigned",
       title: "New Task Assigned",
-      message: `${taskTitle}\n\nAssigned by: ${assignedBy}\nDue: ${formattedDate}\nPriority: ${priority}`,
-      taskId,
+      message: `${taskTitle} - Assigned by ${assignedBy}`,
+      task_id: taskId,
+      read: false,
     })
+
+    // Send rich Telegram notification
+    await notifyTaskAssigned(
+      {
+        telegramId: user.telegram_id,
+        fullName: user.full_name || "User",
+      },
+      {
+        taskId,
+        taskTitle,
+        taskDescription,
+        projectName,
+        projectId,
+        dueDate,
+        priority: priority as "low" | "medium" | "high" | "urgent",
+      },
+      {
+        telegramId: excludeTelegramId || "",
+        fullName: assignedBy,
+      }
+    )
   }
 }
 
 /**
  * Notify users about task status changes
  */
-export async function notifyTaskStatusChange(params: {
+export async function notifyTaskStatusChangeFn(params: {
   telegramId: string
+  recipientName?: string
   taskTitle: string
   taskId: string
   oldStatus: string
   newStatus: string
   changedBy: string
+  changedByTelegramId?: string
+  projectName?: string
+  projectId?: string
 }): Promise<void> {
-  const { telegramId, taskTitle, taskId, oldStatus, newStatus, changedBy } = params
+  const { telegramId, recipientName, taskTitle, taskId, oldStatus, newStatus, changedBy, changedByTelegramId, projectName, projectId } = params
 
-  await createNotification({
-    telegramId,
+  // Create in-app notification
+  const AppNotification = getNotificationModel()
+  await AppNotification.create({
+    telegram_id: telegramId,
     type: "status_update",
     title: "Task Status Updated",
-    message: `${taskTitle}\n\nStatus changed from "${oldStatus}" to "${newStatus}"\nUpdated by: ${changedBy}`,
-    taskId,
+    message: `${taskTitle} - ${oldStatus} → ${newStatus}`,
+    task_id: taskId,
+    read: false,
   })
+
+  // Send rich Telegram notification
+  await notifyTaskStatusChanged(
+    {
+      telegramId,
+      fullName: recipientName || "User",
+    },
+    {
+      taskId,
+      taskTitle,
+      projectName,
+      projectId,
+    },
+    oldStatus,
+    newStatus,
+    {
+      telegramId: changedByTelegramId || "",
+      fullName: changedBy,
+    }
+  )
 }
 
 /**
  * Notify users about new comments
  */
-export async function notifyNewComment(params: {
+export async function notifyNewCommentFn(params: {
   telegramId: string
+  recipientName?: string
   taskTitle: string
   taskId: string
   commentBy: string
-  commentPreview: string
+  commenterTelegramId?: string
+  commentText: string
+  projectName?: string
+  projectId?: string
 }): Promise<void> {
-  const { telegramId, taskTitle, taskId, commentBy, commentPreview } = params
+  const { telegramId, recipientName, taskTitle, taskId, commentBy, commenterTelegramId, commentText, projectName, projectId } = params
 
-  await createNotification({
-    telegramId,
+  // Create in-app notification
+  const AppNotification = getNotificationModel()
+  await AppNotification.create({
+    telegram_id: telegramId,
     type: "comment",
     title: "New Comment",
-    message: `${commentBy} commented on "${taskTitle}":\n\n${commentPreview}`,
-    taskId,
+    message: `${commentBy} commented on "${taskTitle}"`,
+    task_id: taskId,
+    read: false,
   })
+
+  // Send rich Telegram notification
+  await notifyNewCommentTelegram(
+    {
+      telegramId,
+      fullName: recipientName || "User",
+    },
+    {
+      taskId,
+      taskTitle,
+      projectName,
+      projectId,
+    },
+    {
+      telegramId: commenterTelegramId || "",
+      fullName: commentBy,
+    },
+    commentText
+  )
+}
+
+/**
+ * Notify users about mentions in comments
+ */
+export async function notifyMentionFn(params: {
+  telegramId: string
+  mentionedName: string
+  taskTitle: string
+  taskId: string
+  mentionedBy: string
+  mentionerTelegramId?: string
+  commentText: string
+  projectName?: string
+  projectId?: string
+}): Promise<void> {
+  const { telegramId, mentionedName, taskTitle, taskId, mentionedBy, mentionerTelegramId, commentText, projectName, projectId } = params
+
+  // Create in-app notification
+  const AppNotification = getNotificationModel()
+  await AppNotification.create({
+    telegram_id: telegramId,
+    type: "mention",
+    title: "You were mentioned",
+    message: `${mentionedBy} mentioned you in "${taskTitle}"`,
+    task_id: taskId,
+    read: false,
+  })
+
+  // Send rich Telegram notification
+  await notifyMention(
+    {
+      telegramId,
+      fullName: mentionedName,
+    },
+    {
+      taskId,
+      taskTitle,
+      projectName,
+      projectId,
+    },
+    {
+      telegramId: mentionerTelegramId || "",
+      fullName: mentionedBy,
+    },
+    commentText
+  )
 }
 
 /**
  * Notify users about task completion
  */
-export async function notifyTaskCompleted(params: {
+export async function notifyTaskCompletedFn(params: {
   telegramId: string
+  recipientName?: string
   taskTitle: string
   taskId: string
   completedBy: string
+  completedByTelegramId?: string
+  projectName?: string
+  projectId?: string
 }): Promise<void> {
-  const { telegramId, taskTitle, taskId, completedBy } = params
+  const { telegramId, recipientName, taskTitle, taskId, completedBy, completedByTelegramId, projectName, projectId } = params
 
-  await createNotification({
-    telegramId,
+  // Create in-app notification
+  const AppNotification = getNotificationModel()
+  await AppNotification.create({
+    telegram_id: telegramId,
     type: "task_completed",
     title: "Task Completed",
-    message: `"${taskTitle}" has been marked as completed by ${completedBy}`,
-    taskId,
+    message: `"${taskTitle}" completed by ${completedBy}`,
+    task_id: taskId,
+    read: false,
   })
+
+  // Send rich Telegram notification
+  await notifyTaskCompleted(
+    {
+      telegramId,
+      fullName: recipientName || "User",
+    },
+    {
+      taskId,
+      taskTitle,
+      projectName,
+      projectId,
+    },
+    {
+      telegramId: completedByTelegramId || "",
+      fullName: completedBy,
+    }
+  )
 }
 
 export const notificationService = {
   create: createNotification,
-  notifyTaskAssignment,
-  notifyTaskStatusChange,
-  notifyNewComment,
-  notifyTaskCompleted,
+  notifyTaskAssignment: notifyTaskAssignmentFn,
+  notifyTaskStatusChange: notifyTaskStatusChangeFn,
+  notifyNewComment: notifyNewCommentFn,
+  notifyMention: notifyMentionFn,
+  notifyTaskCompleted: notifyTaskCompletedFn,
 }
