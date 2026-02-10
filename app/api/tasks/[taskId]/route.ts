@@ -8,6 +8,13 @@ import mongoose from "mongoose"
 export async function GET(request: NextRequest, { params }: { params: Promise<{ taskId: string }> }) {
   try {
     const { taskId } = await params
+    console.log("[Task API GET] Fetching task:", taskId)
+
+    // Validate taskId format
+    if (!taskId || !mongoose.Types.ObjectId.isValid(taskId)) {
+      console.log("[Task API GET] Invalid taskId format:", taskId)
+      return NextResponse.json({ error: "Invalid task ID format" }, { status: 400 })
+    }
 
     await connectToDatabase()
 
@@ -17,12 +24,17 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       .lean()
 
     if (!task) {
+      console.log("[Task API GET] Task not found in database:", taskId)
       return NextResponse.json({ error: "Task not found" }, { status: 404 })
     }
 
+    console.log("[Task API GET] Task found:", task._id, task.title)
+    const transformedTask = taskTransformer.toFrontend(task as any)
+    console.log("[Task API GET] Transformed task id:", transformedTask.id)
+
     return NextResponse.json(
       {
-        task: taskTransformer.toFrontend(task as any),
+        task: transformedTask,
       },
       {
         headers: {
@@ -31,7 +43,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       }
     )
   } catch (error) {
-    console.error("Error fetching task:", error)
+    console.error("[Task API GET] Error fetching task:", error)
     return NextResponse.json({ error: "Failed to fetch task" }, { status: 500 })
   }
 }

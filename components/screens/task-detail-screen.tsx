@@ -145,6 +145,11 @@ export function TaskDetailScreen({ taskId, onBack, onCreateSubtask, onEditTask, 
 
   const task = getTaskById(taskId)
 
+  // Debug: Log when task changes
+  useEffect(() => {
+    console.log("[TaskDetail] Render - taskId:", taskId, "task:", task?.id || "undefined", "isLoadingTask:", isLoadingTask)
+  })
+
   // Fetch task from API if not found in local store
   useEffect(() => {
     let isMounted = true
@@ -215,7 +220,7 @@ export function TaskDetailScreen({ taskId, onBack, onCreateSubtask, onEditTask, 
     }
 
     return () => { isMounted = false }
-  }, [taskId, currentUser?.telegramId, user?.id]) // Removed task, isLoadingTask, taskLoadError from deps to prevent loops
+  }, [taskId, currentUser?.telegramId, user?.id, task, isLoadingTask, loadTasks])
   const localComments = getCommentsForTask(taskId)
   const timeLogs = getTimeLogsForTask(taskId)
   const role = getUserRole()
