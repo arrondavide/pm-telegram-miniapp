@@ -133,6 +133,7 @@ export function TaskDetailScreen({ taskId, onBack, onCreateSubtask, onEditTask, 
   const [isLoadingTask, setIsLoadingTask] = useState(false)
   const [taskLoadError, setTaskLoadError] = useState<string | null>(null)
   const [fetchedTask, setFetchedTask] = useState<Task | null>(null) // Local fallback for fetched task
+  const [loadingStatus, setLoadingStatus] = useState<string>("idle") // Track loading status
   const [editForm, setEditForm] = useState({
     title: "",
     description: "",
@@ -161,10 +162,22 @@ export function TaskDetailScreen({ taskId, onBack, onCreateSubtask, onEditTask, 
     if (!storeTask && !fetchedTask && taskId && telegramId && !isLoadingTask) {
       setIsLoadingTask(true)
       setTaskLoadError(null)
+      setLoadingStatus("starting fetch...")
 
       console.log("[TaskDetail] Fetching task:", taskId, "telegramId:", telegramId)
+
+      // Add timeout to detect hanging requests
+      const timeoutId = setTimeout(() => {
+        if (isMounted) {
+          setLoadingStatus("request timeout (10s)")
+        }
+      }, 10000)
+
+      setLoadingStatus("calling API...")
       taskApi.getById(taskId, telegramId)
         .then((response) => {
+          clearTimeout(timeoutId)
+          setLoadingStatus("got response")
           console.log("[TaskDetail] API response:", JSON.stringify(response, null, 2))
           if (!isMounted) {
             console.log("[TaskDetail] Component unmounted, skipping state update")
@@ -172,6 +185,7 @@ export function TaskDetailScreen({ taskId, onBack, onCreateSubtask, onEditTask, 
           }
           if (response.success && response.data?.task) {
             const taskData = response.data.task
+            setLoadingStatus("parsing task data...")
             console.log("[TaskDetail] Task data received:", taskData.id, taskData.title)
             // Transform and add to store
             const formattedTask: Task = {
@@ -204,18 +218,22 @@ export function TaskDetailScreen({ taskId, onBack, onCreateSubtask, onEditTask, 
               createdAt: new Date(taskData.createdAt).toISOString(),
             }
             console.log("[TaskDetail] Loading task into store:", formattedTask.id)
+            setLoadingStatus("task loaded!")
             loadTasks([formattedTask])
             setFetchedTask(formattedTask) // Also set local state as fallback
             setIsLoadingTask(false)
           } else {
             console.log("[TaskDetail] Task not found in response:", response.error)
+            setLoadingStatus("error: " + (response.error || "not found"))
             setTaskLoadError(response.error || "Task not found")
             setIsLoadingTask(false)
           }
         })
         .catch((error) => {
+          clearTimeout(timeoutId)
           console.error("[TaskDetail] API error:", error)
           if (isMounted) {
+            setLoadingStatus("catch error: " + (error instanceof Error ? error.message : "unknown"))
             setTaskLoadError(error instanceof Error ? error.message : "Failed to load task")
             setIsLoadingTask(false)
           }
@@ -343,9 +361,10 @@ export function TaskDetailScreen({ taskId, onBack, onCreateSubtask, onEditTask, 
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
             <p className="font-body text-muted-foreground">Loading task...</p>
             {/* Debug info */}
-            <div className="mt-4 p-3 bg-muted rounded text-xs font-mono max-w-xs">
+            <div className="mt-4 p-3 bg-muted rounded text-xs font-mono max-w-xs text-left">
               <p>Task ID: {taskId}</p>
               <p>TelegramID: {currentUser?.telegramId || user?.id || "none"}</p>
+              <p className="text-primary font-bold">Status: {loadingStatus}</p>
             </div>
           </div>
         </div>
