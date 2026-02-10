@@ -1,14 +1,30 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { ArrowLeft, Plus, Search, Sparkles } from "lucide-react"
+import { ArrowLeft, Plus, Search, Sparkles, MoreVertical, Trash2, Edit, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { useUserStore } from "@/lib/stores/user.store"
 import { useCompanyStore } from "@/lib/stores/company.store"
 import { useProjectStore } from "@/lib/stores/project.store"
-import { taskApi } from "@/lib/api"
+import { taskApi, projectApi } from "@/lib/api"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { useTelegram } from "@/hooks/use-telegram"
 import { AITaskInput } from "@/components/ai"
 import type { Task } from "@/types/models.types"
@@ -18,13 +34,15 @@ interface ProjectDetailScreenProps {
   onBack: () => void
   onTaskClick: (taskId: string) => void
   onCreateTask: () => void
+  onEditProject?: () => void
 }
 
-export function ProjectDetailScreen({ projectId, onBack, onTaskClick, onCreateTask }: ProjectDetailScreenProps) {
+export function ProjectDetailScreen({ projectId, onBack, onTaskClick, onCreateTask, onEditProject }: ProjectDetailScreenProps) {
   const currentUser = useUserStore((state) => state.currentUser)
   const getUserRole = useUserStore((state) => state.getUserRole)
   const getActiveCompany = useCompanyStore((state) => state.getActiveCompany)
   const getProjectById = useProjectStore((state) => state.getProjectById)
+  const deleteProject = useProjectStore((state) => state.deleteProject)
 
   const company = getActiveCompany()
 
@@ -34,6 +52,8 @@ export function ProjectDetailScreen({ projectId, onBack, onTaskClick, onCreateTa
   const [statusFilter, setStatusFilter] = useState<string>("all")
   const [isLoadingTasks, setIsLoadingTasks] = useState(true)
   const [showAIInput, setShowAIInput] = useState(false)
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
 
   // Use LOCAL state for tasks instead of global store to avoid hydration/race issues
   const [projectTasks, setProjectTasks] = useState<Task[]>([])
@@ -133,6 +153,28 @@ export function ProjectDetailScreen({ projectId, onBack, onTaskClick, onCreateTa
     }
   }
 
+  const handleDeleteProject = async () => {
+    if (!currentUser || isDeleting) return
+
+    setIsDeleting(true)
+    try {
+      const response = await projectApi.delete(projectId, currentUser.telegramId, true)
+      if (response.success) {
+        deleteProject(projectId)
+        hapticFeedback("success")
+        onBack()
+      } else {
+        hapticFeedback("error")
+      }
+    } catch (error) {
+      console.error("Failed to delete project:", error)
+      hapticFeedback("error")
+    } finally {
+      setIsDeleting(false)
+      setShowDeleteDialog(false)
+    }
+  }
+
   const statusOptions = [
     { value: "all", label: "All" },
     { value: "pending", label: "Pending" },
@@ -175,6 +217,30 @@ export function ProjectDetailScreen({ projectId, onBack, onTaskClick, onCreateTa
                 <Plus className="mr-2 h-4 w-4" />
                 Add Task
               </Button>
+              {userRole === "admin" && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button size="sm" variant="ghost">
+                      <MoreVertical className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    {onEditProject && (
+                      <DropdownMenuItem onClick={onEditProject}>
+                        <Edit className="mr-2 h-4 w-4" />
+                        Edit Project
+                      </DropdownMenuItem>
+                    )}
+                    <DropdownMenuItem
+                      onClick={() => setShowDeleteDialog(true)}
+                      className="text-destructive focus:text-destructive"
+                    >
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      Delete Project
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
             </div>
           )}
         </div>
@@ -302,6 +368,35 @@ export function ProjectDetailScreen({ projectId, onBack, onTaskClick, onCreateTa
           </div>
         )}
       </div>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Project</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete &quot;{project.name}&quot;? This will also delete all {allTasks.length} tasks in this project. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteProject}
+              disabled={isDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeleting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                "Delete Project"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

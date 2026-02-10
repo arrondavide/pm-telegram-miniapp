@@ -38,9 +38,15 @@ interface GeneratedProject {
 interface AIProjectWizardProps {
   onComplete: (project: GeneratedProject) => void
   onCancel: () => void
+  isCreating?: boolean
+  creationProgress?: {
+    current: number
+    total: number
+    message: string
+  }
 }
 
-export function AIProjectWizard({ onComplete, onCancel }: AIProjectWizardProps) {
+export function AIProjectWizard({ onComplete, onCancel, isCreating = false, creationProgress }: AIProjectWizardProps) {
   const [step, setStep] = useState<"input" | "preview">("input")
   const [description, setDescription] = useState("")
   const [teamSize, setTeamSize] = useState<string>("")
@@ -204,22 +210,57 @@ export function AIProjectWizard({ onComplete, onCancel }: AIProjectWizardProps) 
           </CardContent>
         </Card>
 
+        {/* Creation Progress */}
+        {isCreating && creationProgress && (
+          <Card className="border-primary/50 bg-primary/5">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3 mb-2">
+                <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                <span className="font-medium">{creationProgress.message}</span>
+              </div>
+              <div className="w-full bg-muted rounded-full h-2">
+                <div
+                  className="bg-primary h-2 rounded-full transition-all duration-300"
+                  style={{ width: `${(creationProgress.current / creationProgress.total) * 100}%` }}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground mt-2 text-center">
+                {creationProgress.current} of {creationProgress.total} tasks created
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
         <div className="flex gap-2">
           <Button
             variant="outline"
             onClick={() => setStep("input")}
             className="flex-1"
+            disabled={isCreating}
           >
             <RefreshCw className="h-4 w-4 mr-2" />
             Regenerate
           </Button>
-          <Button onClick={() => onComplete(generatedProject)} className="flex-1">
-            <Check className="h-4 w-4 mr-2" />
-            Use This Structure
+          <Button
+            onClick={() => onComplete(generatedProject)}
+            className="flex-1"
+            disabled={isCreating}
+          >
+            {isCreating ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Creating...
+              </>
+            ) : (
+              <>
+                <Check className="h-4 w-4 mr-2" />
+                Create Project
+              </>
+            )}
           </Button>
         </div>
 
-        <Button variant="ghost" onClick={onCancel} className="w-full">
+        <Button variant="ghost" onClick={onCancel} className="w-full" disabled={isCreating}>
           Cancel
         </Button>
       </div>

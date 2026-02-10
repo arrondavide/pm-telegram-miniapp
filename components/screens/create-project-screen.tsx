@@ -66,6 +66,11 @@ export function CreateProjectScreen({ onBack, onSuccess, projectToEdit }: Create
   const [error, setError] = useState("")
   const [selectedTemplate, setSelectedTemplate] = useState<ProjectTemplate | null>(null)
   const [showTemplates, setShowTemplates] = useState(!projectToEdit)
+  const [creationProgress, setCreationProgress] = useState<{
+    current: number
+    total: number
+    message: string
+  } | undefined>(undefined)
 
   // Update form when template is selected
   const handleTemplateSelect = (template: ProjectTemplate | null) => {
@@ -186,8 +191,24 @@ export function CreateProjectScreen({ onBack, onSuccess, projectToEdit }: Create
   }) => {
     if (!activeCompany || !currentUser) return
 
+    // Prevent double-clicking
+    if (isSubmitting) return
+
     setIsSubmitting(true)
     setError("")
+
+    // Calculate total tasks for progress
+    const totalTasks = aiProject.phases.reduce(
+      (sum, phase) => sum + 1 + (phase.children?.length || 0),
+      0
+    )
+    let completedTasks = 0
+
+    setCreationProgress({
+      current: 0,
+      total: totalTasks,
+      message: "Creating project...",
+    })
 
     try {
       // Create the project first
@@ -211,11 +232,19 @@ export function CreateProjectScreen({ onBack, onSuccess, projectToEdit }: Create
       if (response.success && response.data) {
         const newProject = response.data.project
 
-        // Create tasks from AI-generated phases
+        // Create tasks from AI-generated phases (in parallel for speed)
         let currentDate = new Date()
+
+        // Process phases sequentially but child tasks in parallel
         for (const phase of aiProject.phases) {
           const phaseDueDate = new Date(currentDate)
           phaseDueDate.setDate(phaseDueDate.getDate() + phase.estimatedDays)
+
+          setCreationProgress({
+            current: completedTasks,
+            total: totalTasks,
+            message: `Creating: ${phase.title}`,
+          })
 
           // Create phase as parent task
           const phaseResponse = await taskApi.create({
@@ -237,14 +266,21 @@ export function CreateProjectScreen({ onBack, onSuccess, projectToEdit }: Create
             department: "",
           }, currentUser.telegramId)
 
-          // Create child tasks
-          if (phaseResponse.success && phaseResponse.data && phase.children) {
+          completedTasks++
+          setCreationProgress({
+            current: completedTasks,
+            total: totalTasks,
+            message: `Creating: ${phase.title}`,
+          })
+
+          // Create child tasks in parallel for speed
+          if (phaseResponse.success && phaseResponse.data && phase.children && phase.children.length > 0) {
             const parentTaskId = phaseResponse.data.id
             let childDate = new Date(currentDate)
 
-            for (const child of phase.children) {
+            const childPromises = phase.children.map(async (child, index) => {
               const childDueDate = new Date(childDate)
-              childDueDate.setDate(childDueDate.getDate() + child.estimatedDays)
+              childDueDate.setDate(childDueDate.getDate() + child.estimatedDays * (index + 1))
 
               await taskApi.create({
                 title: child.title,
@@ -265,12 +301,25 @@ export function CreateProjectScreen({ onBack, onSuccess, projectToEdit }: Create
                 department: "",
               }, currentUser.telegramId)
 
-              childDate = childDueDate
-            }
+              completedTasks++
+              setCreationProgress({
+                current: completedTasks,
+                total: totalTasks,
+                message: `Creating subtasks...`,
+              })
+            })
+
+            await Promise.all(childPromises)
           }
 
           currentDate = phaseDueDate
         }
+
+        setCreationProgress({
+          current: totalTasks,
+          total: totalTasks,
+          message: "Finalizing...",
+        })
 
         // Reload projects
         const projectsResponse = await projectApi.getAll(activeCompany.id, currentUser.telegramId)
@@ -286,6 +335,7 @@ export function CreateProjectScreen({ onBack, onSuccess, projectToEdit }: Create
       setError("An error occurred while creating the project")
     } finally {
       setIsSubmitting(false)
+      setCreationProgress(undefined)
     }
   }
 
@@ -388,12 +438,9 @@ export function CreateProjectScreen({ onBack, onSuccess, projectToEdit }: Create
             <AIProjectWizard
               onComplete={handleAIProjectComplete}
               onCancel={() => setCreationMode("choice")}
+              isCreating={isSubmitting}
+              creationProgress={creationProgress}
             />
-            {isSubmitting && (
-              <div className="mt-4 text-center text-muted-foreground">
-                Creating project and tasks...
-              </div>
-            )}
           </div>
         </div>
       </div>
