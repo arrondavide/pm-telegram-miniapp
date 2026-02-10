@@ -133,17 +133,14 @@ export async function POST(request: NextRequest) {
       })
     }
 
+    // Populate the task for a complete response
+    const populatedTask = await Task.findById(task._id)
+      .populate("assigned_to", "full_name username telegram_id")
+      .populate("created_by", "full_name username telegram_id")
+      .lean()
+
     return NextResponse.json({
-      task: {
-        id: task._id.toString(),
-        title: task.title,
-        description: task.description,
-        dueDate: task.due_date,
-        status: task.status,
-        priority: task.priority,
-        assignedTo: assignedUserIds.map((id) => id.toString()),
-        createdAt: task.createdAt,
-      },
+      task: taskTransformer.toFrontend(populatedTask as any),
     })
   } catch (error) {
     console.error("Error creating task:", error)

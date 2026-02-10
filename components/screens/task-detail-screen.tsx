@@ -150,17 +150,22 @@ export function TaskDetailScreen({ taskId, onBack, onCreateSubtask, onEditTask, 
     let isMounted = true
     const telegramId = currentUser?.telegramId || user?.id?.toString()
 
-    if (!task && taskId && telegramId && !isLoadingTask && !taskLoadError) {
+    // Only fetch if we don't have the task and we're not already loading
+    if (!task && taskId && telegramId && !isLoadingTask) {
       setIsLoadingTask(true)
       setTaskLoadError(null)
 
-      console.log("[TaskDetail] Fetching task:", taskId)
+      console.log("[TaskDetail] Fetching task:", taskId, "telegramId:", telegramId)
       taskApi.getById(taskId, telegramId)
         .then((response) => {
-          if (!isMounted) return
-          console.log("[TaskDetail] API response:", response)
+          console.log("[TaskDetail] API response:", JSON.stringify(response, null, 2))
+          if (!isMounted) {
+            console.log("[TaskDetail] Component unmounted, skipping state update")
+            return
+          }
           if (response.success && response.data?.task) {
             const taskData = response.data.task
+            console.log("[TaskDetail] Task data received:", taskData.id, taskData.title)
             // Transform and add to store
             const formattedTask: Task = {
               id: taskData.id,
@@ -191,25 +196,26 @@ export function TaskDetailScreen({ taskId, onBack, onCreateSubtask, onEditTask, 
               completedAt: taskData.completedAt ? new Date(taskData.completedAt).toISOString() : null,
               createdAt: new Date(taskData.createdAt).toISOString(),
             }
+            console.log("[TaskDetail] Loading task into store:", formattedTask.id)
             loadTasks([formattedTask])
+            setIsLoadingTask(false)
           } else {
+            console.log("[TaskDetail] Task not found in response:", response.error)
             setTaskLoadError(response.error || "Task not found")
+            setIsLoadingTask(false)
           }
         })
         .catch((error) => {
+          console.error("[TaskDetail] API error:", error)
           if (isMounted) {
             setTaskLoadError(error instanceof Error ? error.message : "Failed to load task")
-          }
-        })
-        .finally(() => {
-          if (isMounted) {
             setIsLoadingTask(false)
           }
         })
     }
 
     return () => { isMounted = false }
-  }, [task, taskId, currentUser?.telegramId, user?.id, isLoadingTask, taskLoadError, loadTasks])
+  }, [taskId, currentUser?.telegramId, user?.id]) // Removed task, isLoadingTask, taskLoadError from deps to prevent loops
   const localComments = getCommentsForTask(taskId)
   const timeLogs = getTimeLogsForTask(taskId)
   const role = getUserRole()

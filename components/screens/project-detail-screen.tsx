@@ -76,22 +76,27 @@ export function ProjectDetailScreen({ projectId, onBack, onTaskClick, onCreateTa
   useEffect(() => {
     const fetchTasks = async () => {
       if (!currentUser?.telegramId || !company?.id) {
+        console.log("[ProjectDetail] Missing user or company:", { telegramId: currentUser?.telegramId, companyId: company?.id })
         setIsLoadingTasks(false)
         return
       }
 
       setIsLoadingTasks(true)
+      console.log("[ProjectDetail] Fetching tasks for project:", projectId)
 
       try {
         const response = await taskApi.getByProject(company.id, projectId, currentUser.telegramId, false)
+        console.log("[ProjectDetail] Tasks response:", response)
 
         if (response.success && response.data?.tasks) {
+          console.log("[ProjectDetail] Loaded tasks:", response.data.tasks.length, response.data.tasks.map((t: any) => ({ id: t.id, title: t.title })))
           setProjectTasks(response.data.tasks as Task[])
         } else {
+          console.log("[ProjectDetail] No tasks in response")
           setProjectTasks([])
         }
       } catch (error) {
-        console.error("Failed to fetch tasks:", error)
+        console.error("[ProjectDetail] Failed to fetch tasks:", error)
         setProjectTasks([])
       } finally {
         setIsLoadingTasks(false)
@@ -205,43 +210,49 @@ export function ProjectDetailScreen({ projectId, onBack, onTaskClick, onCreateTa
               {allTasks.length} {allTasks.length === 1 ? "task" : "tasks"}
             </p>
           </div>
-          {!isEmployee && (
-            <div className="flex gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => setShowAIInput(!showAIInput)}
-              >
-                <Sparkles className="h-4 w-4" />
-              </Button>
-              <Button size="sm" onClick={onCreateTask}>
-                <Plus className="mr-2 h-4 w-4" />
-                Add Task
-              </Button>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button size="sm" variant="ghost">
-                    <MoreVertical className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  {onEditProject && (
-                    <DropdownMenuItem onClick={onEditProject}>
-                      <Edit className="mr-2 h-4 w-4" />
-                      Edit Project
-                    </DropdownMenuItem>
-                  )}
-                  <DropdownMenuItem
-                    onClick={() => setShowDeleteDialog(true)}
-                    className="text-destructive focus:text-destructive"
-                  >
-                    <Trash2 className="mr-2 h-4 w-4" />
-                    Delete Project
+          <div className="flex gap-2">
+            {!isEmployee && (
+              <>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setShowAIInput(!showAIInput)}
+                >
+                  <Sparkles className="h-4 w-4" />
+                </Button>
+                <Button size="sm" onClick={onCreateTask}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add Task
+                </Button>
+              </>
+            )}
+            {/* Project actions dropdown - visible to everyone */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="sm" variant="outline" className="px-2">
+                  <MoreVertical className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                {onEditProject && (
+                  <DropdownMenuItem onClick={onEditProject}>
+                    <Edit className="mr-2 h-4 w-4" />
+                    Edit Project
                   </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          )}
+                )}
+                <DropdownMenuItem
+                  onClick={() => {
+                    console.log("[ProjectDetail] Delete button clicked")
+                    setShowDeleteDialog(true)
+                  }}
+                  className="text-destructive focus:text-destructive focus:bg-destructive/10"
+                >
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Delete Project
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
 
         {/* AI Quick Add */}

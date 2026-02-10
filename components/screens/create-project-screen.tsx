@@ -234,6 +234,7 @@ export function CreateProjectScreen({ onBack, onSuccess, projectToEdit }: Create
 
         // Create tasks from AI-generated phases (in parallel for speed)
         let currentDate = new Date()
+        const createdTasks: any[] = []
 
         // Process phases sequentially but child tasks in parallel
         for (const phase of aiProject.phases) {
@@ -273,6 +274,11 @@ export function CreateProjectScreen({ onBack, onSuccess, projectToEdit }: Create
             message: `Creating: ${phase.title}`,
           })
 
+          // Store the created phase task
+          if (phaseResponse.success && phaseResponse.data?.task) {
+            createdTasks.push(phaseResponse.data.task)
+          }
+
           // Create child tasks in parallel for speed
           if (phaseResponse.success && phaseResponse.data?.task && phase.children && phase.children.length > 0) {
             const parentTaskId = phaseResponse.data.task.id
@@ -282,7 +288,7 @@ export function CreateProjectScreen({ onBack, onSuccess, projectToEdit }: Create
               const childDueDate = new Date(childDate)
               childDueDate.setDate(childDueDate.getDate() + child.estimatedDays * (index + 1))
 
-              await taskApi.create({
+              const childResponse = await taskApi.create({
                 title: child.title,
                 description: child.description,
                 dueDate: childDueDate.toISOString(),
@@ -301,6 +307,11 @@ export function CreateProjectScreen({ onBack, onSuccess, projectToEdit }: Create
                 department: "",
               }, currentUser.telegramId)
 
+              // Store the created child task
+              if (childResponse.success && childResponse.data?.task) {
+                createdTasks.push(childResponse.data.task)
+              }
+
               completedTasks++
               setCreationProgress({
                 current: completedTasks,
@@ -313,6 +324,12 @@ export function CreateProjectScreen({ onBack, onSuccess, projectToEdit }: Create
           }
 
           currentDate = phaseDueDate
+        }
+
+        // Load all created tasks into the global store for instant access
+        if (createdTasks.length > 0) {
+          console.log("[CreateProject] Loading", createdTasks.length, "tasks into global store")
+          loadTasks(createdTasks)
         }
 
         setCreationProgress({
