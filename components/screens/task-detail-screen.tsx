@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import {
   ArrowLeft,
   Calendar,
@@ -134,6 +134,7 @@ export function TaskDetailScreen({ taskId, onBack, onCreateSubtask, onEditTask, 
   const [taskLoadError, setTaskLoadError] = useState<string | null>(null)
   const [fetchedTask, setFetchedTask] = useState<Task | null>(null) // Local fallback for fetched task
   const [loadingStatus, setLoadingStatus] = useState<string>("idle") // Track loading status
+  const fetchStartedRef = useRef(false) // Track if fetch has started to prevent duplicate fetches
   const [editForm, setEditForm] = useState({
     title: "",
     description: "",
@@ -155,11 +156,11 @@ export function TaskDetailScreen({ taskId, onBack, onCreateSubtask, onEditTask, 
 
   // Fetch task from API if not found in local store
   useEffect(() => {
-    let isMounted = true
     const telegramId = currentUser?.telegramId || user?.id?.toString()
 
-    // Only fetch if we don't have the task in store or local state, and we're not already loading
-    if (!storeTask && !fetchedTask && taskId && telegramId && !isLoadingTask) {
+    // Only fetch if we don't have the task and haven't started fetching yet
+    if (!storeTask && !fetchedTask && taskId && telegramId && !fetchStartedRef.current) {
+      fetchStartedRef.current = true
       setIsLoadingTask(true)
       setTaskLoadError(null)
       setLoadingStatus("starting fetch...")
@@ -168,9 +169,7 @@ export function TaskDetailScreen({ taskId, onBack, onCreateSubtask, onEditTask, 
 
       // Add timeout to detect hanging requests
       const timeoutId = setTimeout(() => {
-        if (isMounted) {
-          setLoadingStatus("request timeout (10s)")
-        }
+        setLoadingStatus("request timeout (10s)")
       }, 10000)
 
       setLoadingStatus("calling API...")
@@ -179,11 +178,7 @@ export function TaskDetailScreen({ taskId, onBack, onCreateSubtask, onEditTask, 
           clearTimeout(timeoutId)
           setLoadingStatus(`response: success=${response.success}, hasData=${!!response.data}, hasTask=${!!response.data?.task}`)
           console.log("[TaskDetail] API response:", JSON.stringify(response, null, 2))
-          if (!isMounted) {
-            console.log("[TaskDetail] Component unmounted, skipping state update")
-            setLoadingStatus("unmounted - skipped")
-            return
-          }
+
           if (response.success && response.data?.task) {
             const taskData = response.data.task
             setLoadingStatus("parsing task data...")
@@ -233,16 +228,19 @@ export function TaskDetailScreen({ taskId, onBack, onCreateSubtask, onEditTask, 
         .catch((error) => {
           clearTimeout(timeoutId)
           console.error("[TaskDetail] API error:", error)
-          if (isMounted) {
-            setLoadingStatus("catch error: " + (error instanceof Error ? error.message : "unknown"))
-            setTaskLoadError(error instanceof Error ? error.message : "Failed to load task")
-            setIsLoadingTask(false)
-          }
+          setLoadingStatus("catch error: " + (error instanceof Error ? error.message : "unknown"))
+          setTaskLoadError(error instanceof Error ? error.message : "Failed to load task")
+          setIsLoadingTask(false)
         })
     }
 
-    return () => { isMounted = false }
-  }, [taskId, currentUser?.telegramId, user?.id, storeTask, fetchedTask, isLoadingTask, loadTasks])
+    // Reset fetch flag when taskId changes
+    return () => {
+      if (taskId) {
+        fetchStartedRef.current = false
+      }
+    }
+  }, [taskId, currentUser?.telegramId, user?.id, storeTask, fetchedTask, loadTasks])
   const localComments = getCommentsForTask(taskId)
   const timeLogs = getTimeLogsForTask(taskId)
   const role = getUserRole()
