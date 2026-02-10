@@ -298,7 +298,17 @@ export function CreateTaskScreen({ onBack, onSuccess, parentTaskId }: CreateTask
           </div>
           <div className="flex flex-wrap gap-2">
             {members.length === 0 && !isLoadingMembers && (
-              <p className="text-sm text-muted-foreground">No team members found</p>
+              <div className="w-full p-3 rounded-lg border border-amber-200 bg-amber-50">
+                <p className="text-sm font-medium text-amber-800">No team members yet</p>
+                <p className="text-xs text-amber-600 mt-1">
+                  Go to Profile → Team to invite employees first
+                </p>
+              </div>
+            )}
+            {members.length > 0 && (
+              <p className="w-full text-xs text-muted-foreground mb-1">
+                Tap to select assignees (you can select multiple)
+              </p>
             )}
             {members.map((member) => {
               const memberIdToCheck = member.telegramId || member.id

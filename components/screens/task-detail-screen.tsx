@@ -359,12 +359,6 @@ export function TaskDetailScreen({ taskId, onBack, onCreateSubtask, onEditTask, 
           <div className="flex flex-col items-center gap-3">
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
             <p className="font-body text-muted-foreground">Loading task...</p>
-            {/* Debug info */}
-            <div className="mt-4 p-3 bg-muted rounded text-xs font-mono max-w-xs text-left">
-              <p>Task ID: {taskId}</p>
-              <p>TelegramID: {currentUser?.telegramId || user?.id || "none"}</p>
-              <p className="text-primary font-bold">Status: {loadingStatus}</p>
-            </div>
           </div>
         </div>
       )
@@ -375,13 +369,6 @@ export function TaskDetailScreen({ taskId, onBack, onCreateSubtask, onEditTask, 
         {taskLoadError && (
           <p className="font-body text-sm text-destructive text-center">{taskLoadError}</p>
         )}
-        {/* Debug info */}
-        <div className="mt-2 p-3 bg-muted rounded text-xs font-mono max-w-xs text-left">
-          <p>Task ID: {taskId}</p>
-          <p>Store task: {storeTask ? "found" : "not found"}</p>
-          <p>Fetched task: {fetchedTask ? "found" : "not found"}</p>
-          <p>Error: {taskLoadError || "none"}</p>
-        </div>
         <Button variant="outline" onClick={onBack}>
           Go Back
         </Button>

@@ -200,60 +200,60 @@ export function ProjectDetailScreen({ projectId, onBack, onTaskClick, onCreateTa
     <div className="flex h-full flex-col">
       {/* Header */}
       <header className="border-b bg-background/95 p-4 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+        {/* Top row: Back button, title, menu */}
         <div className="flex items-center gap-3">
           <Button variant="ghost" size="icon" onClick={onBack} aria-label="Go back">
             <ArrowLeft className="h-5 w-5" />
           </Button>
-          <div className="flex-1">
-            <h1 className="text-xl font-bold">{project.name}</h1>
+          <div className="flex-1 min-w-0">
+            <h1 className="text-xl font-bold truncate">{project.name}</h1>
             <p className="text-sm text-muted-foreground">
               {allTasks.length} {allTasks.length === 1 ? "task" : "tasks"}
             </p>
           </div>
-          <div className="flex gap-2">
-            {!isEmployee && (
-              <>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setShowAIInput(!showAIInput)}
-                >
-                  <Sparkles className="h-4 w-4" />
-                </Button>
-                <Button size="sm" onClick={onCreateTask}>
-                  <Plus className="mr-2 h-4 w-4" />
-                  Add Task
-                </Button>
-              </>
-            )}
-            {/* Project actions dropdown - visible to everyone */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button size="sm" variant="outline" className="px-2">
-                  <MoreVertical className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
-                {onEditProject && (
-                  <DropdownMenuItem onClick={onEditProject}>
-                    <Edit className="mr-2 h-4 w-4" />
-                    Edit Project
-                  </DropdownMenuItem>
-                )}
-                <DropdownMenuItem
-                  onClick={() => {
-                    console.log("[ProjectDetail] Delete button clicked")
-                    setShowDeleteDialog(true)
-                  }}
-                  className="text-destructive focus:text-destructive focus:bg-destructive/10"
-                >
-                  <Trash2 className="mr-2 h-4 w-4" />
-                  Delete Project
+          {/* Project actions dropdown */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button size="icon" variant="ghost">
+                <MoreVertical className="h-5 w-5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              {onEditProject && (
+                <DropdownMenuItem onClick={onEditProject}>
+                  <Edit className="mr-2 h-4 w-4" />
+                  Edit Project
                 </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
+              )}
+              <DropdownMenuItem
+                onClick={() => setShowDeleteDialog(true)}
+                className="text-destructive focus:text-destructive focus:bg-destructive/10"
+              >
+                <Trash2 className="mr-2 h-4 w-4" />
+                Delete Project
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
+
+        {/* Action buttons row - only for non-employees */}
+        {!isEmployee && (
+          <div className="flex gap-2 mt-3">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setShowAIInput(!showAIInput)}
+              className="flex-1"
+            >
+              <Sparkles className="mr-2 h-4 w-4" />
+              AI Add
+            </Button>
+            <Button size="sm" onClick={onCreateTask} className="flex-1">
+              <Plus className="mr-2 h-4 w-4" />
+              Add Task
+            </Button>
+          </div>
+        )}
 
         {/* AI Quick Add */}
         {showAIInput && !isEmployee && (
