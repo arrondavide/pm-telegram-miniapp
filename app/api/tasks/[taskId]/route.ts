@@ -88,6 +88,26 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     if (body.category !== undefined) task.category = body.category
     if (body.tags !== undefined) task.tags = body.tags
 
+    // Handle assignedTo updates
+    if (body.assignedTo !== undefined) {
+      const assignedUserIds: mongoose.Types.ObjectId[] = []
+      for (const id of body.assignedTo) {
+        let foundUser = null
+        // Try finding by ObjectId first
+        if (mongoose.Types.ObjectId.isValid(id)) {
+          foundUser = await User.findById(id)
+        }
+        // Try finding by telegram_id
+        if (!foundUser) {
+          foundUser = await User.findOne({ telegram_id: id.toString() })
+        }
+        if (foundUser) {
+          assignedUserIds.push(foundUser._id)
+        }
+      }
+      task.assigned_to = assignedUserIds
+    }
+
     await task.save()
 
     // Log status change

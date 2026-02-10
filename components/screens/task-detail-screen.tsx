@@ -17,6 +17,7 @@ import {
   AlertTriangle,
   Link2,
   Repeat,
+  X,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -51,7 +52,7 @@ import { useCommentStore } from "@/lib/stores/comment.store"
 import { useNotificationStore } from "@/lib/stores/notification.store"
 import type { Task, TaskAssignee, TimeLog } from "@/types/models.types"
 import { useTelegram } from "@/hooks/use-telegram"
-import { taskApi, commentApi, timeApi } from "@/lib/api"
+import { taskApi, commentApi, timeApi, companyApi } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import { formatDuration, formatHoursEstimate } from "@/lib/format-time"
 import { MentionInput, renderTextWithMentions } from "@/components/mention-input"
@@ -140,11 +141,13 @@ export function TaskDetailScreen({ taskId, onBack, onCreateSubtask, onEditTask, 
     description: "",
     priority: "medium" as Task["priority"],
     dueDate: "",
+    assignedTo: [] as string[],
     recurringEnabled: false,
     recurringPattern: null as RecurrencePattern | null,
     blockedBy: [] as string[],
     blocking: [] as string[],
   })
+  const [isLoadingMembers, setIsLoadingMembers] = useState(false)
 
   const storeTask = getTaskById(taskId)
   const task = storeTask || fetchedTask // Use store task or local fallback
@@ -246,6 +249,22 @@ export function TaskDetailScreen({ taskId, onBack, onCreateSubtask, onEditTask, 
   const role = getUserRole()
   const isManagerOrAdmin = role === "admin" || role === "manager"
 
+  // Get members for assignee selection
+  const members = currentUser?.activeCompanyId
+    ? users.filter((u) => u.companies.some((c) => c.companyId === currentUser.activeCompanyId))
+    : []
+
+  const toggleAssignee = (memberId: string, memberTelegramId?: string) => {
+    const idToUse = memberTelegramId || memberId
+    setEditForm((f) => ({
+      ...f,
+      assignedTo: f.assignedTo.includes(idToUse)
+        ? f.assignedTo.filter((id) => id !== idToUse)
+        : [...f.assignedTo, idToUse],
+    }))
+    hapticFeedback("selection")
+  }
+
   useEffect(() => {
     showBackButton(onBack)
     return () => hideBackButton()
@@ -339,11 +358,18 @@ export function TaskDetailScreen({ taskId, onBack, onCreateSubtask, onEditTask, 
 
   useEffect(() => {
     if (task) {
+      // Extract assignee IDs (handle both string and object formats)
+      const assigneeIds = task.assignedTo.map((a) => {
+        if (typeof a === "string") return a
+        return (a as TaskAssignee).telegramId || (a as TaskAssignee).id || ""
+      }).filter(Boolean)
+
       setEditForm({
         title: task.title,
         description: task.description || "",
         priority: task.priority,
         dueDate: new Date(task.dueDate).toISOString().split("T")[0],
+        assignedTo: assigneeIds,
         recurringEnabled: task.recurring?.enabled || false,
         recurringPattern: task.recurring?.enabled ? { frequency: "weekly", interval: 1, endType: "never" as const } : null,
         blockedBy: task.blockedBy || [],
@@ -351,6 +377,27 @@ export function TaskDetailScreen({ taskId, onBack, onCreateSubtask, onEditTask, 
       })
     }
   }, [task])
+
+  // Load members when edit dialog opens
+  useEffect(() => {
+    const loadMembersForEdit = async () => {
+      if (!showEditDialog || !currentUser?.activeCompanyId) return
+      setIsLoadingMembers(true)
+      try {
+        const telegramId = currentUser?.telegramId || user?.id?.toString() || ""
+        const response = await companyApi.getMembers(currentUser.activeCompanyId, telegramId)
+        if (response.success && response.data?.members) {
+          // Members are loaded into the users store via loadMembers in user.store
+          // For now we just use the users from the store
+        }
+      } catch {
+        // Silently fail
+      } finally {
+        setIsLoadingMembers(false)
+      }
+    }
+    loadMembersForEdit()
+  }, [showEditDialog, currentUser?.activeCompanyId, currentUser?.telegramId, user?.id])
 
   if (!task) {
     if (isLoadingTask) {
@@ -475,15 +522,30 @@ export function TaskDetailScreen({ taskId, onBack, onCreateSubtask, onEditTask, 
 
     try {
       const telegramId = currentUser?.telegramId || user?.id?.toString() || ""
-      const updates = {
+      const updates: any = {
         title: editForm.title,
         description: editForm.description,
         priority: editForm.priority,
         dueDate: new Date(editForm.dueDate).toISOString(),
+        assignedTo: editForm.assignedTo,
       }
 
       await taskApi.update(taskId, updates, telegramId)
-      updateTask(taskId, updates)
+
+      // Update local store with proper assignee format
+      const assignedToWithDetails = editForm.assignedTo.map(assigneeId => {
+        const member = members.find(m => (m.telegramId || m.id) === assigneeId)
+        if (member) {
+          return {
+            id: member.id,
+            telegramId: member.telegramId || "",
+            fullName: member.fullName,
+          }
+        }
+        return assigneeId
+      })
+
+      updateTask(taskId, { ...updates, assignedTo: assignedToWithDetails })
       setShowEditDialog(false)
       hapticFeedback("success")
     } catch (error) {
@@ -928,6 +990,37 @@ export function TaskDetailScreen({ taskId, onBack, onCreateSubtask, onEditTask, 
                   onChange={(e) => setEditForm((f) => ({ ...f, dueDate: e.target.value }))}
                 />
               </div>
+            </div>
+
+            {/* Assign To */}
+            <div className="space-y-2 border-t pt-4">
+              <div className="flex items-center justify-between">
+                <Label>Assign To</Label>
+                {isLoadingMembers && <Loader2 className="h-4 w-4 animate-spin" />}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {members.length === 0 && !isLoadingMembers && (
+                  <p className="text-sm text-muted-foreground">No team members available</p>
+                )}
+                {members.map((member) => {
+                  const memberIdToCheck = member.telegramId || member.id
+                  const isSelected = editForm.assignedTo.includes(memberIdToCheck)
+                  return (
+                    <Badge
+                      key={member.id}
+                      variant={isSelected ? "default" : "outline"}
+                      className={cn("cursor-pointer py-1.5", isSelected && "bg-foreground text-background")}
+                      onClick={() => toggleAssignee(member.id, member.telegramId)}
+                    >
+                      {member.fullName}
+                      {isSelected && <X className="ml-1 h-3 w-3" />}
+                    </Badge>
+                  )
+                })}
+              </div>
+              {editForm.assignedTo.length === 0 && (
+                <p className="text-xs text-amber-600">Tap members above to assign them to this task</p>
+              )}
             </div>
 
             {/* Recurring Configuration */}
