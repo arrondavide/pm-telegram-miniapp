@@ -177,10 +177,11 @@ export function TaskDetailScreen({ taskId, onBack, onCreateSubtask, onEditTask, 
       taskApi.getById(taskId, telegramId)
         .then((response) => {
           clearTimeout(timeoutId)
-          setLoadingStatus("got response")
+          setLoadingStatus(`response: success=${response.success}, hasData=${!!response.data}, hasTask=${!!response.data?.task}`)
           console.log("[TaskDetail] API response:", JSON.stringify(response, null, 2))
           if (!isMounted) {
             console.log("[TaskDetail] Component unmounted, skipping state update")
+            setLoadingStatus("unmounted - skipped")
             return
           }
           if (response.success && response.data?.task) {
