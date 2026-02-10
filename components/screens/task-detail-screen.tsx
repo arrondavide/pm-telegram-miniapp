@@ -132,6 +132,7 @@ export function TaskDetailScreen({ taskId, onBack, onCreateSubtask, onEditTask, 
   const [isSaving, setIsSaving] = useState(false)
   const [isLoadingTask, setIsLoadingTask] = useState(false)
   const [taskLoadError, setTaskLoadError] = useState<string | null>(null)
+  const [fetchedTask, setFetchedTask] = useState<Task | null>(null) // Local fallback for fetched task
   const [editForm, setEditForm] = useState({
     title: "",
     description: "",
@@ -143,11 +144,12 @@ export function TaskDetailScreen({ taskId, onBack, onCreateSubtask, onEditTask, 
     blocking: [] as string[],
   })
 
-  const task = getTaskById(taskId)
+  const storeTask = getTaskById(taskId)
+  const task = storeTask || fetchedTask // Use store task or local fallback
 
   // Debug: Log when task changes
   useEffect(() => {
-    console.log("[TaskDetail] Render - taskId:", taskId, "task:", task?.id || "undefined", "isLoadingTask:", isLoadingTask)
+    console.log("[TaskDetail] Render - taskId:", taskId, "storeTask:", storeTask?.id || "undefined", "fetchedTask:", fetchedTask?.id || "undefined", "isLoadingTask:", isLoadingTask)
   })
 
   // Fetch task from API if not found in local store
@@ -155,8 +157,8 @@ export function TaskDetailScreen({ taskId, onBack, onCreateSubtask, onEditTask, 
     let isMounted = true
     const telegramId = currentUser?.telegramId || user?.id?.toString()
 
-    // Only fetch if we don't have the task and we're not already loading
-    if (!task && taskId && telegramId && !isLoadingTask) {
+    // Only fetch if we don't have the task in store or local state, and we're not already loading
+    if (!storeTask && !fetchedTask && taskId && telegramId && !isLoadingTask) {
       setIsLoadingTask(true)
       setTaskLoadError(null)
 
@@ -203,6 +205,7 @@ export function TaskDetailScreen({ taskId, onBack, onCreateSubtask, onEditTask, 
             }
             console.log("[TaskDetail] Loading task into store:", formattedTask.id)
             loadTasks([formattedTask])
+            setFetchedTask(formattedTask) // Also set local state as fallback
             setIsLoadingTask(false)
           } else {
             console.log("[TaskDetail] Task not found in response:", response.error)
@@ -220,7 +223,7 @@ export function TaskDetailScreen({ taskId, onBack, onCreateSubtask, onEditTask, 
     }
 
     return () => { isMounted = false }
-  }, [taskId, currentUser?.telegramId, user?.id, task, isLoadingTask, loadTasks])
+  }, [taskId, currentUser?.telegramId, user?.id, storeTask, fetchedTask, isLoadingTask, loadTasks])
   const localComments = getCommentsForTask(taskId)
   const timeLogs = getTimeLogsForTask(taskId)
   const role = getUserRole()
