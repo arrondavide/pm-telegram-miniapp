@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { connectToDatabase } from "@/lib/mongodb"
 import { User, Invitation, Company } from "@/lib/models"
+import { notifyNewMemberJoined, notifyAdminUserJoinedCompany, notifyAdminNewUser } from "@/lib/telegram"
 
 export async function POST(request: NextRequest) {
   try {
@@ -73,9 +74,11 @@ export async function POST(request: NextRequest) {
 
     // Find or create user
     let user = await User.findOne({ telegram_id: telegramId.toString() })
+    let isNewUser = false
 
     if (!user) {
       console.log("[v0] Creating new user")
+      isNewUser = true
       user = await User.create({
         telegram_id: telegramId.toString(),
         full_name: fullName || "User",
@@ -86,6 +89,21 @@ export async function POST(request: NextRequest) {
           reminder_time: "09:00",
         },
       })
+
+      // Notify WhatsTask admin about new user
+      try {
+        const totalUsers = await User.countDocuments()
+        await notifyAdminNewUser(
+          {
+            fullName: fullName || "User",
+            username: username || undefined,
+            telegramId: telegramId.toString(),
+          },
+          { totalUsers }
+        )
+      } catch (notifyError) {
+        console.error("[v0] Failed to notify admin about new user:", notifyError)
+      }
     }
 
     // Check if user already in company
@@ -115,6 +133,55 @@ export async function POST(request: NextRequest) {
     await invitation.save()
 
     console.log("[v0] Invitation marked as accepted")
+
+    // Notify company owner and WhatsTask admin about new member
+    try {
+      // Count total members in the company
+      const companyMembers = await User.countDocuments({
+        "companies.company_id": company._id,
+      })
+      const totalUsers = await User.countDocuments()
+
+      // Find company owner (the user who created the company)
+      const companyOwner = await User.findById(company.created_by)
+
+      if (companyOwner && companyOwner.telegram_id) {
+        await notifyNewMemberJoined(
+          companyOwner.telegram_id,
+          {
+            fullName: user.full_name,
+            username: user.username || undefined,
+            telegramId: user.telegram_id,
+            role: invitation.role || "employee",
+            department: invitation.department || undefined,
+          },
+          {
+            companyId: company._id.toString(),
+            companyName: company.name,
+          },
+          companyMembers
+        )
+        console.log("[v0] Owner notified about new member")
+      }
+
+      // Notify WhatsTask admin
+      await notifyAdminUserJoinedCompany(
+        {
+          fullName: user.full_name,
+          username: user.username || undefined,
+          telegramId: user.telegram_id,
+        },
+        {
+          name: company.name,
+          companyId: company._id.toString(),
+        },
+        { companyMembers, totalUsers }
+      )
+      console.log("[v0] Admin notified about user joining company")
+    } catch (notifyError) {
+      // Don't fail the join if notification fails
+      console.error("[v0] Failed to notify:", notifyError)
+    }
 
     // Get all user companies
     const allCompanyIds = user.companies.map((c: any) => c.company_id)

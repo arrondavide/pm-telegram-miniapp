@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server"
 import { connectToDatabase } from "@/lib/mongodb"
 import { User } from "@/lib/models"
 import { validateTelegramWebAppData } from "@/lib/telegram-validation"
+import { notifyAdminNewUser } from "@/lib/telegram"
 
 export async function POST(request: NextRequest) {
   try {
@@ -21,6 +22,8 @@ export async function POST(request: NextRequest) {
     // Check if user already exists
     let user = await User.findOne({ telegram_id: telegramId })
 
+    let isNewUser = false
+
     if (user) {
       // Update existing user
       user.full_name = fullName
@@ -28,6 +31,7 @@ export async function POST(request: NextRequest) {
       await user.save()
     } else {
       // Create new user
+      isNewUser = true
       user = await User.create({
         telegram_id: telegramId,
         full_name: fullName,
@@ -38,6 +42,21 @@ export async function POST(request: NextRequest) {
           reminder_time: "09:00",
         },
       })
+
+      // Notify WhatsTask admin about new user
+      try {
+        const totalUsers = await User.countDocuments()
+        await notifyAdminNewUser(
+          {
+            fullName,
+            username: username || undefined,
+            telegramId,
+          },
+          { totalUsers }
+        )
+      } catch (notifyError) {
+        console.error("Failed to notify admin:", notifyError)
+      }
     }
 
     return NextResponse.json({

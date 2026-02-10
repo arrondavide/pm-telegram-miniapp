@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server"
 import { connectToDatabase } from "@/lib/mongodb"
 import { Company, User } from "@/lib/models"
 import { validateTelegramWebAppData } from "@/lib/telegram-validation"
+import { notifyAdminNewCompany } from "@/lib/telegram"
 
 export async function POST(request: NextRequest) {
   try {
@@ -49,6 +50,25 @@ export async function POST(request: NextRequest) {
     })
     user.active_company_id = company._id
     await user.save()
+
+    // Notify WhatsTask admin about new company
+    try {
+      const totalCompanies = await Company.countDocuments()
+      await notifyAdminNewCompany(
+        {
+          name: company.name,
+          companyId: company._id.toString(),
+        },
+        {
+          fullName: user.full_name,
+          username: user.username || undefined,
+          telegramId: user.telegram_id,
+        },
+        { totalCompanies }
+      )
+    } catch (notifyError) {
+      console.error("Failed to notify admin:", notifyError)
+    }
 
     return NextResponse.json({
       company: {
