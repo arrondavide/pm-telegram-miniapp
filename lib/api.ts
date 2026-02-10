@@ -213,7 +213,7 @@ export const taskApi = {
     task: Omit<import("@/types/models.types").Task, "id" | "createdAt" | "completedAt" | "actualHours"> & { companyId: string },
     telegramId: string,
   ) =>
-    fetchApi<import("@/types/models.types").Task>("/tasks", {
+    fetchApi<{ task: import("@/types/models.types").Task }>("/tasks", {
       method: "POST",
       body: JSON.stringify(task),
       headers: { "X-Telegram-Id": telegramId },

@@ -274,8 +274,8 @@ export function CreateProjectScreen({ onBack, onSuccess, projectToEdit }: Create
           })
 
           // Create child tasks in parallel for speed
-          if (phaseResponse.success && phaseResponse.data && phase.children && phase.children.length > 0) {
-            const parentTaskId = phaseResponse.data.id
+          if (phaseResponse.success && phaseResponse.data?.task && phase.children && phase.children.length > 0) {
+            const parentTaskId = phaseResponse.data.task.id
             let childDate = new Date(currentDate)
 
             const childPromises = phase.children.map(async (child, index) => {

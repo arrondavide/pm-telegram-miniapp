@@ -141,9 +141,10 @@ export function ProjectDetailScreen({ projectId, onBack, onTaskClick, onCreateTa
         estimatedHours: 0,
       }, currentUser.telegramId)
 
-      if (response.success && response.data) {
+      if (response.success && response.data?.task) {
         // Add new task to local state
-        setProjectTasks((prev) => [...prev, response.data as Task])
+        const newTask = response.data.task as Task
+        setProjectTasks((prev) => [...prev, newTask])
         setShowAIInput(false)
         hapticFeedback("success")
       }
