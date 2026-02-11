@@ -65,8 +65,16 @@ export function ProjectDetailScreen({ projectId, onBack, onTaskClick, onCreateTa
   // Use telegramId as PRIMARY identifier (consistent between local and MongoDB)
   const userTelegramId = currentUser?.telegramId?.toString()
 
-  // Show ALL tasks - no filtering for now
-  const allTasks = projectTasks
+  // Filter tasks for employees - they should only see their assigned tasks
+  const allTasks = isEmployee
+    ? projectTasks.filter((task) => {
+        const assignees = task.assignedTo || []
+        return assignees.some((a) =>
+          (typeof a === "string" && a === userTelegramId) ||
+          (typeof a === "object" && (a.telegramId === userTelegramId || a.id === currentUser?.id))
+        )
+      })
+    : projectTasks
 
   useEffect(() => {
     showBackButton(onBack)

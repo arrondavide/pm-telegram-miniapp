@@ -73,6 +73,10 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     }
 
     const oldStatus = task.status
+    // Track old assignees for notification comparison
+    const oldAssigneeIds = new Set(
+      (task.assigned_to as any[]).map((u) => u.telegram_id || u._id?.toString())
+    )
 
     // Update fields
     if (body.title !== undefined) task.title = body.title
@@ -109,6 +113,58 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     }
 
     await task.save()
+
+    // Re-populate assigned_to and created_by after save for notifications
+    await task.populate("assigned_to", "telegram_id full_name")
+    await task.populate("created_by", "telegram_id full_name")
+
+    // Send notifications to newly assigned users
+    if (body.assignedTo !== undefined) {
+      // Get project details for notifications
+      let projectName: string | undefined
+      let projectId: string | undefined
+      if (task.project_id) {
+        const project = await Project.findById(task.project_id).lean()
+        projectName = project?.name
+        projectId = project?._id?.toString()
+      }
+
+      // Find newly assigned users (users in new list but not in old list)
+      const newlyAssignedUsers: Array<{ telegram_id: string; full_name: string }> = []
+      for (const id of body.assignedTo) {
+        // Check if this user was NOT in the old assignees
+        let foundUser = null
+        if (mongoose.Types.ObjectId.isValid(id)) {
+          foundUser = await User.findById(id)
+        }
+        if (!foundUser) {
+          foundUser = await User.findOne({ telegram_id: id.toString() })
+        }
+        if (foundUser && !oldAssigneeIds.has(foundUser.telegram_id) && foundUser.telegram_id !== telegramId) {
+          newlyAssignedUsers.push({
+            telegram_id: foundUser.telegram_id,
+            full_name: foundUser.full_name || "User",
+          })
+        }
+      }
+
+      // Send assignment notifications to newly assigned users
+      if (newlyAssignedUsers.length > 0) {
+        console.log("[Task PATCH] Sending assignment notifications to:", newlyAssignedUsers.map((u) => u.telegram_id))
+        await notificationService.notifyTaskAssignment({
+          assignedUsers: newlyAssignedUsers,
+          taskTitle: task.title,
+          taskId: task._id.toString(),
+          assignedBy: user.full_name,
+          dueDate: task.due_date || new Date(),
+          priority: task.priority,
+          projectName,
+          projectId,
+          taskDescription: task.description,
+          excludeTelegramId: telegramId,
+        })
+      }
+    }
 
     // Log status change
     if (body.status && body.status !== oldStatus) {
@@ -153,7 +209,14 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       }
 
       // Send notifications using centralized service
+      console.log("[Task PATCH] Status changed from", oldStatus, "to", body.status)
+      console.log("[Task PATCH] People to notify for status change:", Array.from(peopleToNotify.keys()))
+      console.log("[Task PATCH] Assigned users:", assignedUsers?.map((u: any) => u.telegram_id))
+      console.log("[Task PATCH] Creator:", creator?.telegram_id)
+      console.log("[Task PATCH] Changed by (excluded):", telegramId)
+
       for (const [notifyTelegramId, recipient] of peopleToNotify) {
+        console.log("[Task PATCH] Sending status notification to:", notifyTelegramId)
         if (body.status === "completed") {
           await notificationService.notifyTaskCompleted({
             telegramId: notifyTelegramId,
