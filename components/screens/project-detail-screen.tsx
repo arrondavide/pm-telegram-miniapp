@@ -250,29 +250,31 @@ export function ProjectDetailScreen({ projectId, onBack, onTaskClick, onCreateTa
               {allTasks.length} {allTasks.length === 1 ? "task" : "tasks"}
             </p>
           </div>
-          {/* Project actions dropdown */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button size="icon" variant="ghost">
-                <MoreVertical className="h-5 w-5" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-48">
-              {onEditProject && (
-                <DropdownMenuItem onClick={onEditProject}>
-                  <Edit className="mr-2 h-4 w-4" />
-                  Edit Project
+          {/* Project actions dropdown - only for admins/managers */}
+          {!isEmployee && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="icon" variant="ghost">
+                  <MoreVertical className="h-5 w-5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                {onEditProject && (
+                  <DropdownMenuItem onClick={onEditProject}>
+                    <Edit className="mr-2 h-4 w-4" />
+                    Edit Project
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuItem
+                  onClick={() => setShowDeleteDialog(true)}
+                  className="text-destructive focus:text-destructive focus:bg-destructive/10"
+                >
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Delete Project
                 </DropdownMenuItem>
-              )}
-              <DropdownMenuItem
-                onClick={() => setShowDeleteDialog(true)}
-                className="text-destructive focus:text-destructive focus:bg-destructive/10"
-              >
-                <Trash2 className="mr-2 h-4 w-4" />
-                Delete Project
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </div>
 
         {/* Action buttons row - only for non-employees */}
