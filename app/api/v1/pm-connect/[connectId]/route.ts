@@ -297,6 +297,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       status: "sent",
     })
 
+    // Update stats - count task as sent when created
+    integration.stats.tasks_sent += 1
+    await integration.save()
+
     // Send to worker on Telegram
     try {
       const messageId = await sendTaskToWorker(workerTelegramId, {
@@ -310,12 +314,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
       workerTask.telegram_message_id = messageId
       await workerTask.save()
-
-      // Update stats
-      integration.stats.tasks_sent += 1
-      await integration.save()
     } catch (error) {
       console.error("Failed to send task to Telegram:", error)
+      // Task is still created in DB, worker can see it when they have active tasks
     }
 
     return NextResponse.json({

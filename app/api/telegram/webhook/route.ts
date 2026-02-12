@@ -120,6 +120,24 @@ function escapeHtml(text: string): string {
 async function processTextMessage(chatId: string, text: string, messageId: number) {
   const lowerText = text.toLowerCase().trim()
 
+  // Handle /start command (first interaction with bot)
+  if (lowerText === "/start" || lowerText.startsWith("/start ")) {
+    await sendTelegramMessage(
+      chatId,
+      `👋 <b>Welcome to WhatsTask PM Connect!</b>\n\n` +
+      `I'll send you tasks from your manager's PM tool (Monday, Asana, ClickUp, etc.)\n\n` +
+      `<b>How it works:</b>\n` +
+      `• You'll receive tasks here\n` +
+      `• Reply <code>start</code> when you begin\n` +
+      `• Reply <code>done</code> when finished\n` +
+      `• Reply <code>problem</code> if you have issues\n` +
+      `• Send photos as proof of completion\n\n` +
+      `Your Telegram ID: <code>${chatId}</code>\n` +
+      `(Share this with your manager to receive tasks)`
+    )
+    return
+  }
+
   // Find the most recent active task for this worker
   const task = await WorkerTask.findOne({
     worker_telegram_id: chatId,

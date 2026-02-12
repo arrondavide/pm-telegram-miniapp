@@ -817,7 +817,7 @@ const pmIntegrationSchema = new Schema<IPMIntegration>(
     webhook_secret: { type: String },
     is_active: { type: Boolean, default: true },
     workers: [{
-      external_id: { type: String, required: true },
+      external_id: { type: String, default: "" },
       external_name: { type: String, default: "" },
       telegram_id: { type: String, required: true },
       is_active: { type: Boolean, default: true },

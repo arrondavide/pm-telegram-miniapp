@@ -1,9 +1,15 @@
 import { NextRequest, NextResponse } from "next/server"
 import { connectToDatabase } from "@/lib/mongodb"
 import { PMIntegration } from "@/lib/models"
+import mongoose from "mongoose"
 
 interface RouteParams {
   params: Promise<{ integrationId: string }>
+}
+
+// Validate MongoDB ObjectId
+function isValidObjectId(id: string): boolean {
+  return mongoose.Types.ObjectId.isValid(id) && new mongoose.Types.ObjectId(id).toString() === id
 }
 
 // POST /api/pm-connect/integrations/:integrationId/workers - Add worker
@@ -16,12 +22,24 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
     }
 
+    if (!isValidObjectId(integrationId)) {
+      return NextResponse.json({ success: false, error: "Invalid integration ID" }, { status: 400 })
+    }
+
     const body = await request.json()
     const { externalId, externalName, workerTelegramId } = body
 
     if (!workerTelegramId) {
       return NextResponse.json(
         { success: false, error: "Worker Telegram ID is required" },
+        { status: 400 }
+      )
+    }
+
+    // Validate Telegram ID format (should be numeric)
+    if (!/^\d+$/.test(workerTelegramId)) {
+      return NextResponse.json(
+        { success: false, error: "Invalid Telegram ID format (must be numeric)" },
         { status: 400 }
       )
     }
@@ -83,6 +101,10 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
 
     if (!telegramId) {
       return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
+    }
+
+    if (!isValidObjectId(integrationId)) {
+      return NextResponse.json({ success: false, error: "Invalid integration ID" }, { status: 400 })
     }
 
     const { searchParams } = new URL(request.url)
