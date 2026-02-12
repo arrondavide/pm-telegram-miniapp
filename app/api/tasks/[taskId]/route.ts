@@ -118,6 +118,19 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     await task.populate("assigned_to", "telegram_id full_name")
     await task.populate("created_by", "telegram_id full_name")
 
+    console.log("[Task PATCH] Task after populate:", {
+      taskId: task._id.toString(),
+      title: task.title,
+      assigned_to: (task.assigned_to as any[])?.map((u: any) => ({
+        id: u._id?.toString(),
+        telegram_id: u.telegram_id
+      })),
+      created_by: {
+        id: (task.created_by as any)?._id?.toString(),
+        telegram_id: (task.created_by as any)?.telegram_id,
+      },
+    })
+
     // Send notifications to newly assigned users
     if (body.assignedTo !== undefined) {
       // Get project details for notifications

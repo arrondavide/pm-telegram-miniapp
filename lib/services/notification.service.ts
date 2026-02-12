@@ -106,9 +106,20 @@ export async function notifyTaskAssignmentFn(params: {
 }): Promise<void> {
   const { assignedUsers, taskTitle, taskId, assignedBy, dueDate, priority, projectName, projectId, taskDescription, excludeTelegramId } = params
 
+  console.log("[NotificationService] notifyTaskAssignment called:", {
+    assignedUsers: assignedUsers.map((u) => ({ telegram_id: u.telegram_id, full_name: u.full_name })),
+    taskTitle,
+    taskId,
+    assignedBy,
+    excludeTelegramId,
+  })
+
   for (const user of assignedUsers) {
     // Don't notify the creator if they assigned themselves
-    if (user.telegram_id === excludeTelegramId) continue
+    if (user.telegram_id === excludeTelegramId) {
+      console.log("[NotificationService] Skipping self-assignment notification for:", user.telegram_id)
+      continue
+    }
 
     // Create in-app notification
     const AppNotification = getNotificationModel()
@@ -122,25 +133,31 @@ export async function notifyTaskAssignmentFn(params: {
     })
 
     // Send rich Telegram notification
-    await notifyTaskAssigned(
-      {
-        telegramId: user.telegram_id,
-        fullName: user.full_name || "User",
-      },
-      {
-        taskId,
-        taskTitle,
-        taskDescription,
-        projectName,
-        projectId,
-        dueDate,
-        priority: priority as "low" | "medium" | "high" | "urgent",
-      },
-      {
-        telegramId: excludeTelegramId || "",
-        fullName: assignedBy,
-      }
-    )
+    console.log("[NotificationService] Sending Telegram notification to:", user.telegram_id)
+    try {
+      const result = await notifyTaskAssigned(
+        {
+          telegramId: user.telegram_id,
+          fullName: user.full_name || "User",
+        },
+        {
+          taskId,
+          taskTitle,
+          taskDescription,
+          projectName,
+          projectId,
+          dueDate,
+          priority: priority as "low" | "medium" | "high" | "urgent",
+        },
+        {
+          telegramId: excludeTelegramId || "",
+          fullName: assignedBy,
+        }
+      )
+      console.log("[NotificationService] Telegram notification result:", result)
+    } catch (error) {
+      console.error("[NotificationService] Telegram notification error:", error)
+    }
   }
 }
 
@@ -161,6 +178,15 @@ export async function notifyTaskStatusChangeFn(params: {
 }): Promise<void> {
   const { telegramId, recipientName, taskTitle, taskId, oldStatus, newStatus, changedBy, changedByTelegramId, projectName, projectId } = params
 
+  console.log("[NotificationService] notifyTaskStatusChange called:", {
+    telegramId,
+    recipientName,
+    taskTitle,
+    oldStatus,
+    newStatus,
+    changedBy,
+  })
+
   // Create in-app notification
   const AppNotification = getNotificationModel()
   await AppNotification.create({
@@ -173,24 +199,30 @@ export async function notifyTaskStatusChangeFn(params: {
   })
 
   // Send rich Telegram notification
-  await notifyTaskStatusChanged(
-    {
-      telegramId,
-      fullName: recipientName || "User",
-    },
-    {
-      taskId,
-      taskTitle,
-      projectName,
-      projectId,
-    },
-    oldStatus,
-    newStatus,
-    {
-      telegramId: changedByTelegramId || "",
-      fullName: changedBy,
-    }
-  )
+  console.log("[NotificationService] Sending status change notification to:", telegramId)
+  try {
+    const result = await notifyTaskStatusChanged(
+      {
+        telegramId,
+        fullName: recipientName || "User",
+      },
+      {
+        taskId,
+        taskTitle,
+        projectName,
+        projectId,
+      },
+      oldStatus,
+      newStatus,
+      {
+        telegramId: changedByTelegramId || "",
+        fullName: changedBy,
+      }
+    )
+    console.log("[NotificationService] Status change notification result:", result)
+  } catch (error) {
+    console.error("[NotificationService] Status change notification error:", error)
+  }
 }
 
 /**
@@ -301,6 +333,13 @@ export async function notifyTaskCompletedFn(params: {
   projectId?: string
 }): Promise<void> {
   const { telegramId, recipientName, taskTitle, taskId, completedBy, completedByTelegramId, projectName, projectId } = params
+
+  console.log("[NotificationService] notifyTaskCompleted called:", {
+    telegramId,
+    recipientName,
+    taskTitle,
+    completedBy,
+  })
 
   // Create in-app notification
   const AppNotification = getNotificationModel()
