@@ -35,9 +35,10 @@ import Image from "next/image"
 
 interface ProfileScreenProps {
   onDeveloperClick?: () => void
+  onPMConnectClick?: () => void
 }
 
-export function ProfileScreen({ onDeveloperClick }: ProfileScreenProps) {
+export function ProfileScreen({ onDeveloperClick, onPMConnectClick }: ProfileScreenProps) {
   const currentUser = useUserStore((state) => state.currentUser)
   const setCurrentUser = useUserStore((state) => state.setCurrentUser)
   const getUserRole = useUserStore((state) => state.getUserRole)
@@ -356,6 +357,27 @@ export function ProfileScreen({ onDeveloperClick }: ProfileScreenProps) {
                 <div>
                   <p className="font-medium">Developer API</p>
                   <p className="text-sm text-muted-foreground">API Keys & Webhooks</p>
+                </div>
+              </div>
+              <ChevronRight className="h-5 w-5 text-muted-foreground" />
+            </CardContent>
+          </Card>
+        )}
+
+        {/* PM Connect - Only show for admins/managers */}
+        {(userRole === "admin" || userRole === "manager") && onPMConnectClick && (
+          <Card
+            className="cursor-pointer border-border/50 transition-colors hover:bg-muted/50"
+            onClick={onPMConnectClick}
+          >
+            <CardContent className="flex items-center justify-between p-4">
+              <div className="flex items-center gap-3">
+                <div className="rounded-lg bg-gradient-to-br from-orange-500/20 to-red-500/20 p-2">
+                  <Key className="h-5 w-5 text-orange-600" />
+                </div>
+                <div>
+                  <p className="font-medium">PM Connect</p>
+                  <p className="text-sm text-muted-foreground">Monday, Asana, ClickUp</p>
                 </div>
               </div>
               <ChevronRight className="h-5 w-5 text-muted-foreground" />

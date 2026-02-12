@@ -736,3 +736,154 @@ export const Webhook: Model<IWebhook> =
 
 export const ApiUsageLog: Model<IApiUsageLog> =
   mongoose.models.ApiUsageLog || mongoose.model<IApiUsageLog>("ApiUsageLog", apiUsageLogSchema)
+
+// ==================== PM CONNECT (Field Worker Integration) ====================
+
+// PM Tool Integration - connects to Monday, Asana, ClickUp
+export interface IPMIntegration extends Document {
+  _id: mongoose.Types.ObjectId
+  connect_id: string // Unique ID for webhook URL
+  name: string
+  platform: "monday" | "asana" | "clickup" | "trello" | "notion" | "other"
+  owner_telegram_id: string // Manager/owner who set this up
+  company_name: string
+  api_key?: string // For syncing back (encrypted)
+  webhook_secret?: string
+  is_active: boolean
+  workers: {
+    external_id: string // User ID in the PM tool
+    external_name: string // Name in PM tool
+    telegram_id: string // Worker's Telegram ID
+    is_active: boolean
+  }[]
+  settings: {
+    auto_start_on_view: boolean // Mark started when worker views task
+    require_photo_proof: boolean
+    notify_on_problem: boolean
+    language: string
+  }
+  stats: {
+    tasks_sent: number
+    tasks_completed: number
+    avg_response_time_mins: number
+  }
+  createdAt: Date
+  updatedAt: Date
+}
+
+// Worker Task - task assigned to a field worker
+export interface IWorkerTask extends Document {
+  _id: mongoose.Types.ObjectId
+  integration_id: mongoose.Types.ObjectId
+  external_task_id: string // Task ID in PM tool
+  external_board_id?: string // Board/Project ID in PM tool
+  worker_telegram_id: string
+  title: string
+  description: string
+  location?: string
+  due_date?: Date
+  priority: "low" | "medium" | "high" | "urgent"
+  status: "sent" | "seen" | "started" | "problem" | "completed"
+  problem_description?: string
+  photo_urls: string[]
+  worker_comments: {
+    message: string
+    timestamp: Date
+  }[]
+  telegram_message_id?: number // To edit/update the message
+  sent_at: Date
+  seen_at?: Date
+  started_at?: Date
+  completed_at?: Date
+  synced_to_pm: boolean
+  last_sync_at?: Date
+  createdAt: Date
+  updatedAt: Date
+}
+
+// Schemas for PM Connect
+const pmIntegrationSchema = new Schema<IPMIntegration>(
+  {
+    connect_id: { type: String, required: true, unique: true, index: true },
+    name: { type: String, required: true, trim: true },
+    platform: {
+      type: String,
+      enum: ["monday", "asana", "clickup", "trello", "notion", "other"],
+      required: true,
+    },
+    owner_telegram_id: { type: String, required: true, index: true },
+    company_name: { type: String, default: "" },
+    api_key: { type: String }, // Should be encrypted in production
+    webhook_secret: { type: String },
+    is_active: { type: Boolean, default: true },
+    workers: [{
+      external_id: { type: String, required: true },
+      external_name: { type: String, default: "" },
+      telegram_id: { type: String, required: true },
+      is_active: { type: Boolean, default: true },
+    }],
+    settings: {
+      auto_start_on_view: { type: Boolean, default: false },
+      require_photo_proof: { type: Boolean, default: false },
+      notify_on_problem: { type: Boolean, default: true },
+      language: { type: String, default: "en" },
+    },
+    stats: {
+      tasks_sent: { type: Number, default: 0 },
+      tasks_completed: { type: Number, default: 0 },
+      avg_response_time_mins: { type: Number, default: 0 },
+    },
+  },
+  { timestamps: true }
+)
+
+const workerTaskSchema = new Schema<IWorkerTask>(
+  {
+    integration_id: { type: Schema.Types.ObjectId, ref: "PMIntegration", required: true, index: true },
+    external_task_id: { type: String, required: true },
+    external_board_id: { type: String },
+    worker_telegram_id: { type: String, required: true, index: true },
+    title: { type: String, required: true },
+    description: { type: String, default: "" },
+    location: { type: String },
+    due_date: { type: Date },
+    priority: {
+      type: String,
+      enum: ["low", "medium", "high", "urgent"],
+      default: "medium",
+    },
+    status: {
+      type: String,
+      enum: ["sent", "seen", "started", "problem", "completed"],
+      default: "sent",
+    },
+    problem_description: { type: String },
+    photo_urls: [{ type: String }],
+    worker_comments: [{
+      message: { type: String, required: true },
+      timestamp: { type: Date, default: Date.now },
+    }],
+    telegram_message_id: { type: Number },
+    sent_at: { type: Date, default: Date.now },
+    seen_at: { type: Date },
+    started_at: { type: Date },
+    completed_at: { type: Date },
+    synced_to_pm: { type: Boolean, default: false },
+    last_sync_at: { type: Date },
+  },
+  { timestamps: true }
+)
+
+// Indexes for PM Connect
+pmIntegrationSchema.index({ owner_telegram_id: 1, is_active: 1 })
+pmIntegrationSchema.index({ "workers.telegram_id": 1 })
+workerTaskSchema.index({ worker_telegram_id: 1, status: 1 })
+workerTaskSchema.index({ integration_id: 1, external_task_id: 1 })
+workerTaskSchema.index({ status: 1, createdAt: -1 })
+
+// Models for PM Connect
+export const PMIntegration: Model<IPMIntegration> =
+  mongoose.models.PMIntegration || mongoose.model<IPMIntegration>("PMIntegration", pmIntegrationSchema)
+
+export const WorkerTask: Model<IWorkerTask> =
+  mongoose.models.WorkerTask || mongoose.model<IWorkerTask>("WorkerTask", workerTaskSchema)
