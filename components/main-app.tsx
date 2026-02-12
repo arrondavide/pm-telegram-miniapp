@@ -11,6 +11,7 @@ import { CreateTaskScreen } from "@/components/screens/create-task-screen"
 import { TaskDetailScreen } from "@/components/screens/task-detail-screen"
 import { NotificationsScreen } from "@/components/screens/notifications-screen"
 import { CreateProjectScreen } from "@/components/screens/create-project-screen"
+import { DeveloperScreen } from "@/components/screens/developer-screen"
 import { InAppNotification } from "@/components/in-app-notification"
 import { useUserStore } from "@/lib/stores/user.store"
 import { useCompanyStore } from "@/lib/stores/company.store"
@@ -31,6 +32,7 @@ export type Screen =
   | "create-task"
   | "task-detail"
   | "notifications"
+  | "developer"
 
 interface MainAppProps {
   pendingInviteCode?: string | null
@@ -149,7 +151,9 @@ export function MainApp({ pendingInviteCode, onCodeUsed }: MainAppProps) {
       case "stats":
         return <StatsScreen />
       case "profile":
-        return <ProfileScreen />
+        return <ProfileScreen onDeveloperClick={() => setActiveScreen("developer")} />
+      case "developer":
+        return <DeveloperScreen onBack={() => setActiveScreen("profile")} />
       case "notifications":
         return <NotificationsScreen onBack={() => setActiveScreen("projects")} onTaskSelect={handleTaskSelect} />
       case "create-task":
@@ -200,7 +204,7 @@ export function MainApp({ pendingInviteCode, onCodeUsed }: MainAppProps) {
     }
   }
 
-  const showBottomNav = !["project-detail", "create-project", "create-task", "task-detail"].includes(
+  const showBottomNav = !["project-detail", "create-project", "create-task", "task-detail", "developer"].includes(
     activeScreen,
   )
 

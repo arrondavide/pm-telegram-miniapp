@@ -606,3 +606,133 @@ export const UserAIPreferences: Model<IUserAIPreferences> =
 
 export const UserPatterns: Model<IUserPatterns> =
   mongoose.models.UserPatterns || mongoose.model<IUserPatterns>("UserPatterns", userPatternsSchema)
+
+// ==================== DEVELOPER API ====================
+
+// API Key for external integrations
+export interface IApiKey extends Document {
+  _id: mongoose.Types.ObjectId
+  key: string // The actual API key (hashed)
+  key_prefix: string // First 8 chars for display (wt_abc123...)
+  name: string // User-friendly name
+  user_id: mongoose.Types.ObjectId
+  company_id: mongoose.Types.ObjectId
+  permissions: ("notify" | "tasks:read" | "tasks:write" | "projects:read" | "webhooks")[]
+  usage_count: number
+  last_used_at?: Date
+  rate_limit: number // requests per minute
+  is_active: boolean
+  revoked_at?: Date
+  expires_at?: Date
+  createdAt: Date
+  updatedAt: Date
+}
+
+// Webhook configuration
+export interface IWebhook extends Document {
+  _id: mongoose.Types.ObjectId
+  hook_id: string // Unique identifier for webhook URL
+  name: string
+  user_id: mongoose.Types.ObjectId
+  company_id: mongoose.Types.ObjectId
+  project_id?: mongoose.Types.ObjectId
+  target_type: "notification" | "task" | "both"
+  default_priority: "low" | "medium" | "high" | "urgent"
+  default_assignees: mongoose.Types.ObjectId[]
+  is_active: boolean
+  usage_count: number
+  last_triggered_at?: Date
+  createdAt: Date
+  updatedAt: Date
+}
+
+// API Usage Log for analytics
+export interface IApiUsageLog extends Document {
+  _id: mongoose.Types.ObjectId
+  api_key_id: mongoose.Types.ObjectId
+  endpoint: string
+  method: string
+  status_code: number
+  response_time_ms: number
+  ip_address: string
+  user_agent: string
+  error_message?: string
+  createdAt: Date
+}
+
+// Schemas for Developer API
+const apiKeySchema = new Schema<IApiKey>(
+  {
+    key: { type: String, required: true, unique: true },
+    key_prefix: { type: String, required: true },
+    name: { type: String, required: true, trim: true },
+    user_id: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
+    company_id: { type: Schema.Types.ObjectId, ref: "Company", required: true, index: true },
+    permissions: [{
+      type: String,
+      enum: ["notify", "tasks:read", "tasks:write", "projects:read", "webhooks"],
+    }],
+    usage_count: { type: Number, default: 0 },
+    last_used_at: { type: Date },
+    rate_limit: { type: Number, default: 60 }, // 60 requests per minute
+    is_active: { type: Boolean, default: true },
+    revoked_at: { type: Date },
+    expires_at: { type: Date },
+  },
+  { timestamps: true }
+)
+
+const webhookSchema = new Schema<IWebhook>(
+  {
+    hook_id: { type: String, required: true, unique: true, index: true },
+    name: { type: String, required: true, trim: true },
+    user_id: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    company_id: { type: Schema.Types.ObjectId, ref: "Company", required: true },
+    project_id: { type: Schema.Types.ObjectId, ref: "Project" },
+    target_type: {
+      type: String,
+      enum: ["notification", "task", "both"],
+      default: "notification",
+    },
+    default_priority: {
+      type: String,
+      enum: ["low", "medium", "high", "urgent"],
+      default: "medium",
+    },
+    default_assignees: [{ type: Schema.Types.ObjectId, ref: "User" }],
+    is_active: { type: Boolean, default: true },
+    usage_count: { type: Number, default: 0 },
+    last_triggered_at: { type: Date },
+  },
+  { timestamps: true }
+)
+
+const apiUsageLogSchema = new Schema<IApiUsageLog>(
+  {
+    api_key_id: { type: Schema.Types.ObjectId, ref: "ApiKey", required: true, index: true },
+    endpoint: { type: String, required: true },
+    method: { type: String, required: true },
+    status_code: { type: Number, required: true },
+    response_time_ms: { type: Number, required: true },
+    ip_address: { type: String, default: "" },
+    user_agent: { type: String, default: "" },
+    error_message: { type: String },
+  },
+  { timestamps: true }
+)
+
+// Indexes for Developer API
+apiKeySchema.index({ key: 1 })
+apiKeySchema.index({ user_id: 1, is_active: 1 })
+apiUsageLogSchema.index({ api_key_id: 1, createdAt: -1 })
+apiUsageLogSchema.index({ createdAt: 1 }, { expireAfterSeconds: 30 * 24 * 60 * 60 }) // 30 days TTL
+
+// Models for Developer API
+export const ApiKey: Model<IApiKey> =
+  mongoose.models.ApiKey || mongoose.model<IApiKey>("ApiKey", apiKeySchema)
+
+export const Webhook: Model<IWebhook> =
+  mongoose.models.Webhook || mongoose.model<IWebhook>("Webhook", webhookSchema)
+
+export const ApiUsageLog: Model<IApiUsageLog> =
+  mongoose.models.ApiUsageLog || mongoose.model<IApiUsageLog>("ApiUsageLog", apiUsageLogSchema)

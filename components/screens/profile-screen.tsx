@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { Building2, Bell, Clock, ChevronRight, Check, Moon, Sun, Settings, Trash2, UserPlus, Plus, Sparkles, Mic } from "lucide-react"
+import { Building2, Bell, Clock, ChevronRight, Check, Moon, Sun, Settings, Trash2, UserPlus, Plus, Sparkles, Mic, Code, Key } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Switch } from "@/components/ui/switch"
 import { Badge } from "@/components/ui/badge"
@@ -33,7 +33,11 @@ import { companyApi } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import Image from "next/image"
 
-export function ProfileScreen() {
+interface ProfileScreenProps {
+  onDeveloperClick?: () => void
+}
+
+export function ProfileScreen({ onDeveloperClick }: ProfileScreenProps) {
   const currentUser = useUserStore((state) => state.currentUser)
   const setCurrentUser = useUserStore((state) => state.setCurrentUser)
   const getUserRole = useUserStore((state) => state.getUserRole)
@@ -337,6 +341,27 @@ export function ProfileScreen() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Developer API - Only show for admins/managers */}
+        {(userRole === "admin" || userRole === "manager") && onDeveloperClick && (
+          <Card
+            className="cursor-pointer border-border/50 transition-colors hover:bg-muted/50"
+            onClick={onDeveloperClick}
+          >
+            <CardContent className="flex items-center justify-between p-4">
+              <div className="flex items-center gap-3">
+                <div className="rounded-lg bg-gradient-to-br from-violet-500/20 to-purple-500/20 p-2">
+                  <Code className="h-5 w-5 text-violet-600" />
+                </div>
+                <div>
+                  <p className="font-medium">Developer API</p>
+                  <p className="text-sm text-muted-foreground">API Keys & Webhooks</p>
+                </div>
+              </div>
+              <ChevronRight className="h-5 w-5 text-muted-foreground" />
+            </CardContent>
+          </Card>
+        )}
 
         {/* AI Settings */}
         <Card className="border-border/50">
