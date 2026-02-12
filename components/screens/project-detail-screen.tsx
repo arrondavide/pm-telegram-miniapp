@@ -1,13 +1,14 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { ArrowLeft, Plus, Search, Sparkles, MoreVertical, Trash2, Edit, Loader2 } from "lucide-react"
+import { ArrowLeft, Plus, Search, Sparkles, MoreVertical, Trash2, Edit, Loader2, List, LayoutGrid, Calendar, GanttChart, Table2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { useUserStore } from "@/lib/stores/user.store"
 import { useCompanyStore } from "@/lib/stores/company.store"
 import { useProjectStore } from "@/lib/stores/project.store"
+import { useUIStore, type ViewMode } from "@/lib/stores/ui.store"
 import { taskApi, projectApi } from "@/lib/api"
 import {
   DropdownMenu,
@@ -27,7 +28,12 @@ import {
 } from "@/components/ui/alert-dialog"
 import { useTelegram } from "@/hooks/use-telegram"
 import { AITaskInput } from "@/components/ai"
-import type { Task } from "@/types/models.types"
+import { KanbanBoard } from "@/components/kanban"
+import { CalendarView } from "@/components/calendar-view"
+import { GanttView } from "@/components/gantt-view"
+import { TableView } from "@/components/table-view"
+import { cn } from "@/lib/utils"
+import type { Task, TaskStatus } from "@/types/models.types"
 
 interface ProjectDetailScreenProps {
   projectId: string
@@ -48,6 +54,7 @@ export function ProjectDetailScreen({ projectId, onBack, onTaskClick, onCreateTa
 
   const { hapticFeedback, showBackButton, hideBackButton } = useTelegram()
 
+  const { taskViewMode, setTaskViewMode } = useUIStore()
   const [searchQuery, setSearchQuery] = useState("")
   const [statusFilter, setStatusFilter] = useState<string>("all")
   const [isLoadingTasks, setIsLoadingTasks] = useState(true)
@@ -57,6 +64,30 @@ export function ProjectDetailScreen({ projectId, onBack, onTaskClick, onCreateTa
 
   // Use LOCAL state for tasks instead of global store to avoid hydration/race issues
   const [projectTasks, setProjectTasks] = useState<Task[]>([])
+
+  // Handle status change from Kanban/Table drag-and-drop
+  const handleStatusChange = async (taskId: string, newStatus: TaskStatus) => {
+    // Optimistically update the local state
+    setProjectTasks((prev) =>
+      prev.map((task) =>
+        task.id === taskId ? { ...task, status: newStatus } : task
+      )
+    )
+
+    // Sync with API
+    try {
+      await taskApi.updateStatus(taskId, newStatus, currentUser?.telegramId || "")
+    } catch (error) {
+      console.error("Failed to update task status:", error)
+      // Revert on error by refetching
+      if (company?.id && currentUser?.telegramId) {
+        const response = await taskApi.getByProject(company.id, projectId, currentUser.telegramId, false)
+        if (response.success && response.data?.tasks) {
+          setProjectTasks(response.data.tasks as Task[])
+        }
+      }
+    }
+  }
 
   const project = getProjectById(projectId)
   const userRole = getUserRole()
@@ -274,29 +305,97 @@ export function ProjectDetailScreen({ projectId, onBack, onTaskClick, onCreateTa
           </div>
         )}
 
-        {/* Search and Filter */}
-        <div className="mt-4 flex gap-2">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder="Search tasks..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9"
-            />
+        {/* View Mode Toggle */}
+        <div className="mt-4 flex items-center gap-2 overflow-x-auto pb-1">
+          <div className="flex rounded-lg border border-border/50 p-0.5 flex-shrink-0">
+            <Button
+              size="sm"
+              variant={taskViewMode === "list" ? "default" : "ghost"}
+              className={cn(
+                "h-8 px-2 gap-1",
+                taskViewMode === "list" && "bg-foreground text-background"
+              )}
+              onClick={() => setTaskViewMode("list")}
+            >
+              <List className="h-4 w-4" />
+              <span className="hidden sm:inline">List</span>
+            </Button>
+            <Button
+              size="sm"
+              variant={taskViewMode === "kanban" ? "default" : "ghost"}
+              className={cn(
+                "h-8 px-2 gap-1",
+                taskViewMode === "kanban" && "bg-foreground text-background"
+              )}
+              onClick={() => setTaskViewMode("kanban")}
+            >
+              <LayoutGrid className="h-4 w-4" />
+              <span className="hidden sm:inline">Board</span>
+            </Button>
+            <Button
+              size="sm"
+              variant={taskViewMode === "calendar" ? "default" : "ghost"}
+              className={cn(
+                "h-8 px-2 gap-1",
+                taskViewMode === "calendar" && "bg-foreground text-background"
+              )}
+              onClick={() => setTaskViewMode("calendar")}
+            >
+              <Calendar className="h-4 w-4" />
+              <span className="hidden sm:inline">Calendar</span>
+            </Button>
+            <Button
+              size="sm"
+              variant={taskViewMode === "timeline" ? "default" : "ghost"}
+              className={cn(
+                "h-8 px-2 gap-1",
+                taskViewMode === "timeline" && "bg-foreground text-background"
+              )}
+              onClick={() => setTaskViewMode("timeline")}
+            >
+              <GanttChart className="h-4 w-4" />
+              <span className="hidden sm:inline">Timeline</span>
+            </Button>
+            <Button
+              size="sm"
+              variant={taskViewMode === "table" ? "default" : "ghost"}
+              className={cn(
+                "h-8 px-2 gap-1",
+                taskViewMode === "table" && "bg-foreground text-background"
+              )}
+              onClick={() => setTaskViewMode("table")}
+            >
+              <Table2 className="h-4 w-4" />
+              <span className="hidden sm:inline">Table</span>
+            </Button>
           </div>
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="rounded-md border bg-background px-3 py-2 text-sm"
-          >
-            {statusOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
         </div>
+
+        {/* Search and Filter - only show for list view */}
+        {taskViewMode === "list" && (
+          <div className="mt-3 flex gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="Search tasks..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-9"
+              />
+            </div>
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="rounded-md border bg-background px-3 py-2 text-sm"
+            >
+              {statusOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
       </header>
 
       {/* Content */}
@@ -305,17 +404,15 @@ export function ProjectDetailScreen({ projectId, onBack, onTaskClick, onCreateTa
           <div className="flex h-full items-center justify-center">
             <div className="text-center text-muted-foreground">Loading tasks...</div>
           </div>
-        ) : filteredTasks.length === 0 ? (
+        ) : allTasks.length === 0 ? (
           <div className="flex h-full items-center justify-center">
             <div className="text-center">
               <p className="mb-2 text-muted-foreground">
-                {searchQuery || statusFilter !== "all"
-                  ? "No tasks match your filters"
-                  : isEmployee
-                    ? "No tasks assigned to you yet"
-                    : "No tasks yet"}
+                {isEmployee
+                  ? "No tasks assigned to you yet"
+                  : "No tasks yet"}
               </p>
-              {!searchQuery && statusFilter === "all" && !isEmployee && (
+              {!isEmployee && (
                 <div className="flex flex-col gap-2">
                   <Button onClick={() => setShowAIInput(true)} variant="outline">
                     <Sparkles className="mr-2 h-4 w-4" />
@@ -329,61 +426,124 @@ export function ProjectDetailScreen({ projectId, onBack, onTaskClick, onCreateTa
               )}
             </div>
           </div>
-        ) : (
-          <div className="space-y-2 p-4">
-            {filteredTasks.map((task) => {
-              if (!task || !task.id) return null
-
-              const priorityColors = {
-                low: "bg-gray-100 text-gray-700",
-                medium: "bg-blue-100 text-blue-700",
-                high: "bg-orange-100 text-orange-700",
-                urgent: "bg-red-100 text-red-700",
-              }
-
-              const statusColors = {
-                pending: "bg-gray-100 text-gray-700",
-                started: "bg-blue-100 text-blue-700",
-                in_progress: "bg-yellow-100 text-yellow-700",
-                completed: "bg-green-100 text-green-700",
-                blocked: "bg-red-100 text-red-700",
-                cancelled: "bg-gray-100 text-gray-500",
-              }
-
-              return (
-                <div
-                  key={task.id}
-                  className="p-4 bg-card border rounded-lg shadow-sm cursor-pointer hover:shadow-md transition-shadow"
-                  onClick={() => {
-                    hapticFeedback("light")
-                    onTaskClick(task.id)
-                  }}
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <h3 className="font-medium">{task.title}</h3>
-                    <Badge className={priorityColors[task.priority] || priorityColors.medium}>
-                      {task.priority}
-                    </Badge>
-                  </div>
-                  {task.description && (
-                    <p className="text-sm text-muted-foreground mt-1 line-clamp-2">
-                      {task.description}
-                    </p>
-                  )}
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    <Badge variant="outline" className={statusColors[task.status] || statusColors.pending}>
-                      {task.status.replace("_", " ")}
-                    </Badge>
-                    {task.dueDate && (
-                      <Badge variant="outline" className="text-xs">
-                        Due: {new Date(task.dueDate).toLocaleDateString()}
-                      </Badge>
-                    )}
-                  </div>
-                </div>
-              )
-            })}
+        ) : taskViewMode === "kanban" ? (
+          /* Kanban Board View */
+          <div className="p-4">
+            <KanbanBoard
+              tasks={allTasks}
+              onTaskClick={(taskId) => {
+                hapticFeedback("light")
+                onTaskClick(taskId)
+              }}
+              onStatusChange={handleStatusChange}
+              onCreateTask={!isEmployee ? () => onCreateTask() : undefined}
+              isLoading={isLoadingTasks}
+            />
           </div>
+        ) : taskViewMode === "calendar" ? (
+          /* Calendar View */
+          <div className="p-4 h-full">
+            <CalendarView
+              tasks={allTasks}
+              onTaskClick={(taskId) => {
+                hapticFeedback("light")
+                onTaskClick(taskId)
+              }}
+              onCreateTask={!isEmployee ? () => onCreateTask() : undefined}
+              isLoading={isLoadingTasks}
+            />
+          </div>
+        ) : taskViewMode === "timeline" ? (
+          /* Gantt/Timeline View */
+          <div className="p-4 h-full">
+            <GanttView
+              tasks={allTasks}
+              onTaskClick={(taskId) => {
+                hapticFeedback("light")
+                onTaskClick(taskId)
+              }}
+              isLoading={isLoadingTasks}
+            />
+          </div>
+        ) : taskViewMode === "table" ? (
+          /* Table View */
+          <div className="p-4 h-full">
+            <TableView
+              tasks={allTasks}
+              onTaskClick={(taskId) => {
+                hapticFeedback("light")
+                onTaskClick(taskId)
+              }}
+              onStatusChange={handleStatusChange}
+              isLoading={isLoadingTasks}
+            />
+          </div>
+        ) : (
+          /* List View (Default) */
+          filteredTasks.length === 0 ? (
+            <div className="flex h-full items-center justify-center">
+              <div className="text-center">
+                <p className="mb-2 text-muted-foreground">
+                  No tasks match your filters
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-2 p-4">
+              {filteredTasks.map((task) => {
+                if (!task || !task.id) return null
+
+                const priorityColors = {
+                  low: "bg-gray-100 text-gray-700",
+                  medium: "bg-blue-100 text-blue-700",
+                  high: "bg-orange-100 text-orange-700",
+                  urgent: "bg-red-100 text-red-700",
+                }
+
+                const statusColors = {
+                  pending: "bg-gray-100 text-gray-700",
+                  started: "bg-blue-100 text-blue-700",
+                  in_progress: "bg-yellow-100 text-yellow-700",
+                  completed: "bg-green-100 text-green-700",
+                  blocked: "bg-red-100 text-red-700",
+                  cancelled: "bg-gray-100 text-gray-500",
+                }
+
+                return (
+                  <div
+                    key={task.id}
+                    className="p-4 bg-card border rounded-lg shadow-sm cursor-pointer hover:shadow-md transition-shadow"
+                    onClick={() => {
+                      hapticFeedback("light")
+                      onTaskClick(task.id)
+                    }}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <h3 className="font-medium">{task.title}</h3>
+                      <Badge className={priorityColors[task.priority] || priorityColors.medium}>
+                        {task.priority}
+                      </Badge>
+                    </div>
+                    {task.description && (
+                      <p className="text-sm text-muted-foreground mt-1 line-clamp-2">
+                        {task.description}
+                      </p>
+                    )}
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <Badge variant="outline" className={statusColors[task.status] || statusColors.pending}>
+                        {task.status.replace("_", " ")}
+                      </Badge>
+                      {task.dueDate && (
+                        <Badge variant="outline" className="text-xs">
+                          Due: {new Date(task.dueDate).toLocaleDateString()}
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )
         )}
       </div>
 
