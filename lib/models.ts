@@ -761,6 +761,10 @@ export interface IPMIntegration extends Document {
     require_photo_proof: boolean
     notify_on_problem: boolean
     language: string
+    // Location tracking
+    enable_location_tracking: boolean
+    location_update_interval_secs: number
+    location_webhook_url?: string // URL to send location updates to PM tool
   }
   stats: {
     tasks_sent: number
@@ -769,6 +773,16 @@ export interface IPMIntegration extends Document {
   }
   createdAt: Date
   updatedAt: Date
+}
+
+// Location point for tracking
+export interface ILocationPoint {
+  lat: number
+  lng: number
+  accuracy?: number // meters
+  speed?: number // m/s
+  heading?: number // degrees (0-360)
+  timestamp: Date
 }
 
 // Worker Task - task assigned to a field worker
@@ -780,7 +794,8 @@ export interface IWorkerTask extends Document {
   worker_telegram_id: string
   title: string
   description: string
-  location?: string
+  location?: string // Destination address
+  destination_coords?: { lat: number; lng: number } // Destination coordinates
   due_date?: Date
   priority: "low" | "medium" | "high" | "urgent"
   status: "sent" | "seen" | "started" | "problem" | "completed"
@@ -790,6 +805,16 @@ export interface IWorkerTask extends Document {
     message: string
     timestamp: Date
   }[]
+  // Location tracking
+  location_tracking: {
+    enabled: boolean
+    started_at?: Date
+    stopped_at?: Date
+    current_location?: ILocationPoint
+    history: ILocationPoint[]
+    total_distance_meters: number
+    last_webhook_sent?: Date
+  }
   telegram_message_id?: number // To edit/update the message
   sent_at: Date
   seen_at?: Date
@@ -827,6 +852,10 @@ const pmIntegrationSchema = new Schema<IPMIntegration>(
       require_photo_proof: { type: Boolean, default: false },
       notify_on_problem: { type: Boolean, default: true },
       language: { type: String, default: "en" },
+      // Location tracking settings
+      enable_location_tracking: { type: Boolean, default: true },
+      location_update_interval_secs: { type: Number, default: 30 },
+      location_webhook_url: { type: String }, // URL to send location updates
     },
     stats: {
       tasks_sent: { type: Number, default: 0 },
@@ -837,6 +866,16 @@ const pmIntegrationSchema = new Schema<IPMIntegration>(
   { timestamps: true }
 )
 
+// Location point schema
+const locationPointSchema = new Schema({
+  lat: { type: Number, required: true },
+  lng: { type: Number, required: true },
+  accuracy: { type: Number },
+  speed: { type: Number },
+  heading: { type: Number },
+  timestamp: { type: Date, default: Date.now },
+}, { _id: false })
+
 const workerTaskSchema = new Schema<IWorkerTask>(
   {
     integration_id: { type: Schema.Types.ObjectId, ref: "PMIntegration", required: true, index: true },
@@ -845,7 +884,11 @@ const workerTaskSchema = new Schema<IWorkerTask>(
     worker_telegram_id: { type: String, required: true, index: true },
     title: { type: String, required: true },
     description: { type: String, default: "" },
-    location: { type: String },
+    location: { type: String }, // Destination address
+    destination_coords: {
+      lat: { type: Number },
+      lng: { type: Number },
+    },
     due_date: { type: Date },
     priority: {
       type: String,
@@ -863,6 +906,16 @@ const workerTaskSchema = new Schema<IWorkerTask>(
       message: { type: String, required: true },
       timestamp: { type: Date, default: Date.now },
     }],
+    // Location tracking
+    location_tracking: {
+      enabled: { type: Boolean, default: false },
+      started_at: { type: Date },
+      stopped_at: { type: Date },
+      current_location: locationPointSchema,
+      history: [locationPointSchema],
+      total_distance_meters: { type: Number, default: 0 },
+      last_webhook_sent: { type: Date },
+    },
     telegram_message_id: { type: Number },
     sent_at: { type: Date, default: Date.now },
     seen_at: { type: Date },
@@ -880,6 +933,7 @@ pmIntegrationSchema.index({ "workers.telegram_id": 1 })
 workerTaskSchema.index({ worker_telegram_id: 1, status: 1 })
 workerTaskSchema.index({ integration_id: 1, external_task_id: 1 })
 workerTaskSchema.index({ status: 1, createdAt: -1 })
+workerTaskSchema.index({ "location_tracking.enabled": 1, status: 1 }) // For active tracking queries
 
 // Models for PM Connect
 export const PMIntegration: Model<IPMIntegration> =

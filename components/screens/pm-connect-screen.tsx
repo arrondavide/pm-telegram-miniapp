@@ -12,6 +12,8 @@ import {
   ExternalLink,
   ChevronRight,
   Zap,
+  MapPin,
+  Navigation,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -35,6 +37,7 @@ import {
 } from "@/components/ui/select"
 import { useUserStore } from "@/lib/stores/user.store"
 import { useTelegram } from "@/hooks/use-telegram"
+import { TrackingMap } from "@/components/tracking-map"
 
 interface Worker {
   externalId: string
@@ -249,6 +252,14 @@ export function PMConnectScreen({ onBack }: PMConnectScreenProps) {
           <Plus className="h-4 w-4 mr-2" />
           Connect a PM Tool
         </Button>
+
+        {/* Live Tracking Map - show when there are integrations */}
+        {integrations.length > 0 && currentUser?.telegramId && (
+          <TrackingMap
+            connectId={integrations[0].connectId}
+            telegramId={currentUser.telegramId}
+          />
+        )}
 
         {/* Integrations List */}
         {integrations.length === 0 ? (

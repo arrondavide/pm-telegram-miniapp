@@ -116,6 +116,183 @@ function escapeHtml(text: string): string {
     .replace(/>/g, "&gt;")
 }
 
+// Calculate distance between two coordinates (Haversine formula)
+function calculateDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371000 // Earth's radius in meters
+  const dLat = (lat2 - lat1) * Math.PI / 180
+  const dLng = (lng2 - lng1) * Math.PI / 180
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLng / 2) * Math.sin(dLng / 2)
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+  return R * c
+}
+
+// Send location webhook to PM tool
+async function sendLocationWebhook(integration: any, task: any, location: any) {
+  if (!integration.settings.location_webhook_url) return
+
+  try {
+    await fetch(integration.settings.location_webhook_url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        event: "location_update",
+        task_id: task.external_task_id,
+        worker_telegram_id: task.worker_telegram_id,
+        location: {
+          lat: location.lat,
+          lng: location.lng,
+          accuracy: location.accuracy,
+          speed: location.speed,
+          heading: location.heading,
+          timestamp: location.timestamp,
+        },
+        total_distance_meters: task.location_tracking.total_distance_meters,
+        tracking_started_at: task.location_tracking.started_at,
+      }),
+    })
+
+    task.location_tracking.last_webhook_sent = new Date()
+    await task.save()
+  } catch (error) {
+    console.error("Failed to send location webhook:", error)
+  }
+}
+
+// Request location from worker
+async function requestLocation(chatId: string, message: string) {
+  const botToken = process.env.TELEGRAM_BOT_TOKEN
+  if (!botToken) return
+
+  await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      chat_id: chatId,
+      text: message,
+      parse_mode: "HTML",
+      reply_markup: {
+        keyboard: [
+          [{ text: "📍 Share Live Location", request_location: true }],
+          [{ text: "⏭️ Skip Location Sharing" }],
+        ],
+        resize_keyboard: true,
+        one_time_keyboard: true,
+      },
+    }),
+  })
+}
+
+// Remove custom keyboard
+async function removeKeyboard(chatId: string, message: string) {
+  const botToken = process.env.TELEGRAM_BOT_TOKEN
+  if (!botToken) return
+
+  await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      chat_id: chatId,
+      text: message,
+      parse_mode: "HTML",
+      reply_markup: { remove_keyboard: true },
+    }),
+  })
+}
+
+// Process location message from worker
+async function processLocation(chatId: string, location: any, isLiveLocation: boolean) {
+  // Find the most recent active task with tracking enabled or awaiting location
+  const task = await WorkerTask.findOne({
+    worker_telegram_id: chatId,
+    status: { $in: ["sent", "seen", "started", "problem"] },
+  }).sort({ createdAt: -1 })
+
+  if (!task) {
+    await sendTelegramMessage(chatId, "📍 Location received, but no active task found.")
+    return
+  }
+
+  const integration = await PMIntegration.findById(task.integration_id)
+
+  // Create location point
+  const locationPoint = {
+    lat: location.latitude,
+    lng: location.longitude,
+    accuracy: location.horizontal_accuracy,
+    speed: location.speed,
+    heading: location.heading,
+    timestamp: new Date(),
+  }
+
+  // Initialize location tracking if not exists
+  if (!task.location_tracking) {
+    task.location_tracking = {
+      enabled: false,
+      history: [],
+      total_distance_meters: 0,
+    }
+  }
+
+  // Calculate distance from previous point
+  if (task.location_tracking.current_location) {
+    const prevLoc = task.location_tracking.current_location
+    const distance = calculateDistance(
+      prevLoc.lat, prevLoc.lng,
+      locationPoint.lat, locationPoint.lng
+    )
+    // Only add if moved more than 10 meters (filter GPS noise)
+    if (distance > 10) {
+      task.location_tracking.total_distance_meters += distance
+    }
+  }
+
+  // Update current location
+  task.location_tracking.current_location = locationPoint
+
+  // Add to history (limit to last 500 points to prevent huge documents)
+  task.location_tracking.history.push(locationPoint)
+  if (task.location_tracking.history.length > 500) {
+    task.location_tracking.history = task.location_tracking.history.slice(-500)
+  }
+
+  // Enable tracking if this is live location
+  if (isLiveLocation && !task.location_tracking.enabled) {
+    task.location_tracking.enabled = true
+    task.location_tracking.started_at = new Date()
+
+    await removeKeyboard(
+      chatId,
+      `📍 <b>Location tracking started!</b>\n\n` +
+      `Your location will be tracked while you work on this task.\n` +
+      `Distance: 0 km\n\n` +
+      `Reply <code>done</code> when you finish.`
+    )
+  } else if (!isLiveLocation && !task.location_tracking.enabled) {
+    // One-time location share
+    await sendTelegramMessage(
+      chatId,
+      `📍 Location noted!\n\n` +
+      `For continuous tracking, please share your <b>live location</b> (tap 📎 → Location → Share Live Location)`
+    )
+  }
+
+  await task.save()
+
+  // Send webhook to PM tool if configured
+  if (integration && integration.settings.location_webhook_url) {
+    // Throttle webhooks - only send every 30 seconds
+    const lastSent = task.location_tracking.last_webhook_sent
+    if (!lastSent || (Date.now() - lastSent.getTime()) > 30000) {
+      await sendLocationWebhook(integration, task, locationPoint)
+    }
+  }
+
+  // Log for debugging
+  console.log(`[Location] Worker ${chatId}: ${locationPoint.lat}, ${locationPoint.lng} - Total: ${Math.round(task.location_tracking.total_distance_meters)}m`)
+}
+
 // Process text message from worker
 async function processTextMessage(chatId: string, text: string, messageId: number) {
   const lowerText = text.toLowerCase().trim()
@@ -154,6 +331,12 @@ async function processTextMessage(chatId: string, text: string, messageId: numbe
 
   const integration = await PMIntegration.findById(task.integration_id)
 
+  // Handle "skip location" response
+  if (lowerText === "⏭️ skip location sharing" || lowerText === "skip") {
+    await removeKeyboard(chatId, "📍 Location tracking skipped. Reply <code>done</code> when finished.")
+    return
+  }
+
   // Handle commands
   if (lowerText === "start" || lowerText === "ok" || lowerText === "yes" || lowerText === "👍") {
     task.status = "started"
@@ -163,13 +346,35 @@ async function processTextMessage(chatId: string, text: string, messageId: numbe
     if (task.telegram_message_id) {
       await updateTaskMessage(chatId, task.telegram_message_id, task, "started")
     }
-    await sendTelegramMessage(chatId, "✅ Task started! Reply <code>done</code> when finished.", messageId)
+
+    // Check if integration has location tracking enabled
+    if (integration?.settings?.enable_location_tracking) {
+      await requestLocation(
+        chatId,
+        `✅ <b>Task started!</b>\n\n` +
+        `📍 Share your live location so your manager can track progress.\n\n` +
+        `This helps with:\n` +
+        `• Real-time delivery tracking\n` +
+        `• Route verification\n` +
+        `• Accurate ETAs\n\n` +
+        `<i>Your location is only tracked during active tasks.</i>`
+      )
+    } else {
+      await sendTelegramMessage(chatId, "✅ Task started! Reply <code>done</code> when finished.", messageId)
+    }
     return
   }
 
   if (lowerText === "done" || lowerText === "complete" || lowerText === "finished" || lowerText === "✅") {
     task.status = "completed"
     task.completed_at = new Date()
+
+    // Stop location tracking
+    if (task.location_tracking?.enabled) {
+      task.location_tracking.enabled = false
+      task.location_tracking.stopped_at = new Date()
+    }
+
     await task.save()
 
     if (task.telegram_message_id) {
@@ -189,7 +394,24 @@ async function processTextMessage(chatId: string, text: string, messageId: numbe
       await integration.save()
     }
 
-    await sendTelegramMessage(chatId, "🎉 Great job! Task marked as complete.", messageId)
+    // Build completion message with stats
+    let completionMsg = "🎉 Great job! Task marked as complete."
+
+    if (task.location_tracking?.total_distance_meters > 0) {
+      const distanceKm = (task.location_tracking.total_distance_meters / 1000).toFixed(2)
+      const durationMins = task.location_tracking.started_at && task.location_tracking.stopped_at
+        ? Math.round((task.location_tracking.stopped_at.getTime() - task.location_tracking.started_at.getTime()) / 60000)
+        : 0
+
+      completionMsg += `\n\n📊 <b>Trip Summary:</b>\n`
+      completionMsg += `📍 Distance: ${distanceKm} km\n`
+      if (durationMins > 0) {
+        completionMsg += `⏱ Duration: ${durationMins} mins\n`
+      }
+      completionMsg += `📸 Photos: ${task.photo_urls?.length || 0}`
+    }
+
+    await removeKeyboard(chatId, completionMsg)
     return
   }
 
@@ -267,11 +489,27 @@ async function processCallbackQuery(callbackQuery: any) {
       await task.save()
       await answerCallback(callbackQuery.id, "Task started! 🔄")
       await updateTaskMessage(chatId, messageId, task, "started")
+
+      // Request location if enabled
+      if (integration?.settings?.enable_location_tracking) {
+        await requestLocation(
+          chatId,
+          `📍 Share your live location to enable tracking.\n\n` +
+          `<i>Tap the button below or skip if not needed.</i>`
+        )
+      }
       break
 
     case "done":
       task.status = "completed"
       task.completed_at = new Date()
+
+      // Stop location tracking
+      if (task.location_tracking?.enabled) {
+        task.location_tracking.enabled = false
+        task.location_tracking.stopped_at = new Date()
+      }
+
       await task.save()
 
       if (integration) {
@@ -281,6 +519,15 @@ async function processCallbackQuery(callbackQuery: any) {
 
       await answerCallback(callbackQuery.id, "Completed! 🎉")
       await updateTaskMessage(chatId, messageId, task, "completed")
+
+      // Show trip summary if tracked
+      if (task.location_tracking?.total_distance_meters > 0) {
+        const distanceKm = (task.location_tracking.total_distance_meters / 1000).toFixed(2)
+        await removeKeyboard(
+          chatId,
+          `📊 <b>Trip Complete!</b>\n📍 Distance: ${distanceKm} km`
+        )
+      }
       break
 
     case "problem":
@@ -353,6 +600,12 @@ export async function POST(request: NextRequest) {
       const message = update.message
       const chatId = String(message.chat.id)
 
+      // Handle location (one-time or live)
+      if (message.location) {
+        await processLocation(chatId, message.location, false)
+        return NextResponse.json({ ok: true })
+      }
+
       // Handle photo
       if (message.photo) {
         await processPhoto(chatId, message.photo, message.caption)
@@ -364,6 +617,13 @@ export async function POST(request: NextRequest) {
         await processTextMessage(chatId, message.text, message.message_id)
         return NextResponse.json({ ok: true })
       }
+    }
+
+    // Handle edited message (live location updates come as edited_message)
+    if (update.edited_message?.location) {
+      const chatId = String(update.edited_message.chat.id)
+      await processLocation(chatId, update.edited_message.location, true)
+      return NextResponse.json({ ok: true })
     }
 
     return NextResponse.json({ ok: true })
