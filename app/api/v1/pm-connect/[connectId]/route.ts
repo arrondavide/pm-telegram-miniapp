@@ -147,13 +147,26 @@ function parseTaskFromWebhook(platform: string, body: any): {
 
     // ClickUp
     if (platform === "clickup" && body.task_id) {
+      // ClickUp sends due_date as Unix timestamp in milliseconds (string)
+      let dueDate: string | undefined
+      if (body.due_date) {
+        try {
+          const timestamp = parseInt(body.due_date)
+          if (!isNaN(timestamp) && timestamp > 0) {
+            dueDate = new Date(timestamp).toISOString()
+          }
+        } catch {
+          // Invalid date, ignore
+        }
+      }
+
       return {
         externalTaskId: body.task_id,
         externalUserId: body.assignees?.[0]?.id ? String(body.assignees[0].id) : undefined,
         title: body.name || "Task",
         description: body.description,
         location: body.custom_fields?.find((f: any) => f.name?.toLowerCase().includes("location"))?.value,
-        dueDate: body.due_date ? new Date(parseInt(body.due_date)).toISOString() : undefined,
+        dueDate,
         priority: mapClickUpPriority(body.priority?.id),
         boardId: body.list?.id,
       }
@@ -283,6 +296,15 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       })
     }
 
+    // Safely parse due date
+    let parsedDueDate: Date | undefined
+    if (taskData.dueDate) {
+      const date = new Date(taskData.dueDate)
+      if (!isNaN(date.getTime())) {
+        parsedDueDate = date
+      }
+    }
+
     // Create new worker task
     workerTask = await WorkerTask.create({
       integration_id: integration._id,
@@ -292,7 +314,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       title: taskData.title,
       description: taskData.description || "",
       location: taskData.location,
-      due_date: taskData.dueDate ? new Date(taskData.dueDate) : undefined,
+      due_date: parsedDueDate,
       priority: taskData.priority,
       status: "sent",
     })
