@@ -48,6 +48,7 @@ function parseWebhookPayload(body: any): {
   status?: string
   url?: string
   source?: string
+  recipients?: string[] // Telegram IDs to send notifications to
 } {
   // GitHub
   if (body.repository && body.sender) {
@@ -111,6 +112,17 @@ function parseWebhookPayload(body: any): {
     }
   }
 
+  // Extract recipients - can be single ID or array
+  let recipients: string[] | undefined
+  const rawRecipients = body.recipients || body.telegram_ids || body.telegram_id || body.chat_ids || body.chat_id
+  if (rawRecipients) {
+    if (Array.isArray(rawRecipients)) {
+      recipients = rawRecipients.map(String)
+    } else {
+      recipients = [String(rawRecipients)]
+    }
+  }
+
   // Generic - look for common fields
   return {
     title: body.title || body.subject || body.name || body.event,
@@ -119,6 +131,7 @@ function parseWebhookPayload(body: any): {
     status: body.status || body.state,
     url: body.url || body.link || body.html_url,
     source: body.source || body.app || body.service,
+    recipients,
   }
 }
 
@@ -193,8 +206,30 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     // Handle based on target type
     if (webhook.target_type === "notification" || webhook.target_type === "both") {
-      // Send notification to webhook creator
-      await sendTelegramNotification(user.telegram_id, message)
+      // Determine recipients:
+      // 1. From payload (highest priority)
+      // 2. From webhook default_recipients
+      // 3. Fall back to webhook creator
+      let recipients: string[] = []
+
+      if (parsed.recipients && parsed.recipients.length > 0) {
+        recipients = parsed.recipients
+      } else if (webhook.default_recipients && webhook.default_recipients.length > 0) {
+        recipients = webhook.default_recipients
+      } else {
+        recipients = [user.telegram_id]
+      }
+
+      // Send notification to all recipients
+      const sendResults = await Promise.allSettled(
+        recipients.map((telegramId) => sendTelegramNotification(telegramId, message))
+      )
+
+      // Log any failures
+      const failures = sendResults.filter((r) => r.status === "rejected")
+      if (failures.length > 0) {
+        console.warn(`[Webhook] Failed to send to ${failures.length}/${recipients.length} recipients`)
+      }
     }
 
     if ((webhook.target_type === "task" || webhook.target_type === "both") && webhook.project_id) {
@@ -224,11 +259,24 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     webhook.last_triggered_at = new Date()
     await webhook.save()
 
+    // Determine final recipients for response
+    let finalRecipients: string[] = []
+    if (webhook.target_type === "notification" || webhook.target_type === "both") {
+      if (parsed.recipients && parsed.recipients.length > 0) {
+        finalRecipients = parsed.recipients
+      } else if (webhook.default_recipients && webhook.default_recipients.length > 0) {
+        finalRecipients = webhook.default_recipients
+      } else {
+        finalRecipients = [user.telegram_id]
+      }
+    }
+
     return NextResponse.json({
       success: true,
       message: "Webhook processed successfully",
       data: {
         type: webhook.target_type,
+        recipientCount: finalRecipients.length,
         parsed: {
           title: parsed.title,
           hasMessage: !!parsed.message,

@@ -40,6 +40,7 @@ export async function GET(request: NextRequest) {
           targetType: w.target_type,
           project: w.project_id ? { id: (w.project_id as any)._id, name: (w.project_id as any).name } : null,
           defaultPriority: w.default_priority,
+          defaultRecipients: w.default_recipients || [],
           usageCount: w.usage_count,
           lastTriggeredAt: w.last_triggered_at,
           createdAt: w.createdAt,
@@ -61,7 +62,14 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { name, companyId, projectId, targetType = "notification", defaultPriority = "medium" } = body
+    const {
+      name,
+      companyId,
+      projectId,
+      targetType = "notification",
+      defaultPriority = "medium",
+      recipients = [], // Telegram IDs to receive notifications
+    } = body
 
     if (!name || !companyId) {
       return NextResponse.json(
@@ -69,6 +77,11 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       )
     }
+
+    // Validate recipients are strings (Telegram IDs)
+    const validRecipients = Array.isArray(recipients)
+      ? recipients.filter((r: any) => typeof r === "string" || typeof r === "number").map(String)
+      : []
 
     await connectToDatabase()
 
@@ -111,6 +124,7 @@ export async function POST(request: NextRequest) {
       target_type: targetType,
       default_priority: defaultPriority,
       default_assignees: [],
+      default_recipients: validRecipients,
     })
 
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "https://whatstask.com"
@@ -123,9 +137,12 @@ export async function POST(request: NextRequest) {
         name: webhook.name,
         url: `${baseUrl}/api/v1/webhook/${hookId}`,
         targetType: webhook.target_type,
+        defaultRecipients: validRecipients,
         createdAt: webhook.createdAt,
       },
-      message: "Webhook created successfully",
+      message: validRecipients.length > 0
+        ? `Webhook created. Notifications will be sent to ${validRecipients.length} recipient(s).`
+        : "Webhook created. Specify recipients in payload or update webhook to set default recipients.",
     })
   } catch (error) {
     console.error("Error creating webhook:", error)

@@ -335,7 +335,7 @@ curl -X GET "https://your-whatstask-url.com/api/v1/webhook/abc123def456"
 
 ### Send Webhook (POST)
 
-Send data to your webhook:
+Send data to your webhook with **custom recipients**:
 
 ```bash
 curl -X POST "https://your-whatstask-url.com/api/v1/webhook/abc123def456" \
@@ -345,7 +345,8 @@ curl -X POST "https://your-whatstask-url.com/api/v1/webhook/abc123def456" \
     "message": "Your message here",
     "priority": "medium",
     "url": "https://example.com/details",
-    "source": "Your App"
+    "source": "Your App",
+    "recipients": ["123456789", "987654321"]
   }'
 ```
 
@@ -356,6 +357,7 @@ curl -X POST "https://your-whatstask-url.com/api/v1/webhook/abc123def456" \
   "message": "Webhook processed successfully",
   "data": {
     "type": "notification",
+    "recipientCount": 2,
     "parsed": {
       "title": "Your Title",
       "hasMessage": true,
@@ -364,6 +366,54 @@ curl -X POST "https://your-whatstask-url.com/api/v1/webhook/abc123def456" \
   }
 }
 ```
+
+### Specifying Recipients
+
+You have **3 ways** to specify who receives notifications:
+
+| Method | Priority | Description |
+|--------|----------|-------------|
+| **In payload** | 1st (highest) | Send `recipients` array in webhook payload |
+| **Default recipients** | 2nd | Set when creating webhook |
+| **Webhook creator** | 3rd (fallback) | If nothing else specified |
+
+**Payload fields for recipients** (any of these work):
+- `recipients`: `["123456789", "987654321"]`
+- `telegram_ids`: `["123456789"]`
+- `telegram_id`: `"123456789"` (single recipient)
+- `chat_ids`: `["123456789"]`
+- `chat_id`: `"123456789"`
+
+### Create Webhook with Default Recipients
+
+When creating a webhook, you can set default recipients:
+
+```bash
+curl -X POST "https://your-whatstask-url.com/api/developer/webhooks" \
+  -H "Content-Type: application/json" \
+  -H "x-telegram-id: YOUR_TELEGRAM_ID" \
+  -d '{
+    "name": "Team Alerts",
+    "companyId": "YOUR_COMPANY_ID",
+    "targetType": "notification",
+    "recipients": ["111111111", "222222222", "333333333"]
+  }'
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "hookId": "abc123def456",
+    "url": "https://app.com/api/v1/webhook/abc123def456",
+    "defaultRecipients": ["111111111", "222222222", "333333333"]
+  },
+  "message": "Webhook created. Notifications will be sent to 3 recipient(s)."
+}
+```
+
+Now ALL webhooks to this URL will notify those 3 people (unless overridden in payload).
 
 ### Webhook Target Types
 
@@ -456,14 +506,26 @@ Contact your WhatsTask administrator for:
 │    -H "Content-Type: application/json" \                            │
 │    -d '{"title":"Test","message":"Hello!"}'                         │
 │                                                                     │
+│  SEND TO MULTIPLE PEOPLE:                                           │
+│  curl -X POST [YOUR_WEBHOOK_URL] \                                  │
+│    -H "Content-Type: application/json" \                            │
+│    -d '{"title":"Alert","message":"Check this!",                    │
+│         "recipients":["123456789","987654321"]}'                    │
+│                                                                     │
 │  PAYLOAD FORMAT:                                                    │
 │  {                                                                  │
-│    "title": "...",      // Required - notification title            │
-│    "message": "...",    // Optional - notification body             │
-│    "priority": "...",   // Optional - low/medium/high/urgent        │
-│    "url": "...",        // Optional - link to details               │
-│    "source": "..."      // Optional - your app name                 │
+│    "title": "...",       // Required - notification title           │
+│    "message": "...",     // Optional - notification body            │
+│    "recipients": [...],  // Optional - Telegram IDs to notify       │
+│    "priority": "...",    // Optional - low/medium/high/urgent       │
+│    "url": "...",         // Optional - link to details              │
+│    "source": "..."       // Optional - your app name                │
 │  }                                                                  │
+│                                                                     │
+│  RECIPIENT PRIORITY:                                                │
+│  1. recipients in payload (if provided)                             │
+│  2. default_recipients on webhook (if configured)                   │
+│  3. webhook creator (fallback)                                      │
 │                                                                     │
 │  SUPPORTED SERVICES:                                                │
 │  GitHub, Stripe, Vercel, Linear, + any webhook-capable service      │

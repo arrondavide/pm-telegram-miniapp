@@ -639,6 +639,7 @@ export interface IWebhook extends Document {
   target_type: "notification" | "task" | "both"
   default_priority: "low" | "medium" | "high" | "urgent"
   default_assignees: mongoose.Types.ObjectId[]
+  default_recipients: string[] // Telegram IDs to receive notifications
   is_active: boolean
   usage_count: number
   last_triggered_at?: Date
@@ -700,6 +701,7 @@ const webhookSchema = new Schema<IWebhook>(
       default: "medium",
     },
     default_assignees: [{ type: Schema.Types.ObjectId, ref: "User" }],
+    default_recipients: [{ type: String }], // Telegram IDs to receive notifications
     is_active: { type: Boolean, default: true },
     usage_count: { type: Number, default: 0 },
     last_triggered_at: { type: Date },
