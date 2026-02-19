@@ -54,7 +54,7 @@ wt_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2w3x4
 Include the API key in the header of your requests:
 
 ```bash
-curl -X GET "https://your-whatstask-url.com/api/developer/webhooks" \
+curl -X GET "https://pm.whatstask.com/api/developer/webhooks" \
   -H "x-api-key: wt_your_api_key_here"
 ```
 
@@ -79,7 +79,7 @@ curl -X GET "https://your-whatstask-url.com/api/developer/webhooks" \
 
 You will receive a webhook URL that looks like:
 ```
-https://your-whatstask-url.com/api/v1/webhook/abc123def456
+https://pm.whatstask.com/api/v1/webhook/abc123def456
 ```
 
 This is the URL you'll add to your external services.
@@ -95,7 +95,7 @@ This is the URL you'll add to your external services.
 #### Step 1: Get Your Webhook URL
 Your WhatsTask admin will provide you with a webhook URL like:
 ```
-https://your-whatstask-url.com/api/v1/webhook/abc123def456
+https://pm.whatstask.com/api/v1/webhook/abc123def456
 ```
 
 #### Step 2: Add Webhook to GitHub
@@ -106,7 +106,7 @@ https://your-whatstask-url.com/api/v1/webhook/abc123def456
 
 | Field | Value |
 |-------|-------|
-| **Payload URL** | `https://your-whatstask-url.com/api/v1/webhook/abc123def456` |
+| **Payload URL** | `https://pm.whatstask.com/api/v1/webhook/abc123def456` |
 | **Content type** | `application/json` |
 | **Secret** | Leave empty (or set if provided) |
 | **Events** | Select: `Pull requests`, `Issues`, `Pushes` |
@@ -144,7 +144,7 @@ via GitHub → WhatsTask
 
 | Field | Value |
 |-------|-------|
-| **Endpoint URL** | `https://your-whatstask-url.com/api/v1/webhook/abc123def456` |
+| **Endpoint URL** | `https://pm.whatstask.com/api/v1/webhook/abc123def456` |
 | **Events** | Select: `payment_intent.succeeded`, `invoice.paid`, etc. |
 
 #### Step 3: Save & Test
@@ -176,7 +176,7 @@ via Stripe → WhatsTask
 
 | Field | Value |
 |-------|-------|
-| **URL** | `https://your-whatstask-url.com/api/v1/webhook/abc123def456` |
+| **URL** | `https://pm.whatstask.com/api/v1/webhook/abc123def456` |
 | **Events** | `deployment.created`, `deployment.succeeded`, `deployment.failed` |
 
 #### Step 3: Deploy Something
@@ -203,7 +203,7 @@ via Vercel → WhatsTask
 
 #### Using cURL
 ```bash
-curl -X POST "https://your-whatstask-url.com/api/v1/webhook/abc123def456" \
+curl -X POST "https://pm.whatstask.com/api/v1/webhook/abc123def456" \
   -H "Content-Type: application/json" \
   -d '{
     "title": "Server Alert",
@@ -217,7 +217,7 @@ curl -X POST "https://your-whatstask-url.com/api/v1/webhook/abc123def456" \
 ```javascript
 const sendNotification = async () => {
   const response = await fetch(
-    "https://your-whatstask-url.com/api/v1/webhook/abc123def456",
+    "https://pm.whatstask.com/api/v1/webhook/abc123def456",
     {
       method: "POST",
       headers: {
@@ -243,7 +243,7 @@ sendNotification();
 ```python
 import requests
 
-webhook_url = "https://your-whatstask-url.com/api/v1/webhook/abc123def456"
+webhook_url = "https://pm.whatstask.com/api/v1/webhook/abc123def456"
 
 data = {
     "title": "Backup Completed",
@@ -259,7 +259,7 @@ print(response.json())
 #### Using PHP
 ```php
 <?php
-$webhook_url = "https://your-whatstask-url.com/api/v1/webhook/abc123def456";
+$webhook_url = "https://pm.whatstask.com/api/v1/webhook/abc123def456";
 
 $data = [
     "title" => "Form Submission",
@@ -317,7 +317,7 @@ For any other service, we look for these common fields:
 Check if your webhook is active:
 
 ```bash
-curl -X GET "https://your-whatstask-url.com/api/v1/webhook/abc123def456"
+curl -X GET "https://pm.whatstask.com/api/v1/webhook/abc123def456"
 ```
 
 **Response:**
@@ -338,7 +338,7 @@ curl -X GET "https://your-whatstask-url.com/api/v1/webhook/abc123def456"
 Send data to your webhook with **custom recipients**:
 
 ```bash
-curl -X POST "https://your-whatstask-url.com/api/v1/webhook/abc123def456" \
+curl -X POST "https://pm.whatstask.com/api/v1/webhook/abc123def456" \
   -H "Content-Type: application/json" \
   -d '{
     "title": "Your Title",
@@ -389,7 +389,7 @@ You have **3 ways** to specify who receives notifications:
 When creating a webhook, you can set default recipients:
 
 ```bash
-curl -X POST "https://your-whatstask-url.com/api/developer/webhooks" \
+curl -X POST "https://pm.whatstask.com/api/developer/webhooks" \
   -H "Content-Type: application/json" \
   -H "x-telegram-id: YOUR_TELEGRAM_ID" \
   -d '{
@@ -499,7 +499,7 @@ Contact your WhatsTask administrator for:
 ├─────────────────────────────────────────────────────────────────────┤
 │                                                                     │
 │  YOUR WEBHOOK URL:                                                  │
-│  https://your-whatstask-url.com/api/v1/webhook/[YOUR_HOOK_ID]       │
+│  https://pm.whatstask.com/api/v1/webhook/[YOUR_HOOK_ID]       │
 │                                                                     │
 │  SIMPLE TEST:                                                       │
 │  curl -X POST [YOUR_WEBHOOK_URL] \                                  │
