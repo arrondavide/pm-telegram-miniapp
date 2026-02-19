@@ -84,10 +84,11 @@ export async function POST(request: NextRequest) {
     })
 
     // Send Telegram notification if enabled
-    if (sendTelegram && process.env.BOT_TOKEN) {
+    const botToken = process.env.TELEGRAM_BOT_TOKEN || process.env.BOT_TOKEN
+    if (sendTelegram && botToken) {
       try {
         const telegramMessage = `<b>${title}</b>\n\n${message}`
-        await fetch(`https://api.telegram.org/bot${process.env.BOT_TOKEN}/sendMessage`, {
+        await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({

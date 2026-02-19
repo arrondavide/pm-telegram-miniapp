@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 
-const BOT_TOKEN = process.env.BOT_TOKEN
+const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || process.env.BOT_TOKEN
 
 export async function POST(request: NextRequest) {
   try {
