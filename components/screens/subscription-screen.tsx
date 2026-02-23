@@ -18,7 +18,7 @@ interface SubscriptionScreenProps {
 }
 
 export function SubscriptionScreen({ onBack }: SubscriptionScreenProps) {
-  const { user, hapticFeedback, openInvoice } = useTelegram()
+  const { webApp, user, hapticFeedback, openInvoice } = useTelegram()
   const currentUser = useUserStore((state) => state.currentUser)
   const { subscriptions, limits, usage, isLoading, fetchBillingState, getActiveTier, setBillingState } =
     useSubscriptionStore()
@@ -36,8 +36,26 @@ export function SubscriptionScreen({ onBack }: SubscriptionScreenProps) {
     }
   }, [telegramId, fetchBillingState])
 
+  const showAlert = (message: string) => {
+    if (webApp?.showAlert) {
+      webApp.showAlert(message)
+    } else {
+      alert(message)
+    }
+  }
+
   const handleUpgrade = async (plan: PlanDefinition) => {
-    if (!companyId || plan.priceStars === 0) return
+    if (plan.priceStars === 0) return
+
+    if (!companyId) {
+      showAlert("Please select a company first before upgrading.")
+      return
+    }
+
+    if (!webApp?.openInvoice) {
+      showAlert("Payments are only available inside the Telegram app. Please open WhatsTask from Telegram.")
+      return
+    }
 
     setPurchaseLoading(plan.id)
     hapticFeedback("medium")
@@ -52,20 +70,25 @@ export function SubscriptionScreen({ onBack }: SubscriptionScreenProps) {
         openInvoice(response.data.invoiceLink, (status) => {
           if (status === "paid") {
             hapticFeedback("success")
-            // Refresh billing state after payment
+            showAlert(`Successfully upgraded to ${plan.name}! Your new features are now active.`)
             fetchBillingState(telegramId)
+          } else if (status === "cancelled") {
+            hapticFeedback("warning")
           } else if (status === "failed") {
             hapticFeedback("error")
+            showAlert("Payment failed. Please try again or check your Telegram Stars balance.")
           }
           setPurchaseLoading(null)
         })
       } else {
         hapticFeedback("error")
+        showAlert(response.error || "Failed to create invoice. Please try again.")
         setPurchaseLoading(null)
       }
     } catch (error) {
       console.error("Upgrade error:", error)
       hapticFeedback("error")
+      showAlert("Something went wrong. Please try again.")
       setPurchaseLoading(null)
     }
   }
@@ -84,13 +107,16 @@ export function SubscriptionScreen({ onBack }: SubscriptionScreenProps) {
 
       if (response.success) {
         hapticFeedback("success")
+        showAlert("Subscription will be cancelled at the end of your current billing period. You'll keep access until then.")
         fetchBillingState(telegramId)
       } else {
         hapticFeedback("error")
+        showAlert(response.error || "Failed to cancel subscription. Please try again.")
       }
     } catch (error) {
       console.error("Cancel error:", error)
       hapticFeedback("error")
+      showAlert("Something went wrong. Please try again.")
     } finally {
       setCancelLoading(null)
     }

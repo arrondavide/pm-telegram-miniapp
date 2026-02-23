@@ -54,7 +54,7 @@ export function ProjectDetailScreen({ projectId, onBack, onTaskClick, onCreateTa
 
   const company = getActiveCompany()
 
-  const { hapticFeedback, showBackButton, hideBackButton, openInvoice } = useTelegram()
+  const { webApp, hapticFeedback, showBackButton, hideBackButton, openInvoice } = useTelegram()
 
   const { taskViewMode, setTaskViewMode } = useUIStore()
   const { isViewAllowed } = useSubscriptionStore()
@@ -237,7 +237,16 @@ export function ProjectDetailScreen({ projectId, onBack, onTaskClick, onCreateTa
   }
 
   const handleUpgrade = async () => {
-    if (!currentUser?.telegramId || !company?.id) return
+    if (!currentUser?.telegramId || !company?.id) {
+      const msg = "Please select a company first."
+      webApp?.showAlert ? webApp.showAlert(msg) : alert(msg)
+      return
+    }
+    if (!webApp?.openInvoice) {
+      const msg = "Payments are only available inside the Telegram app."
+      webApp?.showAlert ? webApp.showAlert(msg) : alert(msg)
+      return
+    }
     try {
       const response = await subscriptionApi.createInvoice(
         { planId: "core-pro", companyId: company.id },
@@ -247,12 +256,23 @@ export function ProjectDetailScreen({ projectId, onBack, onTaskClick, onCreateTa
         openInvoice(response.data.invoiceLink, (status) => {
           if (status === "paid") {
             hapticFeedback("success")
+          } else if (status === "failed") {
+            hapticFeedback("error")
+            const msg = "Payment failed. Please check your Stars balance and try again."
+            webApp?.showAlert ? webApp.showAlert(msg) : alert(msg)
           }
           setShowUpgradePrompt(false)
         })
+      } else {
+        hapticFeedback("error")
+        const msg = response.error || "Failed to create invoice. Please try again."
+        webApp?.showAlert ? webApp.showAlert(msg) : alert(msg)
       }
     } catch (error) {
       console.error("Upgrade error:", error)
+      hapticFeedback("error")
+      const msg = "Something went wrong. Please try again."
+      webApp?.showAlert ? webApp.showAlert(msg) : alert(msg)
     }
   }
 
