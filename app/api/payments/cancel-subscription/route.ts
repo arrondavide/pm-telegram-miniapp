@@ -14,6 +14,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "pillar and companyId are required" }, { status: 400 })
     }
 
+    const validPillars = ["core", "pm-connect", "developer-api"]
+    if (!validPillars.includes(pillar)) {
+      return NextResponse.json({ error: "Invalid pillar. Must be one of: core, pm-connect, developer-api" }, { status: 400 })
+    }
+
     await connectToDatabase()
 
     const user = await User.findOne({ telegram_id: telegramId })

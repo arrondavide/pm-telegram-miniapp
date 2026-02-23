@@ -51,10 +51,6 @@ export async function GET(request: NextRequest) {
     const startOfDay = new Date()
     startOfDay.setHours(0, 0, 0, 0)
 
-    const startOfMonth = new Date()
-    startOfMonth.setDate(1)
-    startOfMonth.setHours(0, 0, 0, 0)
-
     const [
       projectCount,
       memberCount,

@@ -969,6 +969,7 @@ export interface ISubscription extends Document {
   cancelled_at?: Date
   cancel_at_period_end: boolean
   telegram_payment_charge_id?: string
+  renewal_reminder_sent_at?: Date
   created_by: mongoose.Types.ObjectId
   createdAt: Date
   updatedAt: Date
@@ -1006,6 +1007,7 @@ const subscriptionSchema = new Schema<ISubscription>(
     cancelled_at: { type: Date },
     cancel_at_period_end: { type: Boolean, default: false },
     telegram_payment_charge_id: { type: String },
+    renewal_reminder_sent_at: { type: Date },
     created_by: { type: Schema.Types.ObjectId, ref: "User", required: true },
   },
   { timestamps: true }
@@ -1033,6 +1035,10 @@ const paymentSchema = new Schema<IPayment>(
 // Indexes for Subscriptions & Payments
 subscriptionSchema.index({ company_id: 1, pillar: 1, status: 1 })
 subscriptionSchema.index({ current_period_end: 1, status: 1 })
+subscriptionSchema.index(
+  { company_id: 1, pillar: 1 },
+  { unique: true, partialFilterExpression: { status: "active" } }
+)
 paymentSchema.index({ company_id: 1, createdAt: -1 })
 
 export const Subscription: Model<ISubscription> =

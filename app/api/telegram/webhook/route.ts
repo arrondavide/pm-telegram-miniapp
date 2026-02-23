@@ -700,6 +700,14 @@ async function handleSuccessfulPayment(msg: any) {
     console.log(`[Payment] Success: ${plan.pillar}/${plan.tier} for company ${payload.companyId}`)
   } catch (error) {
     console.error("[Payment] Processing error:", error)
+    // Notify user about the failure
+    await sendTelegramMessage(
+      chatId,
+      `❌ <b>Payment processing error</b>\n\n` +
+      `Your payment was received but we encountered an issue activating your subscription. ` +
+      `Please contact support with this reference: <code>${payment.telegram_payment_charge_id}</code>\n\n` +
+      `Our team will resolve this as soon as possible.`
+    )
   }
 }
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { connectToDatabase } from "@/lib/mongodb"
-import { PMIntegration } from "@/lib/models"
+import { PMIntegration, User } from "@/lib/models"
+import { checkQuota } from "@/lib/quota"
 import mongoose from "mongoose"
 
 interface RouteParams {
@@ -58,10 +59,25 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       )
     }
 
-    // Check if worker already exists
+    // Check worker quota before adding new worker
     const existingWorker = integration.workers.find(
       w => w.telegram_id === workerTelegramId
     )
+
+    if (!existingWorker) {
+      // Only check quota for new workers, not reactivations
+      const user = await User.findOne({ telegram_id: telegramId })
+      const companyId = user?.active_company_id?.toString()
+      if (companyId) {
+        const quotaResult = await checkQuota(companyId, "workers", { telegramId })
+        if (!quotaResult.allowed) {
+          return NextResponse.json(
+            { success: false, error: quotaResult.message, quotaExceeded: true, planRequired: quotaResult.planRequired },
+            { status: 403 }
+          )
+        }
+      }
+    }
 
     if (existingWorker) {
       // Update existing worker

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { connectToDatabase } from "@/lib/mongodb"
 import { Webhook, User } from "@/lib/models"
+import { checkQuota } from "@/lib/quota"
 import crypto from "crypto"
 
 // Generate unique hook ID
@@ -101,15 +102,12 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Limit webhooks per user
-    const existingCount = await Webhook.countDocuments({
-      user_id: user._id,
-      is_active: true,
-    })
-    if (existingCount >= 20) {
+    // Check webhook quota based on subscription tier
+    const quotaResult = await checkQuota(companyId, "webhooks_per_month")
+    if (!quotaResult.allowed) {
       return NextResponse.json(
-        { success: false, error: "Maximum of 20 webhooks allowed" },
-        { status: 400 }
+        { success: false, error: quotaResult.message, quotaExceeded: true, planRequired: quotaResult.planRequired },
+        { status: 403 }
       )
     }
 

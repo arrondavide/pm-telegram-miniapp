@@ -59,28 +59,91 @@ export async function GET(request: NextRequest) {
         [`subscription_tier.${sub.pillar}`]: "free",
       })
 
-      // Notify the user who created the subscription
+      // Notify the user with a renewal invoice link for easy re-subscription
       const user = await User.findById(sub.created_by)
       if (user) {
         const plan = getPlanById(sub.plan_id)
         const pillarLabel = sub.pillar === "core" ? "PM" :
           sub.pillar === "pm-connect" ? "PM Connect" : "Developer API"
 
-        await sendMessage(
-          user.telegram_id,
-          `⏰ Your *${plan?.name || sub.tier} - ${pillarLabel}* subscription has expired.\n\n` +
-          `Your account has been downgraded to the Free plan. Upgrade again in WhatsTask to restore your features.`,
-        )
+        const botToken = process.env.TELEGRAM_BOT_TOKEN
+        if (botToken && plan) {
+          try {
+            const payload = JSON.stringify({
+              planId: sub.plan_id,
+              companyId: sub.company_id.toString(),
+              userId: user._id.toString(),
+              telegramId: user.telegram_id,
+              pillar: sub.pillar,
+              tier: sub.tier,
+              timestamp: Date.now(),
+            })
+
+            const response = await fetch(`${BOT_API_BASE}${botToken}/createInvoiceLink`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                title: `Renew ${plan.name} - ${pillarLabel}`,
+                description: `Renew your ${plan.name} subscription`,
+                payload,
+                provider_token: "",
+                currency: "XTR",
+                prices: [{ label: `${plan.name} Renewal`, amount: plan.priceStars }],
+              }),
+            })
+
+            const data = await response.json()
+            if (data.ok) {
+              await sendMessage(
+                user.telegram_id,
+                `⏰ Your *${plan.name} - ${pillarLabel}* subscription has expired.\n\n` +
+                `Your account has been downgraded to the Free plan. Renew now to restore your features.`,
+                {
+                  reply_markup: {
+                    inline_keyboard: [[
+                      { text: `⭐ Renew for ${plan.priceStars} Stars`, url: data.result }
+                    ]]
+                  }
+                }
+              )
+            } else {
+              await sendMessage(
+                user.telegram_id,
+                `⏰ Your *${plan?.name || sub.tier} - ${pillarLabel}* subscription has expired.\n\n` +
+                `Your account has been downgraded to the Free plan. Upgrade again in WhatsTask to restore your features.`,
+              )
+            }
+          } catch (err) {
+            console.error("[Cron] Failed to create renewal invoice for expired sub:", err)
+            await sendMessage(
+              user.telegram_id,
+              `⏰ Your *${plan?.name || sub.tier} - ${pillarLabel}* subscription has expired.\n\n` +
+              `Your account has been downgraded to the Free plan. Upgrade again in WhatsTask to restore your features.`,
+            )
+          }
+        } else {
+          await sendMessage(
+            user.telegram_id,
+            `⏰ Your *${plan?.name || sub.tier} - ${pillarLabel}* subscription has expired.\n\n` +
+            `Your account has been downgraded to the Free plan. Upgrade again in WhatsTask to restore your features.`,
+          )
+        }
       }
       expired++
     }
 
-    // 3. Send renewal reminders for subscriptions expiring in 3 days
+    // 3. Send renewal reminders for subscriptions expiring in 3 days (deduplicated)
     const threeDaysFromNow = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000)
+    const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000)
     const expiringSoon = await Subscription.find({
       status: "active",
       cancel_at_period_end: false,
       current_period_end: { $gt: now, $lt: threeDaysFromNow },
+      $or: [
+        { renewal_reminder_sent_at: { $exists: false } },
+        { renewal_reminder_sent_at: null },
+        { renewal_reminder_sent_at: { $lt: oneDayAgo } },
+      ],
     })
 
     for (const sub of expiringSoon) {
@@ -132,6 +195,8 @@ export async function GET(request: NextRequest) {
                   }
                 }
               )
+              sub.renewal_reminder_sent_at = now
+              await sub.save()
               reminders++
             }
           } catch (err) {

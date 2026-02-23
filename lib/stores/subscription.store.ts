@@ -87,7 +87,7 @@ export const useSubscriptionStore = create<SubscriptionState & SubscriptionActio
 
       isAtLimit: (resource) => {
         const { limits, usage } = get()
-        if (!limits || !usage) return false
+        if (!limits || !usage) return true // Restrictive default until data loads
 
         const limitMap: Record<keyof BillingState["usage"], number> = {
           projectCount: limits.maxProjects,

@@ -30,15 +30,20 @@ export async function POST(request: Request) {
       }
     }
 
-    // Check AI quota
-    if (companyId) {
-      const quotaResult = await checkQuota(companyId, "ai_queries")
-      if (!quotaResult.allowed) {
-        return NextResponse.json(
-          { success: false, error: quotaResult.message, quotaExceeded: true, planRequired: quotaResult.planRequired },
-          { status: 403 }
-        )
-      }
+    // Check AI quota — require company context to track usage
+    if (!companyId) {
+      return NextResponse.json(
+        { success: false, error: "A company context is required to use AI features. Please select a company first.", quotaExceeded: true },
+        { status: 403 }
+      )
+    }
+
+    const quotaResult = await checkQuota(companyId, "ai_queries")
+    if (!quotaResult.allowed) {
+      return NextResponse.json(
+        { success: false, error: quotaResult.message, quotaExceeded: true, planRequired: quotaResult.planRequired },
+        { status: 403 }
+      )
     }
 
     // Generate project structure
