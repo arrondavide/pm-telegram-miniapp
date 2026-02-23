@@ -3,6 +3,7 @@ import { connectToDatabase } from "@/lib/mongodb"
 import { Project, User } from "@/lib/models"
 import { projectTransformer } from "@/lib/transformers"
 import { validateBody, createProjectSchema } from "@/lib/validators"
+import { checkQuota } from "@/lib/quota"
 import mongoose from "mongoose"
 
 // GET /api/projects?companyId={id}
@@ -102,6 +103,15 @@ export async function POST(request: NextRequest) {
     // Only admins and managers can create projects
     if (!["admin", "manager"].includes(companyAccess.role)) {
       return NextResponse.json({ error: "Only admins and managers can create projects" }, { status: 403 })
+    }
+
+    // Check project quota
+    const quotaResult = await checkQuota(companyId, "projects")
+    if (!quotaResult.allowed) {
+      return NextResponse.json(
+        { error: quotaResult.message, quotaExceeded: true, planRequired: quotaResult.planRequired },
+        { status: 403 }
+      )
     }
 
     // Create the project using transformer for database format

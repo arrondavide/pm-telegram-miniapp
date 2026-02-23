@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { connectToDatabase } from "@/lib/mongodb"
 import { ApiKey, User } from "@/lib/models"
+import { checkQuota } from "@/lib/quota"
 import crypto from "crypto"
 
 // Generate a secure API key
@@ -87,14 +88,11 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Limit keys per user
-    const existingKeysCount = await ApiKey.countDocuments({
-      user_id: user._id,
-      is_active: true,
-    })
-    if (existingKeysCount >= 10) {
+    // Check API key quota
+    const quotaResult = await checkQuota(companyId, "api_keys")
+    if (!quotaResult.allowed) {
       return NextResponse.json(
-        { success: false, error: "Maximum of 10 API keys allowed" },
+        { success: false, error: quotaResult.message, quotaExceeded: true, planRequired: quotaResult.planRequired },
         { status: 400 }
       )
     }

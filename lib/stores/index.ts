@@ -13,6 +13,7 @@ export { useTaskStore } from "./task.store"
 export { useTimeStore } from "./time.store"
 export { useNotificationStore } from "./notification.store"
 export { useCommentStore } from "./comment.store"
+export { useSubscriptionStore } from "./subscription.store"
 
 // Re-export types for convenience
 export type { User, UserCompany, UserSummary } from "@/types/models.types"
@@ -39,6 +40,7 @@ import { useTaskStore } from "./task.store"
 import { useTimeStore } from "./time.store"
 import { useNotificationStore } from "./notification.store"
 import { useCommentStore } from "./comment.store"
+import { useSubscriptionStore } from "./subscription.store"
 
 export function useStores() {
   return {
@@ -49,6 +51,7 @@ export function useStores() {
     time: useTimeStore(),
     notification: useNotificationStore(),
     comment: useCommentStore(),
+    subscription: useSubscriptionStore(),
   }
 }
 

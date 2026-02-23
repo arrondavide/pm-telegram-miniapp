@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { connectToDatabase } from "@/lib/mongodb"
-import { PMIntegration } from "@/lib/models"
+import { PMIntegration, User } from "@/lib/models"
+import { checkQuota } from "@/lib/quota"
 import crypto from "crypto"
 
 // Generate unique connect ID
@@ -82,15 +83,17 @@ export async function POST(request: NextRequest) {
 
     await connectToDatabase()
 
-    // Limit integrations per user
-    const existingCount = await PMIntegration.countDocuments({
-      owner_telegram_id: telegramId,
-    })
-    if (existingCount >= 10) {
-      return NextResponse.json(
-        { success: false, error: "Maximum of 10 integrations allowed" },
-        { status: 400 }
-      )
+    // Check integration quota
+    const user = await User.findOne({ telegram_id: telegramId })
+    const companyId = user?.active_company_id?.toString()
+    if (companyId) {
+      const quotaResult = await checkQuota(companyId, "integrations", { telegramId })
+      if (!quotaResult.allowed) {
+        return NextResponse.json(
+          { success: false, error: quotaResult.message, quotaExceeded: true, planRequired: quotaResult.planRequired },
+          { status: 400 }
+        )
+      }
     }
 
     const connectId = generateConnectId()

@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { Building2, Bell, Clock, ChevronRight, Check, Moon, Sun, Settings, Trash2, UserPlus, Plus, Sparkles, Mic, Code, Key } from "lucide-react"
+import { Building2, Bell, Clock, ChevronRight, Check, Moon, Sun, Settings, Trash2, UserPlus, Plus, Sparkles, Mic, Code, Key, Crown } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Switch } from "@/components/ui/switch"
 import { Badge } from "@/components/ui/badge"
@@ -36,9 +36,10 @@ import Image from "next/image"
 interface ProfileScreenProps {
   onDeveloperClick?: () => void
   onPMConnectClick?: () => void
+  onSubscriptionClick?: () => void
 }
 
-export function ProfileScreen({ onDeveloperClick, onPMConnectClick }: ProfileScreenProps) {
+export function ProfileScreen({ onDeveloperClick, onPMConnectClick, onSubscriptionClick }: ProfileScreenProps) {
   const currentUser = useUserStore((state) => state.currentUser)
   const setCurrentUser = useUserStore((state) => state.setCurrentUser)
   const getUserRole = useUserStore((state) => state.getUserRole)
@@ -342,6 +343,27 @@ export function ProfileScreen({ onDeveloperClick, onPMConnectClick }: ProfileScr
             </div>
           </CardContent>
         </Card>
+
+        {/* Subscription & Billing */}
+        {onSubscriptionClick && (
+          <Card
+            className="cursor-pointer border-border/50 transition-colors hover:bg-muted/50"
+            onClick={onSubscriptionClick}
+          >
+            <CardContent className="flex items-center justify-between p-4">
+              <div className="flex items-center gap-3">
+                <div className="rounded-lg bg-gradient-to-br from-amber-500/20 to-yellow-500/20 p-2">
+                  <Crown className="h-5 w-5 text-amber-600" />
+                </div>
+                <div>
+                  <p className="font-medium">Subscription & Billing</p>
+                  <p className="text-sm text-muted-foreground">Manage plans & usage</p>
+                </div>
+              </div>
+              <ChevronRight className="h-5 w-5 text-muted-foreground" />
+            </CardContent>
+          </Card>
+        )}
 
         {/* Developer API - Only show for admins/managers */}
         {(userRole === "admin" || userRole === "manager") && onDeveloperClick && (

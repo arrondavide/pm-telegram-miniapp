@@ -75,6 +75,7 @@ interface WebApp {
   }) => void
   showAlert: (message: string, callback?: () => void) => void
   showConfirm: (message: string, callback?: (confirmed: boolean) => void) => void
+  openInvoice: (url: string, callback?: (status: string) => void) => void
 }
 
 declare global {
@@ -212,6 +213,20 @@ export function useTelegram() {
     return `https://t.me/${botUsername}/app?startapp=join_${inviteCode}`
   }, [])
 
+  const openInvoice = useCallback(
+    (url: string, callback?: (status: "paid" | "cancelled" | "failed" | "pending") => void) => {
+      if (!webApp?.openInvoice) {
+        console.warn("openInvoice not available outside Telegram")
+        callback?.("failed")
+        return
+      }
+      webApp.openInvoice(url, (status: string) => {
+        callback?.(status as "paid" | "cancelled" | "failed" | "pending")
+      })
+    },
+    [webApp],
+  )
+
   return {
     webApp,
     user,
@@ -227,5 +242,6 @@ export function useTelegram() {
     openBotChat,
     shareInviteLink,
     getInviteLink,
+    openInvoice,
   }
 }

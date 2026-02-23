@@ -13,6 +13,7 @@ import { NotificationsScreen } from "@/components/screens/notifications-screen"
 import { CreateProjectScreen } from "@/components/screens/create-project-screen"
 import { DeveloperScreen } from "@/components/screens/developer-screen"
 import { PMConnectScreen } from "@/components/screens/pm-connect-screen"
+import { SubscriptionScreen } from "@/components/screens/subscription-screen"
 import { InAppNotification } from "@/components/in-app-notification"
 import { useUserStore } from "@/lib/stores/user.store"
 import { useCompanyStore } from "@/lib/stores/company.store"
@@ -35,6 +36,7 @@ export type Screen =
   | "notifications"
   | "developer"
   | "pm-connect"
+  | "subscription"
 
 interface MainAppProps {
   pendingInviteCode?: string | null
@@ -157,12 +159,15 @@ export function MainApp({ pendingInviteCode, onCodeUsed }: MainAppProps) {
           <ProfileScreen
             onDeveloperClick={() => setActiveScreen("developer")}
             onPMConnectClick={() => setActiveScreen("pm-connect")}
+            onSubscriptionClick={() => setActiveScreen("subscription")}
           />
         )
       case "developer":
         return <DeveloperScreen onBack={() => setActiveScreen("profile")} />
       case "pm-connect":
         return <PMConnectScreen onBack={() => setActiveScreen("profile")} />
+      case "subscription":
+        return <SubscriptionScreen onBack={() => setActiveScreen("profile")} />
       case "notifications":
         return <NotificationsScreen onBack={() => setActiveScreen("projects")} onTaskSelect={handleTaskSelect} />
       case "create-task":
@@ -213,7 +218,7 @@ export function MainApp({ pendingInviteCode, onCodeUsed }: MainAppProps) {
     }
   }
 
-  const showBottomNav = !["project-detail", "create-project", "create-task", "task-detail", "developer", "pm-connect"].includes(
+  const showBottomNav = !["project-detail", "create-project", "create-task", "task-detail", "developer", "pm-connect", "subscription"].includes(
     activeScreen,
   )
 

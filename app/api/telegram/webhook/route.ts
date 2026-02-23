@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { connectToDatabase } from "@/lib/mongodb"
-import { WorkerTask, PMIntegration } from "@/lib/models"
+import { WorkerTask, PMIntegration, Subscription, Payment, Company } from "@/lib/models"
+import { getPlanById } from "@/lib/plans"
 
 // Send message to Telegram
 async function sendTelegramMessage(chatId: string, text: string, replyToMessageId?: number) {
@@ -581,6 +582,127 @@ async function processPhoto(chatId: string, photo: any[], caption?: string) {
   }
 }
 
+// ==================== PAYMENT HANDLERS ====================
+
+async function handlePreCheckoutQuery(query: any) {
+  const botToken = process.env.TELEGRAM_BOT_TOKEN
+  if (!botToken) return
+
+  try {
+    const payload = JSON.parse(query.invoice_payload)
+    const plan = getPlanById(payload.planId)
+
+    const isValid = plan && plan.priceStars === query.total_amount && query.currency === "XTR"
+
+    await fetch(`https://api.telegram.org/bot${botToken}/answerPreCheckoutQuery`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        pre_checkout_query_id: query.id,
+        ok: isValid,
+        ...(!isValid ? { error_message: "Invalid subscription request. Please try again." } : {}),
+      }),
+    })
+  } catch (error) {
+    console.error("[Payment] Pre-checkout error:", error)
+    const botToken = process.env.TELEGRAM_BOT_TOKEN
+    if (botToken) {
+      await fetch(`https://api.telegram.org/bot${botToken}/answerPreCheckoutQuery`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          pre_checkout_query_id: query.id,
+          ok: false,
+          error_message: "An error occurred. Please try again.",
+        }),
+      })
+    }
+  }
+}
+
+async function handleSuccessfulPayment(msg: any) {
+  const payment = msg.successful_payment
+  const chatId = String(msg.chat.id)
+
+  try {
+    const payload = JSON.parse(payment.invoice_payload)
+    const plan = getPlanById(payload.planId)
+    if (!plan) {
+      console.error("[Payment] Plan not found:", payload.planId)
+      return
+    }
+
+    // Idempotency — skip if already processed
+    const existing = await Payment.findOne({
+      telegram_payment_charge_id: payment.telegram_payment_charge_id,
+    })
+    if (existing) {
+      console.log("[Payment] Already processed:", payment.telegram_payment_charge_id)
+      return
+    }
+
+    const now = new Date()
+    const periodEnd = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000)
+
+    // Expire existing active subscription for this pillar
+    await Subscription.updateMany(
+      { company_id: payload.companyId, pillar: plan.pillar, status: "active" },
+      { status: "expired" }
+    )
+
+    // Create subscription
+    const subscription = await Subscription.create({
+      company_id: payload.companyId,
+      pillar: plan.pillar,
+      tier: plan.tier,
+      plan_id: payload.planId,
+      status: "active",
+      started_at: now,
+      current_period_start: now,
+      current_period_end: periodEnd,
+      cancel_at_period_end: false,
+      telegram_payment_charge_id: payment.telegram_payment_charge_id,
+      created_by: payload.userId,
+    })
+
+    // Create payment record
+    await Payment.create({
+      company_id: payload.companyId,
+      user_id: payload.userId,
+      subscription_id: subscription._id,
+      amount_stars: payment.total_amount,
+      currency: "XTR",
+      status: "completed",
+      telegram_payment_charge_id: payment.telegram_payment_charge_id,
+      provider_payment_charge_id: payment.provider_payment_charge_id,
+      invoice_payload: payment.invoice_payload,
+      plan_id: payload.planId,
+      period_start: now,
+      period_end: periodEnd,
+    })
+
+    // Update company's denormalized tier
+    await Company.findByIdAndUpdate(payload.companyId, {
+      [`subscription_tier.${plan.pillar}`]: plan.tier,
+    })
+
+    const pillarLabel = plan.pillar === "core" ? "PM" :
+      plan.pillar === "pm-connect" ? "PM Connect" : "Developer API"
+
+    await sendTelegramMessage(
+      chatId,
+      `✅ <b>Payment confirmed!</b>\n\n` +
+      `Plan: <b>${plan.name} - ${pillarLabel}</b>\n` +
+      `Active until: <b>${periodEnd.toLocaleDateString()}</b>\n\n` +
+      `Thank you for upgrading! Open WhatsTask to use your new features.`
+    )
+
+    console.log(`[Payment] Success: ${plan.pillar}/${plan.tier} for company ${payload.companyId}`)
+  } catch (error) {
+    console.error("[Payment] Processing error:", error)
+  }
+}
+
 // POST /api/telegram/webhook - Receive Telegram updates
 export async function POST(request: NextRequest) {
   try {
@@ -588,6 +710,12 @@ export async function POST(request: NextRequest) {
     console.log("[Telegram Webhook] Update:", JSON.stringify(update).slice(0, 500))
 
     await connectToDatabase()
+
+    // Handle pre_checkout_query (must respond within 10 seconds)
+    if (update.pre_checkout_query) {
+      await handlePreCheckoutQuery(update.pre_checkout_query)
+      return NextResponse.json({ ok: true })
+    }
 
     // Handle callback query (button press)
     if (update.callback_query) {
@@ -597,6 +725,12 @@ export async function POST(request: NextRequest) {
 
     // Handle message
     if (update.message) {
+      // Handle successful payment
+      if (update.message.successful_payment) {
+        await handleSuccessfulPayment(update.message)
+        return NextResponse.json({ ok: true })
+      }
+
       const message = update.message
       const chatId = String(message.chat.id)
 

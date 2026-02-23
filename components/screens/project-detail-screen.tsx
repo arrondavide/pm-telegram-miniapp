@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { ArrowLeft, Plus, Search, Sparkles, MoreVertical, Trash2, Edit, Loader2, List, LayoutGrid, Calendar, GanttChart, Table2 } from "lucide-react"
+import { ArrowLeft, Plus, Search, Sparkles, MoreVertical, Trash2, Edit, Loader2, List, LayoutGrid, Calendar, GanttChart, Table2, Lock } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
@@ -9,7 +9,7 @@ import { useUserStore } from "@/lib/stores/user.store"
 import { useCompanyStore } from "@/lib/stores/company.store"
 import { useProjectStore } from "@/lib/stores/project.store"
 import { useUIStore, type ViewMode } from "@/lib/stores/ui.store"
-import { taskApi, projectApi } from "@/lib/api"
+import { taskApi, projectApi, subscriptionApi } from "@/lib/api"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -33,6 +33,8 @@ import { CalendarView } from "@/components/calendar-view"
 import { GanttView } from "@/components/gantt-view"
 import { TableView } from "@/components/table-view"
 import { cn } from "@/lib/utils"
+import { useSubscriptionStore } from "@/lib/stores/subscription.store"
+import { UpgradePrompt } from "@/components/upgrade-prompt"
 import type { Task, TaskStatus } from "@/types/models.types"
 
 interface ProjectDetailScreenProps {
@@ -52,9 +54,11 @@ export function ProjectDetailScreen({ projectId, onBack, onTaskClick, onCreateTa
 
   const company = getActiveCompany()
 
-  const { hapticFeedback, showBackButton, hideBackButton } = useTelegram()
+  const { hapticFeedback, showBackButton, hideBackButton, openInvoice } = useTelegram()
 
   const { taskViewMode, setTaskViewMode } = useUIStore()
+  const { isViewAllowed } = useSubscriptionStore()
+  const [showUpgradePrompt, setShowUpgradePrompt] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
   const [statusFilter, setStatusFilter] = useState<string>("all")
   const [isLoadingTasks, setIsLoadingTasks] = useState(true)
@@ -220,6 +224,35 @@ export function ProjectDetailScreen({ projectId, onBack, onTaskClick, onCreateTa
     }
   }
 
+  const handleViewModeChange = (mode: ViewMode) => {
+    if (isViewAllowed(mode)) {
+      setTaskViewMode(mode)
+    } else {
+      hapticFeedback("warning")
+      setShowUpgradePrompt(true)
+    }
+  }
+
+  const handleUpgrade = async () => {
+    if (!currentUser?.telegramId || !company?.id) return
+    try {
+      const response = await subscriptionApi.createInvoice(
+        { planId: "core-pro", companyId: company.id },
+        currentUser.telegramId
+      )
+      if (response.success && response.data?.invoiceLink) {
+        openInvoice(response.data.invoiceLink, (status) => {
+          if (status === "paid") {
+            hapticFeedback("success")
+          }
+          setShowUpgradePrompt(false)
+        })
+      }
+    } catch (error) {
+      console.error("Upgrade error:", error)
+    }
+  }
+
   const statusOptions = [
     { value: "all", label: "All" },
     { value: "pending", label: "Pending" },
@@ -310,66 +343,33 @@ export function ProjectDetailScreen({ projectId, onBack, onTaskClick, onCreateTa
         {/* View Mode Toggle */}
         <div className="mt-4 flex items-center gap-2 overflow-x-auto pb-1">
           <div className="flex rounded-lg border border-border/50 p-0.5 flex-shrink-0">
-            <Button
-              size="sm"
-              variant={taskViewMode === "list" ? "default" : "ghost"}
-              className={cn(
-                "h-8 px-2 gap-1",
-                taskViewMode === "list" && "bg-foreground text-background"
-              )}
-              onClick={() => setTaskViewMode("list")}
-            >
-              <List className="h-4 w-4" />
-              <span className="hidden sm:inline">List</span>
-            </Button>
-            <Button
-              size="sm"
-              variant={taskViewMode === "kanban" ? "default" : "ghost"}
-              className={cn(
-                "h-8 px-2 gap-1",
-                taskViewMode === "kanban" && "bg-foreground text-background"
-              )}
-              onClick={() => setTaskViewMode("kanban")}
-            >
-              <LayoutGrid className="h-4 w-4" />
-              <span className="hidden sm:inline">Board</span>
-            </Button>
-            <Button
-              size="sm"
-              variant={taskViewMode === "calendar" ? "default" : "ghost"}
-              className={cn(
-                "h-8 px-2 gap-1",
-                taskViewMode === "calendar" && "bg-foreground text-background"
-              )}
-              onClick={() => setTaskViewMode("calendar")}
-            >
-              <Calendar className="h-4 w-4" />
-              <span className="hidden sm:inline">Calendar</span>
-            </Button>
-            <Button
-              size="sm"
-              variant={taskViewMode === "timeline" ? "default" : "ghost"}
-              className={cn(
-                "h-8 px-2 gap-1",
-                taskViewMode === "timeline" && "bg-foreground text-background"
-              )}
-              onClick={() => setTaskViewMode("timeline")}
-            >
-              <GanttChart className="h-4 w-4" />
-              <span className="hidden sm:inline">Timeline</span>
-            </Button>
-            <Button
-              size="sm"
-              variant={taskViewMode === "table" ? "default" : "ghost"}
-              className={cn(
-                "h-8 px-2 gap-1",
-                taskViewMode === "table" && "bg-foreground text-background"
-              )}
-              onClick={() => setTaskViewMode("table")}
-            >
-              <Table2 className="h-4 w-4" />
-              <span className="hidden sm:inline">Table</span>
-            </Button>
+            {([
+              { mode: "list" as ViewMode, icon: List, label: "List" },
+              { mode: "kanban" as ViewMode, icon: LayoutGrid, label: "Board" },
+              { mode: "calendar" as ViewMode, icon: Calendar, label: "Calendar" },
+              { mode: "timeline" as ViewMode, icon: GanttChart, label: "Timeline" },
+              { mode: "table" as ViewMode, icon: Table2, label: "Table" },
+            ]).map(({ mode, icon: Icon, label }) => {
+              const allowed = isViewAllowed(mode)
+              const isActive = taskViewMode === mode
+              return (
+                <Button
+                  key={mode}
+                  size="sm"
+                  variant={isActive ? "default" : "ghost"}
+                  className={cn(
+                    "h-8 px-2 gap-1",
+                    isActive && "bg-foreground text-background",
+                    !allowed && !isActive && "text-muted-foreground/50"
+                  )}
+                  onClick={() => handleViewModeChange(mode)}
+                >
+                  <Icon className="h-4 w-4" />
+                  <span className="hidden sm:inline">{label}</span>
+                  {!allowed && <Lock className="h-3 w-3" />}
+                </Button>
+              )
+            })}
           </div>
         </div>
 
@@ -548,6 +548,18 @@ export function ProjectDetailScreen({ projectId, onBack, onTaskClick, onCreateTa
           )
         )}
       </div>
+
+      {/* Upgrade Prompt */}
+      {showUpgradePrompt && (
+        <UpgradePrompt
+          title="Upgrade Required"
+          message="Calendar, Timeline, and Table views are available on the Pro plan."
+          planRequired="core-pro"
+          onUpgrade={handleUpgrade}
+          onDismiss={() => setShowUpgradePrompt(false)}
+          open={showUpgradePrompt}
+        />
+      )}
 
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>

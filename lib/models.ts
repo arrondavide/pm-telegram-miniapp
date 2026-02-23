@@ -5,6 +5,11 @@ export interface ICompany extends Document {
   _id: mongoose.Types.ObjectId
   name: string
   created_by: mongoose.Types.ObjectId
+  subscription_tier: {
+    core: "free" | "pro" | "business"
+    "pm-connect": "free" | "pro" | "business"
+    "developer-api": "free" | "pro" | "business"
+  }
   createdAt: Date
   updatedAt: Date
 }
@@ -177,6 +182,11 @@ const companySchema = new Schema<ICompany>(
   {
     name: { type: String, required: true, trim: true },
     created_by: { type: Schema.Types.ObjectId, ref: "User" },
+    subscription_tier: {
+      core: { type: String, enum: ["free", "pro", "business"], default: "free" },
+      "pm-connect": { type: String, enum: ["free", "pro", "business"], default: "free" },
+      "developer-api": { type: String, enum: ["free", "pro", "business"], default: "free" },
+    },
   },
   { timestamps: true },
 )
@@ -943,3 +953,90 @@ export const PMIntegration: Model<IPMIntegration> =
 
 export const WorkerTask: Model<IWorkerTask> =
   mongoose.models.WorkerTask || mongoose.model<IWorkerTask>("WorkerTask", workerTaskSchema)
+
+// ==================== SUBSCRIPTIONS & PAYMENTS ====================
+
+export interface ISubscription extends Document {
+  _id: mongoose.Types.ObjectId
+  company_id: mongoose.Types.ObjectId
+  pillar: "core" | "pm-connect" | "developer-api"
+  tier: "free" | "pro" | "business"
+  plan_id: string
+  status: "active" | "cancelled" | "expired"
+  started_at: Date
+  current_period_start: Date
+  current_period_end: Date
+  cancelled_at?: Date
+  cancel_at_period_end: boolean
+  telegram_payment_charge_id?: string
+  created_by: mongoose.Types.ObjectId
+  createdAt: Date
+  updatedAt: Date
+}
+
+export interface IPayment extends Document {
+  _id: mongoose.Types.ObjectId
+  company_id: mongoose.Types.ObjectId
+  user_id: mongoose.Types.ObjectId
+  subscription_id?: mongoose.Types.ObjectId
+  amount_stars: number
+  currency: "XTR"
+  status: "pending" | "completed" | "refunded" | "failed"
+  telegram_payment_charge_id?: string
+  provider_payment_charge_id?: string
+  invoice_payload: string
+  plan_id: string
+  period_start?: Date
+  period_end?: Date
+  refunded_at?: Date
+  createdAt: Date
+  updatedAt: Date
+}
+
+const subscriptionSchema = new Schema<ISubscription>(
+  {
+    company_id: { type: Schema.Types.ObjectId, ref: "Company", required: true },
+    pillar: { type: String, enum: ["core", "pm-connect", "developer-api"], required: true },
+    tier: { type: String, enum: ["free", "pro", "business"], required: true },
+    plan_id: { type: String, required: true },
+    status: { type: String, enum: ["active", "cancelled", "expired"], default: "active" },
+    started_at: { type: Date, required: true },
+    current_period_start: { type: Date, required: true },
+    current_period_end: { type: Date, required: true },
+    cancelled_at: { type: Date },
+    cancel_at_period_end: { type: Boolean, default: false },
+    telegram_payment_charge_id: { type: String },
+    created_by: { type: Schema.Types.ObjectId, ref: "User", required: true },
+  },
+  { timestamps: true }
+)
+
+const paymentSchema = new Schema<IPayment>(
+  {
+    company_id: { type: Schema.Types.ObjectId, ref: "Company", required: true },
+    user_id: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    subscription_id: { type: Schema.Types.ObjectId, ref: "Subscription" },
+    amount_stars: { type: Number, required: true },
+    currency: { type: String, enum: ["XTR"], default: "XTR" },
+    status: { type: String, enum: ["pending", "completed", "refunded", "failed"], default: "pending" },
+    telegram_payment_charge_id: { type: String, index: true },
+    provider_payment_charge_id: { type: String },
+    invoice_payload: { type: String, required: true },
+    plan_id: { type: String, required: true },
+    period_start: { type: Date },
+    period_end: { type: Date },
+    refunded_at: { type: Date },
+  },
+  { timestamps: true }
+)
+
+// Indexes for Subscriptions & Payments
+subscriptionSchema.index({ company_id: 1, pillar: 1, status: 1 })
+subscriptionSchema.index({ current_period_end: 1, status: 1 })
+paymentSchema.index({ company_id: 1, createdAt: -1 })
+
+export const Subscription: Model<ISubscription> =
+  mongoose.models.Subscription || mongoose.model<ISubscription>("Subscription", subscriptionSchema)
+
+export const Payment: Model<IPayment> =
+  mongoose.models.Payment || mongoose.model<IPayment>("Payment", paymentSchema)

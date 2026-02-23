@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { parseTaskFromText, parseMultipleTasks } from "@/lib/ai"
 import { connectToDatabase } from "@/lib/mongodb"
 import { User, Project, AIGeneration } from "@/lib/models"
+import { checkQuota } from "@/lib/quota"
 
 export async function POST(request: Request) {
   try {
@@ -50,6 +51,17 @@ export async function POST(request: Request) {
 
         context.teamMembers = teamMembers.map(
           (m) => m.username || m.full_name
+        )
+      }
+    }
+
+    // Check AI quota
+    if (companyId) {
+      const quotaResult = await checkQuota(companyId, "ai_queries")
+      if (!quotaResult.allowed) {
+        return NextResponse.json(
+          { success: false, error: quotaResult.message, quotaExceeded: true, planRequired: quotaResult.planRequired },
+          { status: 403 }
         )
       }
     }

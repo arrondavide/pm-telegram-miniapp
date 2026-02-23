@@ -480,3 +480,35 @@ export const notificationApi = {
       headers: { "X-Telegram-Id": telegramId },
     }),
 }
+
+// Subscription & Billing APIs
+export const subscriptionApi = {
+  getStatus: (telegramId: string) =>
+    fetchApi<import("@/types/subscription.types").BillingState>("/payments/subscription", {
+      method: "GET",
+      headers: { "X-Telegram-Id": telegramId },
+    }),
+
+  createInvoice: (data: { planId: string; companyId: string }, telegramId: string) =>
+    fetchApi<{ invoiceLink: string }>("/payments/create-invoice", {
+      method: "POST",
+      body: JSON.stringify(data),
+      headers: { "X-Telegram-Id": telegramId },
+    }),
+
+  cancelSubscription: (data: { pillar: string; companyId: string }, telegramId: string) =>
+    fetchApi<{ success: boolean; periodEnd: string }>("/payments/cancel-subscription", {
+      method: "POST",
+      body: JSON.stringify(data),
+      headers: { "X-Telegram-Id": telegramId },
+    }),
+
+  getPaymentHistory: (companyId: string, telegramId: string) =>
+    fetchApi<{ payments: import("@/types/subscription.types").PaymentHistory[] }>(
+      `/payments/history?companyId=${companyId}`,
+      {
+        method: "GET",
+        headers: { "X-Telegram-Id": telegramId },
+      }
+    ),
+}
