@@ -227,18 +227,19 @@ export function SubscriptionScreen({ onBack }: SubscriptionScreenProps) {
         </CardHeader>
         <CardContent className="space-y-3">
           {items.map((item) => {
-            const pct = item.max === Infinity ? 0 : Math.round((item.used / item.max) * 100)
-            const isAtLimit = item.max !== Infinity && item.used >= item.max
+            const isUnlimited = item.max >= 999999
+            const pct = isUnlimited ? 0 : Math.round((item.used / item.max) * 100)
+            const isAtLimit = !isUnlimited && item.used >= item.max
 
             return (
               <div key={item.label}>
                 <div className="flex items-center justify-between text-xs">
                   <span className="text-muted-foreground">{item.label}</span>
                   <span className={isAtLimit ? "font-medium text-destructive" : ""}>
-                    {item.used}/{item.max === Infinity ? "\u221e" : item.max}
+                    {item.used}/{isUnlimited ? "\u221e" : item.max}
                   </span>
                 </div>
-                {item.max !== Infinity && (
+                {!isUnlimited && (
                   <Progress value={Math.min(pct, 100)} className="mt-1 h-1.5" />
                 )}
               </div>

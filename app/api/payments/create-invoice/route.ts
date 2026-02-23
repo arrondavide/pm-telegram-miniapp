@@ -69,6 +69,7 @@ export async function POST(request: NextRequest) {
         title: `WhatsTask ${plan.name} - ${pillarLabel}`,
         description: plan.description,
         payload,
+        provider_token: "",
         currency: "XTR",
         prices: [{ label: `${plan.name} Plan`, amount: plan.priceStars }],
       }),
@@ -86,7 +87,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      data: { invoiceLink: data.result },
+      invoiceLink: data.result,
     })
   } catch (error) {
     console.error("[Payment] Create invoice error:", error)

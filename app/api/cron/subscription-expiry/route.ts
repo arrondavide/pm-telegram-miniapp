@@ -10,6 +10,15 @@ const BOT_API_BASE = "https://api.telegram.org/bot"
 // Run daily to handle expired subscriptions and send renewal reminders
 export async function GET(request: NextRequest) {
   try {
+    // Verify cron secret
+    const cronSecret = process.env.CRON_SECRET
+    if (cronSecret) {
+      const authHeader = request.headers.get("authorization")
+      if (authHeader !== `Bearer ${cronSecret}`) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+      }
+    }
+
     await connectToDatabase()
 
     const now = new Date()
@@ -103,6 +112,7 @@ export async function GET(request: NextRequest) {
                 title: `Renew ${plan.name} - ${pillarLabel}`,
                 description: `Renew your ${plan.name} subscription`,
                 payload,
+                provider_token: "",
                 currency: "XTR",
                 prices: [{ label: `${plan.name} Renewal`, amount: plan.priceStars }],
               }),

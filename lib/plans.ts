@@ -101,7 +101,7 @@ export const PLANS: Record<string, PlanDefinition> = {
     pricePeriod: "month",
     limits: {
       ...DEFAULT_LIMITS,
-      maxProjects: Infinity,
+      maxProjects: 999999,
       maxSeats: 15,
       extraSeatPriceStars: 25,
       maxAIQueriesPerDay: 50,
@@ -126,7 +126,7 @@ export const PLANS: Record<string, PlanDefinition> = {
     pricePeriod: "month",
     limits: {
       ...DEFAULT_LIMITS,
-      maxProjects: Infinity,
+      maxProjects: 999999,
       maxSeats: 50,
       extraSeatPriceStars: 25,
       maxAIQueriesPerDay: 200,
@@ -199,8 +199,8 @@ export const PLANS: Record<string, PlanDefinition> = {
     pricePeriod: "month",
     limits: {
       ...DEFAULT_LIMITS,
-      maxIntegrations: Infinity,
-      maxWorkers: Infinity,
+      maxIntegrations: 999999,
+      maxWorkers: 999999,
       hasLocationTracking: true,
       hasPhotoProof: true,
       hasWebhooksBack: true,
@@ -264,7 +264,7 @@ export const PLANS: Record<string, PlanDefinition> = {
     limits: {
       ...DEFAULT_LIMITS,
       maxWebhooksPerMonth: 100000,
-      maxAPIKeys: Infinity,
+      maxAPIKeys: 999999,
       hasPrioritySupport: true,
     },
     features: [
@@ -297,16 +297,17 @@ export function getEffectiveLimits(
   // Start with core-free as base
   const effective: PlanLimits = { ...PLANS["core-free"].limits }
 
-  // Always include free tiers for pillars without subscriptions
-  const activePillars = new Set(subscriptions.map((s) => s.pillar))
+  // Always include free tiers for pillars without subscriptions (use local copy to avoid mutating caller's array)
+  const allSubs = [...subscriptions]
+  const activePillars = new Set(allSubs.map((s) => s.pillar))
   const allPillars: PillarType[] = ["core", "pm-connect", "developer-api"]
   for (const pillar of allPillars) {
     if (!activePillars.has(pillar)) {
-      subscriptions.push({ pillar, tier: "free" })
+      allSubs.push({ pillar, tier: "free" })
     }
   }
 
-  for (const sub of subscriptions) {
+  for (const sub of allSubs) {
     const plan = getPlan(sub.pillar, sub.tier)
     if (!plan) continue
 

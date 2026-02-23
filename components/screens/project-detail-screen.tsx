@@ -97,6 +97,9 @@ export function ProjectDetailScreen({ projectId, onBack, onTaskClick, onCreateTa
   const userRole = getUserRole()
   const isEmployee = userRole === "employee"
 
+  // Guard: if persisted view mode is not allowed (e.g., user downgraded), fall back to "list"
+  const effectiveViewMode = isViewAllowed(taskViewMode) ? taskViewMode : "list"
+
   // Use telegramId as PRIMARY identifier (consistent between local and MongoDB)
   const userTelegramId = currentUser?.telegramId?.toString()
 
@@ -351,7 +354,7 @@ export function ProjectDetailScreen({ projectId, onBack, onTaskClick, onCreateTa
               { mode: "table" as ViewMode, icon: Table2, label: "Table" },
             ]).map(({ mode, icon: Icon, label }) => {
               const allowed = isViewAllowed(mode)
-              const isActive = taskViewMode === mode
+              const isActive = effectiveViewMode === mode
               return (
                 <Button
                   key={mode}
@@ -374,7 +377,7 @@ export function ProjectDetailScreen({ projectId, onBack, onTaskClick, onCreateTa
         </div>
 
         {/* Search and Filter - only show for list view */}
-        {taskViewMode === "list" && (
+        {effectiveViewMode === "list" && (
           <div className="mt-3 flex gap-2">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -428,7 +431,7 @@ export function ProjectDetailScreen({ projectId, onBack, onTaskClick, onCreateTa
               )}
             </div>
           </div>
-        ) : taskViewMode === "kanban" ? (
+        ) : effectiveViewMode === "kanban" ? (
           /* Kanban Board View */
           <div className="p-4">
             <KanbanBoard
@@ -442,7 +445,7 @@ export function ProjectDetailScreen({ projectId, onBack, onTaskClick, onCreateTa
               isLoading={isLoadingTasks}
             />
           </div>
-        ) : taskViewMode === "calendar" ? (
+        ) : effectiveViewMode === "calendar" ? (
           /* Calendar View */
           <div className="p-4 h-full">
             <CalendarView
@@ -455,7 +458,7 @@ export function ProjectDetailScreen({ projectId, onBack, onTaskClick, onCreateTa
               isLoading={isLoadingTasks}
             />
           </div>
-        ) : taskViewMode === "timeline" ? (
+        ) : effectiveViewMode === "timeline" ? (
           /* Gantt/Timeline View */
           <div className="p-4 h-full">
             <GanttView
@@ -467,7 +470,7 @@ export function ProjectDetailScreen({ projectId, onBack, onTaskClick, onCreateTa
               isLoading={isLoadingTasks}
             />
           </div>
-        ) : taskViewMode === "table" ? (
+        ) : effectiveViewMode === "table" ? (
           /* Table View */
           <div className="p-4 h-full">
             <TableView

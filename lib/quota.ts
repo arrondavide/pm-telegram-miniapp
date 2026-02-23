@@ -1,3 +1,4 @@
+import mongoose from "mongoose"
 import { connectToDatabase } from "@/lib/mongodb"
 import { Company, Project, User, AIGeneration, ApiKey, Webhook, PMIntegration } from "@/lib/models"
 import { getEffectiveLimits, type PillarType, type PlanTier, type PlanLimits } from "@/lib/plans"
@@ -181,8 +182,11 @@ export async function checkQuota(
     }
 
     case "webhooks_per_month": {
+      const webhookCompanyId = mongoose.Types.ObjectId.isValid(companyId)
+        ? new mongoose.Types.ObjectId(companyId)
+        : companyId
       const result = await Webhook.aggregate([
-        { $match: { company_id: companyId } },
+        { $match: { company_id: webhookCompanyId } },
         { $group: { _id: null, total: { $sum: "$usage_count" } } },
       ])
       const count = result[0]?.total || 0

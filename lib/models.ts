@@ -1019,7 +1019,7 @@ const paymentSchema = new Schema<IPayment>(
     amount_stars: { type: Number, required: true },
     currency: { type: String, enum: ["XTR"], default: "XTR" },
     status: { type: String, enum: ["pending", "completed", "refunded", "failed"], default: "pending" },
-    telegram_payment_charge_id: { type: String, index: true },
+    telegram_payment_charge_id: { type: String, unique: true, sparse: true },
     provider_payment_charge_id: { type: String },
     invoice_payload: { type: String, required: true },
     plan_id: { type: String, required: true },

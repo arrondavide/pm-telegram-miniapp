@@ -709,13 +709,13 @@ export async function POST(request: NextRequest) {
     const update = await request.json()
     console.log("[Telegram Webhook] Update:", JSON.stringify(update).slice(0, 500))
 
-    await connectToDatabase()
-
-    // Handle pre_checkout_query (must respond within 10 seconds)
+    // Handle pre_checkout_query BEFORE connecting to DB (must respond within 10 seconds)
     if (update.pre_checkout_query) {
       await handlePreCheckoutQuery(update.pre_checkout_query)
       return NextResponse.json({ ok: true })
     }
+
+    await connectToDatabase()
 
     // Handle callback query (button press)
     if (update.callback_query) {

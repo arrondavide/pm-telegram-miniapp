@@ -52,6 +52,7 @@ export const useSubscriptionStore = create<SubscriptionState & SubscriptionActio
           const response = await fetch("/api/payments/subscription", {
             headers: { "X-Telegram-Id": telegramId },
           })
+          if (!response.ok) return
           const data = await response.json()
           if (data.success !== false) {
             set({
@@ -77,7 +78,10 @@ export const useSubscriptionStore = create<SubscriptionState & SubscriptionActio
 
       isViewAllowed: (viewMode) => {
         const limits = get().limits
-        if (!limits) return true
+        if (!limits) {
+          // Default to free-tier views when limits haven't loaded
+          return ["list", "kanban"].includes(viewMode)
+        }
         return limits.allowedViewModes.includes(viewMode as PlanLimits["allowedViewModes"][number])
       },
 

@@ -36,15 +36,13 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      data: {
-        payments: payments.map((p) => ({
-          id: p._id.toString(),
-          amountStars: p.amount_stars,
-          planId: p.plan_id,
-          status: p.status,
-          createdAt: p.createdAt.toISOString(),
-        })),
-      },
+      payments: payments.map((p) => ({
+        id: p._id.toString(),
+        amountStars: p.amount_stars,
+        planId: p.plan_id,
+        status: p.status,
+        createdAt: p.createdAt.toISOString(),
+      })),
     })
   } catch (error) {
     console.error("[Payment] Get history error:", error)
