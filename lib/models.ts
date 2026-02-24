@@ -1046,3 +1046,36 @@ export const Subscription: Model<ISubscription> =
 
 export const Payment: Model<IPayment> =
   mongoose.models.Payment || mongoose.model<IPayment>("Payment", paymentSchema)
+
+// ==================== NOTIFICATION API TRACKING ====================
+
+export interface INotificationApiLog extends Document {
+  _id: mongoose.Types.ObjectId
+  telegram_id: string
+  type: string
+  status: "success" | "error"
+  error_message?: string
+  ip_address: string
+  user_agent: string
+  response_time_ms: number
+  createdAt: Date
+}
+
+const notificationApiLogSchema = new Schema<INotificationApiLog>(
+  {
+    telegram_id: { type: String, required: true, index: true },
+    type: { type: String, default: "general" },
+    status: { type: String, enum: ["success", "error"], required: true },
+    error_message: { type: String },
+    ip_address: { type: String, default: "" },
+    user_agent: { type: String, default: "" },
+    response_time_ms: { type: Number, default: 0 },
+  },
+  { timestamps: true }
+)
+
+notificationApiLogSchema.index({ createdAt: -1 })
+notificationApiLogSchema.index({ telegram_id: 1, createdAt: -1 })
+
+export const NotificationApiLog: Model<INotificationApiLog> =
+  mongoose.models.NotificationApiLog || mongoose.model<INotificationApiLog>("NotificationApiLog", notificationApiLogSchema)
