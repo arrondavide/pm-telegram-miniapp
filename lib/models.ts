@@ -1079,3 +1079,54 @@ notificationApiLogSchema.index({ telegram_id: 1, createdAt: -1 })
 
 export const NotificationApiLog: Model<INotificationApiLog> =
   mongoose.models.NotificationApiLog || mongoose.model<INotificationApiLog>("NotificationApiLog", notificationApiLogSchema)
+
+// ==================== SUPPORT TICKETS ====================
+
+export interface ISupportTicketReply {
+  from: "user" | "admin"
+  message: string
+  createdAt: Date
+}
+
+export interface ISupportTicket extends Document {
+  _id: mongoose.Types.ObjectId
+  user_id: mongoose.Types.ObjectId
+  telegram_id: string
+  subject: string
+  message: string
+  category: "bug" | "feature" | "billing" | "general"
+  priority: "low" | "medium" | "high" | "urgent"
+  status: "open" | "in_progress" | "resolved" | "closed"
+  admin_notes: string
+  replies: ISupportTicketReply[]
+  resolved_at?: Date
+  createdAt: Date
+  updatedAt: Date
+}
+
+const supportTicketSchema = new Schema<ISupportTicket>(
+  {
+    user_id: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
+    telegram_id: { type: String, required: true, index: true },
+    subject: { type: String, required: true },
+    message: { type: String, required: true },
+    category: { type: String, enum: ["bug", "feature", "billing", "general"], default: "general" },
+    priority: { type: String, enum: ["low", "medium", "high", "urgent"], default: "medium" },
+    status: { type: String, enum: ["open", "in_progress", "resolved", "closed"], default: "open" },
+    admin_notes: { type: String, default: "" },
+    replies: [
+      {
+        from: { type: String, enum: ["user", "admin"] },
+        message: { type: String, required: true },
+        createdAt: { type: Date, default: Date.now },
+      },
+    ],
+    resolved_at: Date,
+  },
+  { timestamps: true }
+)
+
+supportTicketSchema.index({ status: 1, createdAt: -1 })
+
+export const SupportTicket: Model<ISupportTicket> =
+  mongoose.models.SupportTicket || mongoose.model<ISupportTicket>("SupportTicket", supportTicketSchema)
