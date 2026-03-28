@@ -1,7 +1,7 @@
 "use client"
 
-import { memo, useMemo, useCallback } from "react"
-import { FolderKanban, ClipboardList, Users, BarChart3, User, Bell } from "lucide-react"
+import { memo, useMemo } from "react"
+import { FolderKanban, BarChart3, User, Bell, Zap } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useNotificationStore } from "@/lib/stores/notification.store"
 
@@ -17,7 +17,7 @@ export const BottomNav = memo(function BottomNav({ activeScreen, onNavigate, use
   const navItems = useMemo(() => [
     { id: "projects", label: "Projects", icon: FolderKanban },
     { id: "notifications", label: "Alerts", icon: Bell, badge: unreadCount },
-    ...(userRole !== "employee" ? [{ id: "team", label: "Team", icon: Users }] : []),
+    ...(userRole !== "employee" ? [{ id: "pm-connect", label: "Connect", icon: Zap }] : []),
     { id: "stats", label: "Stats", icon: BarChart3 },
     { id: "profile", label: "Profile", icon: User },
   ], [userRole, unreadCount])

@@ -165,7 +165,7 @@ export function MainApp({ pendingInviteCode, onCodeUsed }: MainAppProps) {
       case "developer":
         return <DeveloperScreen onBack={() => setActiveScreen("profile")} />
       case "pm-connect":
-        return <PMConnectScreen onBack={() => setActiveScreen("profile")} />
+        return <PMConnectScreen onBack={() => setActiveScreen("projects")} />
       case "subscription":
         return <SubscriptionScreen onBack={() => setActiveScreen("profile")} />
       case "notifications":
