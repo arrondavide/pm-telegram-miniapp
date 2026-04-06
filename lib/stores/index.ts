@@ -14,6 +14,7 @@ export { useTimeStore } from "./time.store"
 export { useNotificationStore } from "./notification.store"
 export { useCommentStore } from "./comment.store"
 export { useSubscriptionStore } from "./subscription.store"
+export { useAppStatusStore } from "./app-status.store"
 
 // Re-export types for convenience
 export type { User, UserCompany, UserSummary } from "@/types/models.types"

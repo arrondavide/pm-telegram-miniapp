@@ -4,6 +4,7 @@ export interface ApiResponse<T> {
   success: boolean
   data?: T
   error?: string
+  offline?: boolean
 }
 
 // Generic fetch wrapper with error handling
@@ -20,13 +21,36 @@ async function fetchApi<T>(endpoint: string, options: RequestInit = {}): Promise
     const data = await response.json()
 
     if (!response.ok) {
+      // 503 or 500 usually means DB is down — mark offline so UI can show banner
+      if (response.status === 503 || response.status === 500) {
+        if (typeof window !== "undefined") {
+          import("@/lib/stores/app-status.store").then(({ useAppStatusStore }) => {
+            useAppStatusStore.getState().setDbStatus("offline")
+          })
+        }
+        return { success: false, error: data.error || "Service unavailable", offline: true }
+      }
       return { success: false, error: data.error || "Request failed" }
+    }
+
+    // Successful response — mark online
+    if (typeof window !== "undefined") {
+      import("@/lib/stores/app-status.store").then(({ useAppStatusStore }) => {
+        const store = useAppStatusStore.getState()
+        if (store.dbStatus !== "online") store.setDbStatus("online")
+      })
     }
 
     return { success: true, data }
   } catch (error) {
     console.error(`API Error [${endpoint}]:`, error)
-    return { success: false, error: "Network error" }
+    // Network error — could be offline or DB down
+    if (typeof window !== "undefined") {
+      import("@/lib/stores/app-status.store").then(({ useAppStatusStore }) => {
+        useAppStatusStore.getState().setDbStatus("offline")
+      })
+    }
+    return { success: false, error: "Network error", offline: true }
   }
 }
 

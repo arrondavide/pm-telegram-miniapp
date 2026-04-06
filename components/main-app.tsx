@@ -15,6 +15,8 @@ import { DeveloperScreen } from "@/components/screens/developer-screen"
 import { PMConnectScreen } from "@/components/screens/pm-connect-screen"
 import { SubscriptionScreen } from "@/components/screens/subscription-screen"
 import { InAppNotification } from "@/components/in-app-notification"
+import { OfflineBanner } from "@/components/offline-banner"
+import { useAppStatusStore } from "@/lib/stores/app-status.store"
 import { useUserStore } from "@/lib/stores/user.store"
 import { useCompanyStore } from "@/lib/stores/company.store"
 import { useProjectStore } from "@/lib/stores/project.store"
@@ -54,6 +56,12 @@ export function MainApp({ pendingInviteCode, onCodeUsed }: MainAppProps) {
   const { activeProjectId, setActiveProject } = useProjectStore()
 
   const { user, hapticFeedback } = useTelegram()
+  const checkHealth = useAppStatusStore((s) => s.checkHealth)
+
+  // Check DB health on mount
+  useEffect(() => {
+    checkHealth()
+  }, [checkHealth])
 
   const [showJoinDialog, setShowJoinDialog] = useState(false)
   const [joinStatus, setJoinStatus] = useState<"idle" | "loading" | "success" | "error">("idle")
@@ -224,6 +232,8 @@ export function MainApp({ pendingInviteCode, onCodeUsed }: MainAppProps) {
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
+      {/* Offline / DB down banner */}
+      <OfflineBanner />
       {/* In-app notification toast */}
       <InAppNotification />
 
