@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
-import { connectToDatabase } from "@/lib/mongodb"
-import { Webhook, User } from "@/lib/models"
+import { db, users, userCompanies, webhooks, projects } from "@/lib/db"
+import { eq, and, desc } from "drizzle-orm"
 import { checkQuota } from "@/lib/quota"
 import crypto from "crypto"
 
@@ -17,34 +17,49 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
     }
 
-    await connectToDatabase()
-
-    const user = await User.findOne({ telegram_id: telegramId })
+    const user = await db.query.users.findFirst({
+      where: eq(users.telegram_id, telegramId),
+    })
     if (!user) {
       return NextResponse.json({ success: false, error: "User not found" }, { status: 404 })
     }
 
-    const webhooks = await Webhook.find({ user_id: user._id, is_active: true })
-      .populate("project_id", "name")
-      .sort({ createdAt: -1 })
+    const webhookList = await db
+      .select({
+        id: webhooks.id,
+        hook_id: webhooks.hook_id,
+        name: webhooks.name,
+        target_type: webhooks.target_type,
+        project_id: webhooks.project_id,
+        default_priority: webhooks.default_priority,
+        default_recipients: webhooks.default_recipients,
+        usage_count: webhooks.usage_count,
+        last_triggered_at: webhooks.last_triggered_at,
+        created_at: webhooks.created_at,
+        project_name: projects.name,
+      })
+      .from(webhooks)
+      .leftJoin(projects, eq(webhooks.project_id, projects.id))
+      .where(and(eq(webhooks.user_id, user.id), eq(webhooks.is_active, true)))
+      .orderBy(desc(webhooks.created_at))
 
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "https://whatstask.com"
 
     return NextResponse.json({
       success: true,
       data: {
-        webhooks: webhooks.map((w) => ({
-          id: w._id.toString(),
+        webhooks: webhookList.map((w) => ({
+          id: w.id,
           hookId: w.hook_id,
           name: w.name,
           url: `${baseUrl}/api/v1/webhook/${w.hook_id}`,
           targetType: w.target_type,
-          project: w.project_id ? { id: (w.project_id as any)._id, name: (w.project_id as any).name } : null,
+          project: w.project_id ? { id: w.project_id, name: w.project_name } : null,
           defaultPriority: w.default_priority,
           defaultRecipients: w.default_recipients || [],
           usageCount: w.usage_count,
           lastTriggeredAt: w.last_triggered_at,
-          createdAt: w.createdAt,
+          createdAt: w.created_at,
         })),
       },
     })
@@ -84,17 +99,20 @@ export async function POST(request: NextRequest) {
       ? recipients.filter((r: any) => typeof r === "string" || typeof r === "number").map(String)
       : []
 
-    await connectToDatabase()
-
-    const user = await User.findOne({ telegram_id: telegramId })
+    const user = await db.query.users.findFirst({
+      where: eq(users.telegram_id, telegramId),
+    })
     if (!user) {
       return NextResponse.json({ success: false, error: "User not found" }, { status: 404 })
     }
 
-    // Check user belongs to company
-    const userCompany = user.companies.find(
-      (c: any) => c.company_id.toString() === companyId
-    )
+    // Check user belongs to company and is admin/manager
+    const userCompany = await db.query.userCompanies.findFirst({
+      where: and(
+        eq(userCompanies.user_id, user.id),
+        eq(userCompanies.company_id, companyId)
+      ),
+    })
     if (!userCompany || userCompany.role === "employee") {
       return NextResponse.json(
         { success: false, error: "Only admins and managers can create webhooks" },
@@ -113,30 +131,33 @@ export async function POST(request: NextRequest) {
 
     const hookId = generateHookId()
 
-    const webhook = await Webhook.create({
-      hook_id: hookId,
-      name,
-      user_id: user._id,
-      company_id: companyId,
-      project_id: projectId || null,
-      target_type: targetType,
-      default_priority: defaultPriority,
-      default_assignees: [],
-      default_recipients: validRecipients,
-    })
+    const [webhook] = await db
+      .insert(webhooks)
+      .values({
+        hook_id: hookId,
+        name,
+        user_id: user.id,
+        company_id: companyId,
+        project_id: projectId || null,
+        target_type: targetType,
+        default_priority: defaultPriority,
+        default_assignees: [],
+        default_recipients: validRecipients,
+      })
+      .returning()
 
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "https://whatstask.com"
 
     return NextResponse.json({
       success: true,
       data: {
-        id: webhook._id.toString(),
+        id: webhook.id,
         hookId: webhook.hook_id,
         name: webhook.name,
         url: `${baseUrl}/api/v1/webhook/${hookId}`,
         targetType: webhook.target_type,
         defaultRecipients: validRecipients,
-        createdAt: webhook.createdAt,
+        createdAt: webhook.created_at,
       },
       message: validRecipients.length > 0
         ? `Webhook created. Notifications will be sent to ${validRecipients.length} recipient(s).`

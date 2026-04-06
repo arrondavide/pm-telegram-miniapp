@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
-import { connectToDatabase } from "@/lib/mongodb"
-import { Webhook, User, Task, Company } from "@/lib/models"
+import { db, webhooks, users, tasks, companies } from "@/lib/db"
+import { eq, and } from "drizzle-orm"
 
 interface RouteParams {
   params: Promise<{ hookId: string }>
@@ -140,10 +140,14 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     const { hookId } = await params
 
-    await connectToDatabase()
-
     // Find webhook configuration
-    const webhook = await Webhook.findOne({ hook_id: hookId, is_active: true })
+    const webhook = await db.query.webhooks.findFirst({
+      where: and(
+        eq(webhooks.hook_id, hookId),
+        eq(webhooks.is_active, true)
+      ),
+    })
+
     if (!webhook) {
       return NextResponse.json(
         { success: false, error: "Webhook not found or inactive" },
@@ -152,7 +156,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     }
 
     // Get the webhook creator
-    const user = await User.findById(webhook.user_id)
+    const user = webhook.user_id
+      ? await db.query.users.findFirst({ where: eq(users.id, webhook.user_id) })
+      : null
+
     if (!user) {
       return NextResponse.json(
         { success: false, error: "Webhook owner not found" },
@@ -182,7 +189,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const parsed = parseWebhookPayload(body)
 
     // Get company name
-    const company = await Company.findById(webhook.company_id)
+    const company = webhook.company_id
+      ? await db.query.companies.findFirst({ where: eq(companies.id, webhook.company_id) })
+      : null
 
     // Build notification message
     let message = ""
@@ -238,26 +247,30 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       const dueDate = new Date()
       dueDate.setDate(dueDate.getDate() + 7) // Due in 7 days
 
-      await Task.create({
+      await db.insert(tasks).values({
         title: taskTitle,
         description: parsed.message || "",
         due_date: dueDate,
         status: "pending",
-        priority: parsed.priority || webhook.default_priority,
-        assigned_to: webhook.default_assignees.length > 0 ? webhook.default_assignees : [user._id],
-        created_by: user._id,
+        priority: (parsed.priority as any) || webhook.default_priority || "medium",
+        created_by: user.id,
         company_id: webhook.company_id,
         project_id: webhook.project_id,
         depth: 0,
-        path: [],
+        path: "",
         tags: parsed.source ? [parsed.source] : [],
       })
     }
 
     // Update webhook stats
-    webhook.usage_count += 1
-    webhook.last_triggered_at = new Date()
-    await webhook.save()
+    await db
+      .update(webhooks)
+      .set({
+        usage_count: (webhook.usage_count ?? 0) + 1,
+        last_triggered_at: new Date(),
+        updated_at: new Date(),
+      })
+      .where(eq(webhooks.id, webhook.id))
 
     // Determine final recipients for response
     let finalRecipients: string[] = []
@@ -298,9 +311,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { hookId } = await params
 
-    await connectToDatabase()
-
-    const webhook = await Webhook.findOne({ hook_id: hookId })
+    const webhook = await db.query.webhooks.findFirst({
+      where: eq(webhooks.hook_id, hookId),
+    })
 
     if (!webhook) {
       return NextResponse.json(

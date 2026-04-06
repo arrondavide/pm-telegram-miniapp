@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
-import { connectToDatabase } from "@/lib/mongodb"
-import { Subscription, Company, User } from "@/lib/models"
+import { db, subscriptions, users } from "@/lib/db"
+import { eq, and, lt, gt, or, isNull, lte } from "drizzle-orm"
 import { sendMessage } from "@/lib/telegram/bot"
 import { getPlanById } from "@/lib/plans"
 
@@ -19,114 +19,126 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    await connectToDatabase()
-
     const now = new Date()
     let expired = 0
     let reminders = 0
 
     // 1. Expire subscriptions that have ended and are marked for cancellation
-    const cancelledExpired = await Subscription.find({
-      status: "active",
-      cancel_at_period_end: true,
-      current_period_end: { $lt: now },
-    })
+    const cancelledExpired = await db
+      .select()
+      .from(subscriptions)
+      .where(
+        and(
+          eq(subscriptions.status, "active"),
+          eq(subscriptions.cancel_at_period_end, true),
+          lt(subscriptions.current_period_end, now)
+        )
+      )
 
     for (const sub of cancelledExpired) {
-      sub.status = "expired"
-      await sub.save()
+      await db
+        .update(subscriptions)
+        .set({ status: "expired", updated_at: now })
+        .where(eq(subscriptions.id, sub.id))
 
-      // Downgrade company tier
-      await Company.findByIdAndUpdate(sub.company_id, {
-        [`subscription_tier.${sub.pillar}`]: "free",
-      })
+      // Note: companies table has no subscription_tier column in Drizzle schema.
+      // Tier is derived dynamically from the subscriptions table.
       expired++
     }
 
     // 2. Handle subscriptions that expired without cancel flag (user didn't renew)
-    const autoExpired = await Subscription.find({
-      status: "active",
-      cancel_at_period_end: false,
-      current_period_end: { $lt: now },
-    })
+    const autoExpired = await db
+      .select()
+      .from(subscriptions)
+      .where(
+        and(
+          eq(subscriptions.status, "active"),
+          eq(subscriptions.cancel_at_period_end, false),
+          lt(subscriptions.current_period_end, now)
+        )
+      )
 
     for (const sub of autoExpired) {
-      sub.status = "expired"
-      await sub.save()
-
-      // Downgrade company tier
-      await Company.findByIdAndUpdate(sub.company_id, {
-        [`subscription_tier.${sub.pillar}`]: "free",
-      })
+      await db
+        .update(subscriptions)
+        .set({ status: "expired", updated_at: now })
+        .where(eq(subscriptions.id, sub.id))
 
       // Notify the user with a renewal invoice link for easy re-subscription
-      const user = await User.findById(sub.created_by)
-      if (user) {
-        const plan = getPlanById(sub.plan_id)
-        const pillarLabel = sub.pillar === "core" ? "PM" :
-          sub.pillar === "pm-connect" ? "PM Connect" : "Developer API"
+      if (sub.created_by) {
+        const user = await db.query.users.findFirst({
+          where: eq(users.id, sub.created_by),
+        })
 
-        const botToken = process.env.TELEGRAM_BOT_TOKEN
-        if (botToken && plan) {
-          try {
-            const payload = JSON.stringify({
-              planId: sub.plan_id,
-              companyId: sub.company_id.toString(),
-              userId: user._id.toString(),
-              telegramId: user.telegram_id,
-              pillar: sub.pillar,
-              tier: sub.tier,
-              timestamp: Date.now(),
-            })
+        if (user) {
+          const plan = getPlanById(sub.plan_id ?? "")
+          const pillarLabel = sub.pillar === "core" ? "PM" :
+            sub.pillar === "pm-connect" ? "PM Connect" : "Developer API"
 
-            const response = await fetch(`${BOT_API_BASE}${botToken}/createInvoiceLink`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                title: `Renew ${plan.name} - ${pillarLabel}`,
-                description: `Renew your ${plan.name} subscription`,
-                payload,
-                provider_token: "",
-                currency: "XTR",
-                prices: [{ label: `${plan.name} Renewal`, amount: plan.priceStars }],
-              }),
-            })
+          const botToken = process.env.TELEGRAM_BOT_TOKEN
+          if (botToken && plan) {
+            try {
+              const payload = JSON.stringify({
+                planId: sub.plan_id,
+                companyId: sub.company_id,
+                userId: user.id,
+                telegramId: user.telegram_id,
+                pillar: sub.pillar,
+                tier: sub.tier,
+                timestamp: Date.now(),
+              })
 
-            const data = await response.json()
-            if (data.ok) {
-              await sendMessage(
-                user.telegram_id,
-                `⏰ Your *${plan.name} - ${pillarLabel}* subscription has expired.\n\n` +
-                `Your account has been downgraded to the Free plan. Renew now to restore your features.`,
-                {
-                  reply_markup: {
-                    inline_keyboard: [[
-                      { text: `⭐ Renew for ${plan.priceStars} Stars`, url: data.result }
-                    ]]
+              const response = await fetch(`${BOT_API_BASE}${botToken}/createInvoiceLink`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  title: `Renew ${plan.name} - ${pillarLabel}`,
+                  description: `Renew your ${plan.name} subscription`,
+                  payload,
+                  provider_token: "",
+                  currency: "XTR",
+                  prices: [{ label: `${plan.name} Renewal`, amount: plan.priceStars }],
+                }),
+              })
+
+              const data = await response.json()
+              if (data.ok) {
+                await sendMessage(
+                  user.telegram_id,
+                  `⏰ Your *${plan.name} - ${pillarLabel}* subscription has expired.\n\n` +
+                  `Your account has been downgraded to the Free plan. Renew now to restore your features.`,
+                  {
+                    reply_markup: {
+                      inline_keyboard: [[
+                        { text: `⭐ Renew for ${plan.priceStars} Stars`, url: data.result }
+                      ]]
+                    }
                   }
-                }
-              )
-            } else {
+                )
+              } else {
+                await sendMessage(
+                  user.telegram_id,
+                  `⏰ Your *${plan?.name || sub.tier} - ${pillarLabel}* subscription has expired.\n\n` +
+                  `Your account has been downgraded to the Free plan. Upgrade again in WhatsTask to restore your features.`,
+                )
+              }
+            } catch (err) {
+              console.error("[Cron] Failed to create renewal invoice for expired sub:", err)
               await sendMessage(
                 user.telegram_id,
                 `⏰ Your *${plan?.name || sub.tier} - ${pillarLabel}* subscription has expired.\n\n` +
                 `Your account has been downgraded to the Free plan. Upgrade again in WhatsTask to restore your features.`,
               )
             }
-          } catch (err) {
-            console.error("[Cron] Failed to create renewal invoice for expired sub:", err)
+          } else {
+            const pillarLabel = sub.pillar === "core" ? "PM" :
+              sub.pillar === "pm-connect" ? "PM Connect" : "Developer API"
             await sendMessage(
               user.telegram_id,
-              `⏰ Your *${plan?.name || sub.tier} - ${pillarLabel}* subscription has expired.\n\n` +
+              `⏰ Your *${sub.tier} - ${pillarLabel}* subscription has expired.\n\n` +
               `Your account has been downgraded to the Free plan. Upgrade again in WhatsTask to restore your features.`,
             )
           }
-        } else {
-          await sendMessage(
-            user.telegram_id,
-            `⏰ Your *${plan?.name || sub.tier} - ${pillarLabel}* subscription has expired.\n\n` +
-            `Your account has been downgraded to the Free plan. Upgrade again in WhatsTask to restore your features.`,
-          )
         }
       }
       expired++
@@ -135,33 +147,45 @@ export async function GET(request: NextRequest) {
     // 3. Send renewal reminders for subscriptions expiring in 3 days (deduplicated)
     const threeDaysFromNow = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000)
     const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000)
-    const expiringSoon = await Subscription.find({
-      status: "active",
-      cancel_at_period_end: false,
-      current_period_end: { $gt: now, $lt: threeDaysFromNow },
-      $or: [
-        { renewal_reminder_sent_at: { $exists: false } },
-        { renewal_reminder_sent_at: null },
-        { renewal_reminder_sent_at: { $lt: oneDayAgo } },
-      ],
-    })
+
+    const expiringSoon = await db
+      .select()
+      .from(subscriptions)
+      .where(
+        and(
+          eq(subscriptions.status, "active"),
+          eq(subscriptions.cancel_at_period_end, false),
+          gt(subscriptions.current_period_end, now),
+          lte(subscriptions.current_period_end, threeDaysFromNow),
+          or(
+            isNull(subscriptions.renewal_reminder_sent_at),
+            lt(subscriptions.renewal_reminder_sent_at, oneDayAgo)
+          )
+        )
+      )
 
     for (const sub of expiringSoon) {
-      const user = await User.findById(sub.created_by)
+      if (!sub.created_by) continue
+
+      const user = await db.query.users.findFirst({
+        where: eq(users.id, sub.created_by),
+      })
+
       if (user) {
-        const plan = getPlanById(sub.plan_id)
+        const plan = getPlanById(sub.plan_id ?? "")
         const pillarLabel = sub.pillar === "core" ? "PM" :
           sub.pillar === "pm-connect" ? "PM Connect" : "Developer API"
-        const daysLeft = Math.ceil((sub.current_period_end.getTime() - now.getTime()) / (24 * 60 * 60 * 1000))
+        const daysLeft = Math.ceil(
+          (sub.current_period_end!.getTime() - now.getTime()) / (24 * 60 * 60 * 1000)
+        )
 
-        // Create a renewal invoice link
         const botToken = process.env.TELEGRAM_BOT_TOKEN
         if (botToken && plan) {
           try {
             const payload = JSON.stringify({
               planId: sub.plan_id,
-              companyId: sub.company_id.toString(),
-              userId: user._id.toString(),
+              companyId: sub.company_id,
+              userId: user.id,
               telegramId: user.telegram_id,
               pillar: sub.pillar,
               tier: sub.tier,
@@ -195,8 +219,10 @@ export async function GET(request: NextRequest) {
                   }
                 }
               )
-              sub.renewal_reminder_sent_at = now
-              await sub.save()
+              await db
+                .update(subscriptions)
+                .set({ renewal_reminder_sent_at: now, updated_at: now })
+                .where(eq(subscriptions.id, sub.id))
               reminders++
             }
           } catch (err) {

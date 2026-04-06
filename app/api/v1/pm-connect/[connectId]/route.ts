@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
-import { connectToDatabase } from "@/lib/mongodb"
-import { PMIntegration, WorkerTask } from "@/lib/models"
+import { db, pmIntegrations, pmIntegrationWorkers, workerTasks } from "@/lib/db"
+import { eq, and } from "drizzle-orm"
 
 interface RouteParams {
   params: Promise<{ connectId: string }>
@@ -227,10 +227,14 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     const { connectId } = await params
 
-    await connectToDatabase()
-
     // Find integration
-    const integration = await PMIntegration.findOne({ connect_id: connectId, is_active: true })
+    const integration = await db.query.pmIntegrations.findFirst({
+      where: and(
+        eq(pmIntegrations.connect_id, connectId),
+        eq(pmIntegrations.is_active, true)
+      ),
+    })
+
     if (!integration) {
       return NextResponse.json(
         { success: false, error: "Integration not found or inactive" },
@@ -243,7 +247,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     console.log(`[PM Connect] Received webhook for ${integration.platform}:`, JSON.stringify(body).slice(0, 500))
 
     // Parse task from webhook
-    const taskData = parseTaskFromWebhook(integration.platform, body)
+    const taskData = parseTaskFromWebhook(integration.platform ?? "other", body)
     if (!taskData) {
       return NextResponse.json(
         { success: false, error: "Could not parse task from webhook" },
@@ -251,22 +255,28 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       )
     }
 
+    // Fetch all active workers for this integration
+    const workers = await db
+      .select()
+      .from(pmIntegrationWorkers)
+      .where(eq(pmIntegrationWorkers.integration_id, integration.id))
+
     // Find worker mapping
     let workerTelegramId: string | null = null
 
     if (taskData.externalUserId) {
       // Find by external user ID
-      const worker = integration.workers.find(
-        w => w.external_id === taskData.externalUserId && w.is_active
+      const worker = workers.find(
+        (w) => w.external_id === taskData.externalUserId && w.is_active
       )
       if (worker) {
         workerTelegramId = worker.telegram_id
       }
     }
 
-    // If no specific assignee, check if there's a default worker or owner
-    if (!workerTelegramId && integration.workers.length === 1) {
-      workerTelegramId = integration.workers[0].telegram_id
+    // If no specific assignee, check if there's only one worker
+    if (!workerTelegramId && workers.length === 1) {
+      workerTelegramId = workers[0].telegram_id
     }
 
     if (!workerTelegramId) {
@@ -275,24 +285,31 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     }
 
     // Check if task already exists
-    let workerTask = await WorkerTask.findOne({
-      integration_id: integration._id,
-      external_task_id: taskData.externalTaskId,
+    const existingTask = await db.query.workerTasks.findFirst({
+      where: and(
+        eq(workerTasks.integration_id, integration.id),
+        eq(workerTasks.external_task_id, taskData.externalTaskId)
+      ),
     })
 
-    if (workerTask) {
+    if (existingTask) {
       // Update existing task
-      workerTask.title = taskData.title
-      workerTask.description = taskData.description || ""
-      workerTask.location = taskData.location
-      workerTask.due_date = taskData.dueDate ? new Date(taskData.dueDate) : undefined
-      workerTask.priority = taskData.priority as any
-      await workerTask.save()
+      await db
+        .update(workerTasks)
+        .set({
+          title: taskData.title,
+          description: taskData.description || "",
+          location: taskData.location || "",
+          due_date: taskData.dueDate ? new Date(taskData.dueDate) : null,
+          priority: taskData.priority,
+          updated_at: new Date(),
+        })
+        .where(eq(workerTasks.id, existingTask.id))
 
       return NextResponse.json({
         success: true,
         message: "Task updated",
-        data: { taskId: workerTask._id.toString() },
+        data: { taskId: existingTask.id },
       })
     }
 
@@ -306,22 +323,34 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     }
 
     // Create new worker task
-    workerTask = await WorkerTask.create({
-      integration_id: integration._id,
-      external_task_id: taskData.externalTaskId,
-      external_board_id: taskData.boardId,
-      worker_telegram_id: workerTelegramId,
-      title: taskData.title,
-      description: taskData.description || "",
-      location: taskData.location,
-      due_date: parsedDueDate,
-      priority: taskData.priority,
-      status: "sent",
-    })
+    const [newTask] = await db
+      .insert(workerTasks)
+      .values({
+        integration_id: integration.id,
+        external_task_id: taskData.externalTaskId,
+        external_board_id: taskData.boardId,
+        worker_telegram_id: workerTelegramId,
+        title: taskData.title,
+        description: taskData.description || "",
+        location: taskData.location || "",
+        due_date: parsedDueDate,
+        priority: taskData.priority,
+        status: "sent",
+      })
+      .returning()
 
     // Update stats - count task as sent when created
-    integration.stats.tasks_sent += 1
-    await integration.save()
+    const currentStats = integration.stats ?? {}
+    await db
+      .update(pmIntegrations)
+      .set({
+        stats: {
+          ...currentStats,
+          tasks_sent: (currentStats.tasks_sent ?? 0) + 1,
+        },
+        updated_at: new Date(),
+      })
+      .where(eq(pmIntegrations.id, integration.id))
 
     // Send to worker on Telegram
     try {
@@ -331,11 +360,13 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         location: taskData.location,
         dueDate: taskData.dueDate,
         priority: taskData.priority,
-        taskId: workerTask._id.toString(),
+        taskId: newTask.id,
       })
 
-      workerTask.telegram_message_id = messageId
-      await workerTask.save()
+      await db
+        .update(workerTasks)
+        .set({ telegram_message_id: String(messageId), updated_at: new Date() })
+        .where(eq(workerTasks.id, newTask.id))
     } catch (error) {
       console.error("Failed to send task to Telegram:", error)
       // Task is still created in DB, worker can see it when they have active tasks
@@ -345,7 +376,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       success: true,
       message: "Task sent to worker",
       data: {
-        taskId: workerTask._id.toString(),
+        taskId: newTask.id,
         sentTo: workerTelegramId,
       },
     })
@@ -363,9 +394,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
     const { connectId } = await params
 
-    await connectToDatabase()
-
-    const integration = await PMIntegration.findOne({ connect_id: connectId })
+    const integration = await db.query.pmIntegrations.findFirst({
+      where: eq(pmIntegrations.connect_id, connectId),
+    })
 
     if (!integration) {
       return NextResponse.json(
@@ -374,13 +405,18 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       )
     }
 
+    const workers = await db
+      .select()
+      .from(pmIntegrationWorkers)
+      .where(eq(pmIntegrationWorkers.integration_id, integration.id))
+
     return NextResponse.json({
       success: true,
       data: {
         name: integration.name,
         platform: integration.platform,
         isActive: integration.is_active,
-        workersCount: integration.workers.length,
+        workersCount: workers.length,
         stats: integration.stats,
       },
     })

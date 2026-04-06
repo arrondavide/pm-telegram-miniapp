@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { parseTaskFromText, parseMultipleTasks } from "@/lib/ai"
-import { connectToDatabase } from "@/lib/mongodb"
-import { User, Project, AIGeneration } from "@/lib/models"
+import { db, users, projects, aiGenerations, userCompanies } from "@/lib/db"
+import { eq, inArray } from "drizzle-orm"
 import { checkQuota } from "@/lib/quota"
 
 export async function POST(request: Request) {
@@ -16,8 +16,6 @@ export async function POST(request: Request) {
       )
     }
 
-    await connectToDatabase()
-
     // Get context from project if provided
     let context: {
       projectId?: string
@@ -30,28 +28,34 @@ export async function POST(request: Request) {
     let companyId: string | undefined
 
     if (telegramId) {
-      const user = await User.findOne({ telegram_id: telegramId })
+      const user = await db.query.users.findFirst({ where: eq(users.telegram_id, telegramId) })
       if (user) {
-        userId = user._id.toString()
-        companyId = user.active_company_id?.toString()
+        userId = user.id
+        companyId = user.active_company_id ?? undefined
       }
     }
 
     if (projectId) {
-      const project = await Project.findById(projectId)
+      const project = await db.query.projects.findFirst({ where: eq(projects.id, projectId) })
       if (project) {
         context.projectId = projectId
         context.projectName = project.name
-        companyId = project.company_id.toString()
+        companyId = project.company_id
 
         // Get team members for this company
-        const teamMembers = await User.find({
-          "companies.company_id": project.company_id,
-        }).select("full_name username")
+        const memberships = await db
+          .select()
+          .from(userCompanies)
+          .where(eq(userCompanies.company_id, project.company_id))
 
-        context.teamMembers = teamMembers.map(
-          (m) => m.username || m.full_name
-        )
+        const memberUserIds = memberships.map((m) => m.user_id)
+        const memberUsers = memberUserIds.length > 0
+          ? await db.select().from(users).where(inArray(users.id, memberUserIds))
+          : []
+
+        context.teamMembers = memberUsers
+          .map((u) => u.username || u.full_name)
+          .filter(Boolean)
       }
     }
 
@@ -78,10 +82,10 @@ export async function POST(request: Request) {
 
       // Log AI generation for learning
       if (userId && companyId) {
-        await AIGeneration.create({
+        await db.insert(aiGenerations).values({
           user_id: userId,
           company_id: companyId,
-          project_id: projectId,
+          project_id: projectId || null,
           type: "task_parse",
           input_prompt: text,
           generated_output: result as unknown as Record<string, unknown>,
@@ -98,10 +102,10 @@ export async function POST(request: Request) {
 
       // Log AI generation for learning
       if (userId && companyId) {
-        await AIGeneration.create({
+        await db.insert(aiGenerations).values({
           user_id: userId,
           company_id: companyId,
-          project_id: projectId,
+          project_id: projectId || null,
           type: "task_parse",
           input_prompt: texts.join("\n"),
           generated_output: { tasks: result } as unknown as Record<string, unknown>,

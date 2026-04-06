@@ -1,7 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { connectToDatabase } from "@/lib/mongodb"
-import { Task, User } from "@/lib/models"
-import mongoose from "mongoose"
+import { db, tasks, users } from "@/lib/db"
+import { eq } from "drizzle-orm"
 
 // POST /api/tasks/bulk/move - Move tasks between projects/parents
 export async function POST(request: NextRequest) {
@@ -18,9 +17,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Action required" }, { status: 400 })
     }
 
-    await connectToDatabase()
-
-    const user = await User.findOne({ telegram_id: telegramId })
+    const user = await db.query.users.findFirst({ where: eq(users.telegram_id, telegramId) })
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 404 })
     }
@@ -37,29 +34,18 @@ export async function POST(request: NextRequest) {
 
       for (const taskId of taskIds) {
         try {
-          let task: any = null
-          if (mongoose.Types.ObjectId.isValid(taskId)) {
-            task = await Task.findById(taskId)
-          }
-
-          if (!task) {
-            task = await Task.findOne({ _id: taskId })
-          }
+          const task = await db.query.tasks.findFirst({ where: eq(tasks.id, taskId) })
 
           if (!task) {
             results.failed.push({ taskId, error: "Task not found" })
             continue
           }
 
-          const updates: any = {}
+          const updates: Record<string, any> = { updated_at: new Date() }
 
           // Move to different project
-          if (targetProjectId && targetProjectId !== task.project_id.toString()) {
-            if (!mongoose.Types.ObjectId.isValid(targetProjectId)) {
-              results.failed.push({ taskId, error: "Invalid target project ID" })
-              continue
-            }
-            updates.project_id = new mongoose.Types.ObjectId(targetProjectId)
+          if (targetProjectId && targetProjectId !== task.project_id) {
+            updates.project_id = targetProjectId
           }
 
           // Move to different parent (or make root task)
@@ -68,23 +54,21 @@ export async function POST(request: NextRequest) {
               // Make it a root task
               updates.parent_task_id = null
               updates.depth = 0
-              updates.path = []
+              updates.path = ""
             } else {
               // Move to new parent
-              let parentTask: any = null
-              if (mongoose.Types.ObjectId.isValid(targetParentId)) {
-                parentTask = await Task.findById(targetParentId)
-              }
+              const parentTask = await db.query.tasks.findFirst({ where: eq(tasks.id, targetParentId) })
 
               if (!parentTask) {
                 results.failed.push({ taskId, error: "Parent task not found" })
                 continue
               }
 
-              // Prevent circular references
+              // Prevent circular references - check if target parent is a descendant of this task
+              const parentPath = parentTask.path || ""
               if (
-                parentTask._id.toString() === taskId ||
-                parentTask.path.some((p: any) => p.toString() === taskId)
+                parentTask.id === taskId ||
+                parentPath.split("/").filter(Boolean).includes(taskId)
               ) {
                 results.failed.push({ taskId, error: "Circular reference detected" })
                 continue
@@ -96,20 +80,20 @@ export async function POST(request: NextRequest) {
                 continue
               }
 
-              updates.parent_task_id = parentTask._id
+              updates.parent_task_id = parentTask.id
               updates.depth = parentTask.depth + 1
-              updates.path = [...parentTask.path, parentTask._id]
+              updates.path = parentTask.path ? `${parentTask.path}/${parentTask.id}` : `/${parentTask.id}`
             }
           }
 
           // Apply updates
-          if (Object.keys(updates).length > 0) {
-            await Task.updateOne({ _id: task._id }, { $set: updates })
+          if (Object.keys(updates).length > 1) { // more than just updated_at
+            await db.update(tasks).set(updates).where(eq(tasks.id, task.id))
 
             // If this task has children, update their paths and depths
-            const hasChildren = await Task.exists({ parent_task_id: task._id })
-            if (hasChildren) {
-              await updateDescendantPaths(task._id, updates.depth || 0, updates.path || [])
+            const children = await db.select().from(tasks).where(eq(tasks.parent_task_id, task.id))
+            if (children.length > 0) {
+              await updateDescendantPaths(task.id, updates.depth ?? task.depth, updates.path ?? task.path ?? "")
             }
 
             results.success.push(taskId)
@@ -135,32 +119,24 @@ export async function POST(request: NextRequest) {
 }
 
 // Helper function to update all descendants when a task is moved
-async function updateDescendantPaths(
-  taskId: mongoose.Types.ObjectId,
-  newDepth: number,
-  newPath: mongoose.Types.ObjectId[]
-) {
+async function updateDescendantPaths(taskId: string, newDepth: number, newPath: string) {
   // Get all direct children
-  const children = await Task.find({ parent_task_id: taskId })
+  const children = await db.select().from(tasks).where(eq(tasks.parent_task_id, taskId))
 
   for (const child of children) {
     const childDepth = newDepth + 1
-    const childPath = [...newPath, taskId]
+    const childPath = newPath ? `${newPath}/${taskId}` : `/${taskId}`
 
-    await Task.updateOne(
-      { _id: child._id },
-      {
-        $set: {
-          depth: childDepth,
-          path: childPath,
-        },
-      }
-    )
+    await db.update(tasks).set({
+      depth: childDepth,
+      path: childPath,
+      updated_at: new Date(),
+    }).where(eq(tasks.id, child.id))
 
     // Recursively update this child's descendants
-    const hasGrandchildren = await Task.exists({ parent_task_id: child._id })
-    if (hasGrandchildren) {
-      await updateDescendantPaths(child._id, childDepth, childPath)
+    const grandchildren = await db.select().from(tasks).where(eq(tasks.parent_task_id, child.id))
+    if (grandchildren.length > 0) {
+      await updateDescendantPaths(child.id, childDepth, childPath)
     }
   }
 }

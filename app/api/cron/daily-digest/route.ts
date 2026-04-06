@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
-import { connectToDatabase } from "@/lib/mongodb"
-import { Company, User, Project, Task, Update, TimeLog } from "@/lib/models"
+import { db, companies, users, userCompanies, projects, tasks, taskAssignees } from "@/lib/db"
+import { eq, and, gte, lte, lt, inArray, ne, count } from "drizzle-orm"
 import { generateDailyDigest } from "@/lib/ai/digest-generator.service"
 import { sendDigestToUser } from "@/lib/telegram"
 import type { DigestInput } from "@/lib/ai/prompts/daily-digest"
@@ -46,10 +46,8 @@ export async function GET(request: Request) {
     const targetHour = searchParams.get("hour")
     const now = new Date()
 
-    await connectToDatabase()
-
     // Get all companies
-    const companies = await Company.find({})
+    const allCompanies = await db.select().from(companies)
 
     const results = {
       processed: 0,
@@ -62,29 +60,43 @@ export async function GET(request: Request) {
       }>,
     }
 
-    for (const company of companies) {
-      // Get users who should receive digest now
-      const query: Record<string, unknown> = {
-        "companies.company_id": company._id,
-        "preferences.daily_digest": true,
-        "companies": {
-          $elemMatch: {
-            company_id: company._id,
-            role: { $in: ["admin", "manager"] },
-          },
-        },
-      }
+    for (const company of allCompanies) {
+      // Get admin/manager users with daily_digest enabled in this company
+      const companyUserLinks = await db
+        .select({ user_id: userCompanies.user_id })
+        .from(userCompanies)
+        .where(
+          and(
+            eq(userCompanies.company_id, company.id),
+            inArray(userCompanies.role, ["admin", "manager"])
+          )
+        )
 
-      // If hour specified, filter by reminder time
+      if (companyUserLinks.length === 0) continue
+
+      const userIds = companyUserLinks.map((u) => u.user_id)
+
+      // Fetch those users
+      let digestUsers = await db
+        .select()
+        .from(users)
+        .where(inArray(users.id, userIds))
+
+      // Filter by daily_digest preference
+      digestUsers = digestUsers.filter(
+        (u) => (u.preferences as any)?.daily_digest === true
+      )
+
+      // If hour specified, filter by reminder_time
       if (targetHour) {
-        query["preferences.reminder_time"] = {
-          $regex: `^${targetHour.padStart(2, "0")}:`,
-        }
+        const paddedHour = targetHour.padStart(2, "0")
+        digestUsers = digestUsers.filter((u) => {
+          const reminderTime = (u.preferences as any)?.reminder_time as string | undefined
+          return reminderTime?.startsWith(paddedHour + ":") ?? false
+        })
       }
 
-      const users = await User.find(query)
-
-      if (users.length === 0) continue
+      if (digestUsers.length === 0) continue
 
       // Generate digest for this company
       const targetDate = now
@@ -93,47 +105,93 @@ export async function GET(request: Request) {
       const endOfDay = new Date(targetDate)
       endOfDay.setHours(23, 59, 59, 999)
 
-      // Gather data (abbreviated version - same logic as main endpoint)
-      const projects = await Project.find({
-        company_id: company._id,
-        status: { $in: ["active", "on_hold"] },
-      })
+      // Gather active projects
+      const activeProjects = await db
+        .select()
+        .from(projects)
+        .where(
+          and(
+            eq(projects.company_id, company.id),
+            inArray(projects.status, ["active", "on_hold"])
+          )
+        )
 
-      const allUsers = await User.find({
-        "companies.company_id": company._id,
-      })
-      const userMap = new Map(allUsers.map(u => [u._id.toString(), u.full_name]))
+      // Get all company members for user name map
+      const allUserLinks = await db
+        .select({ user_id: userCompanies.user_id })
+        .from(userCompanies)
+        .where(eq(userCompanies.company_id, company.id))
 
-      // Build summaries
+      const allUserIds = allUserLinks.map((u) => u.user_id)
+      const allUsers = allUserIds.length > 0
+        ? await db.select().from(users).where(inArray(users.id, allUserIds))
+        : []
+
+      const userMap = new Map(allUsers.map((u) => [u.id, u.full_name]))
+
+      // Build project summaries
       const projectSummaries: DigestInput["projectSummaries"] = []
 
-      for (const project of projects) {
-        const tasksCompleted = await Task.countDocuments({
-          project_id: project._id,
-          status: "completed",
-          completed_at: { $gte: startOfDay, $lte: endOfDay },
-        })
+      for (const project of activeProjects) {
+        const [completedRow] = await db
+          .select({ value: count() })
+          .from(tasks)
+          .where(
+            and(
+              eq(tasks.project_id, project.id),
+              eq(tasks.status, "completed"),
+              gte(tasks.completed_at, startOfDay),
+              lte(tasks.completed_at, endOfDay)
+            )
+          )
 
-        const tasksCreated = await Task.countDocuments({
-          project_id: project._id,
-          createdAt: { $gte: startOfDay, $lte: endOfDay },
-        })
+        const [createdRow] = await db
+          .select({ value: count() })
+          .from(tasks)
+          .where(
+            and(
+              eq(tasks.project_id, project.id),
+              gte(tasks.created_at, startOfDay),
+              lte(tasks.created_at, endOfDay)
+            )
+          )
 
-        const tasksInProgress = await Task.countDocuments({
-          project_id: project._id,
-          status: { $in: ["in_progress", "started"] },
-        })
+        const [inProgressRow] = await db
+          .select({ value: count() })
+          .from(tasks)
+          .where(
+            and(
+              eq(tasks.project_id, project.id),
+              inArray(tasks.status, ["in_progress", "started"])
+            )
+          )
 
-        const tasksOverdue = await Task.countDocuments({
-          project_id: project._id,
-          status: { $nin: ["completed", "cancelled"] },
-          due_date: { $lt: startOfDay },
-        })
+        const [overdueRow] = await db
+          .select({ value: count() })
+          .from(tasks)
+          .where(
+            and(
+              eq(tasks.project_id, project.id),
+              inArray(tasks.status, ["pending", "started", "in_progress", "blocked"]),
+              lt(tasks.due_date, startOfDay)
+            )
+          )
 
-        const tasksBlocked = await Task.countDocuments({
-          project_id: project._id,
-          status: "blocked",
-        })
+        const [blockedRow] = await db
+          .select({ value: count() })
+          .from(tasks)
+          .where(
+            and(
+              eq(tasks.project_id, project.id),
+              eq(tasks.status, "blocked")
+            )
+          )
+
+        const tasksCompleted = completedRow?.value ?? 0
+        const tasksCreated = createdRow?.value ?? 0
+        const tasksInProgress = inProgressRow?.value ?? 0
+        const tasksOverdue = overdueRow?.value ?? 0
+        const tasksBlocked = blockedRow?.value ?? 0
 
         if (tasksCompleted > 0 || tasksCreated > 0 || tasksInProgress > 0 || tasksOverdue > 0) {
           projectSummaries.push({
@@ -150,17 +208,26 @@ export async function GET(request: Request) {
 
       // Team activity
       const teamActivity: DigestInput["teamActivity"] = []
-      for (const user of allUsers) {
-        const tasksCompleted = await Task.countDocuments({
-          company_id: company._id,
-          assigned_to: user._id,
-          status: "completed",
-          completed_at: { $gte: startOfDay, $lte: endOfDay },
-        })
+      for (const u of allUsers) {
+        // Count tasks completed today assigned to this user via taskAssignees join
+        const [completedRow] = await db
+          .select({ value: count() })
+          .from(tasks)
+          .innerJoin(taskAssignees, eq(taskAssignees.task_id, tasks.id))
+          .where(
+            and(
+              eq(tasks.company_id, company.id),
+              eq(taskAssignees.user_id, u.id),
+              eq(tasks.status, "completed"),
+              gte(tasks.completed_at, startOfDay),
+              lte(tasks.completed_at, endOfDay)
+            )
+          )
 
+        const tasksCompleted = completedRow?.value ?? 0
         if (tasksCompleted > 0) {
           teamActivity.push({
-            userName: user.full_name,
+            userName: u.full_name,
             tasksCompleted,
             tasksWorkedOn: 0,
             hoursLogged: 0,
@@ -168,32 +235,48 @@ export async function GET(request: Request) {
         }
       }
 
-      // Overdue tasks
-      const overdueTaskDocs = await Task.find({
-        company_id: company._id,
-        status: { $nin: ["completed", "cancelled"] },
-        due_date: { $lt: startOfDay },
-      })
-        .populate("project_id", "name")
-        .populate("assigned_to", "full_name")
+      // Overdue tasks (up to 5)
+      const overdueTaskDocs = await db
+        .select({
+          id: tasks.id,
+          title: tasks.title,
+          due_date: tasks.due_date,
+          project_id: tasks.project_id,
+          project_name: projects.name,
+        })
+        .from(tasks)
+        .leftJoin(projects, eq(tasks.project_id, projects.id))
+        .where(
+          and(
+            eq(tasks.company_id, company.id),
+            inArray(tasks.status, ["pending", "started", "in_progress", "blocked"]),
+            lt(tasks.due_date, startOfDay)
+          )
+        )
         .limit(5)
 
-      const overdueTasks = overdueTaskDocs.map(task => ({
+      const overdueTasks = overdueTaskDocs.map((task) => ({
         title: task.title,
-        projectName: (task.project_id as any)?.name || "Unknown",
-        assignee: (task.assigned_to as any)?.[0]?.full_name || "Unassigned",
-        daysOverdue: Math.ceil(
-          (startOfDay.getTime() - new Date(task.due_date).getTime()) / (1000 * 60 * 60 * 24)
-        ),
+        projectName: task.project_name || "Unknown",
+        assignee: "Unassigned",
+        daysOverdue: task.due_date
+          ? Math.ceil((startOfDay.getTime() - new Date(task.due_date).getTime()) / (1000 * 60 * 60 * 24))
+          : 0,
       }))
 
-      // Blocked tasks
-      const blockedTaskDocs = await Task.find({
-        company_id: company._id,
-        status: "blocked",
-      }).limit(3)
+      // Blocked tasks (up to 3)
+      const blockedTaskDocs = await db
+        .select({ title: tasks.title })
+        .from(tasks)
+        .where(
+          and(
+            eq(tasks.company_id, company.id),
+            eq(tasks.status, "blocked")
+          )
+        )
+        .limit(3)
 
-      const blockedTasks = blockedTaskDocs.map(task => ({
+      const blockedTasks = blockedTaskDocs.map((task) => ({
         title: task.title,
         projectName: "Unknown",
         assignee: "Unknown",
@@ -222,9 +305,9 @@ export async function GET(request: Request) {
       let companySent = 0
       let companyFailed = 0
 
-      for (const user of users) {
+      for (const u of digestUsers) {
         const result = await sendDigestToUser(
-          user.telegram_id,
+          u.telegram_id,
           digest,
           digestInput.date,
           company.name,
@@ -237,7 +320,7 @@ export async function GET(request: Request) {
         } else {
           companyFailed++
           results.failed++
-          console.error(`Failed to send digest to ${user.telegram_id}:`, result.error)
+          console.error(`Failed to send digest to ${u.telegram_id}:`, result.error)
         }
 
         // Small delay to avoid rate limiting

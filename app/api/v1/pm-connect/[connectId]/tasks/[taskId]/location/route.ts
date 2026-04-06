@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
-import { connectToDatabase } from "@/lib/mongodb"
-import { PMIntegration, WorkerTask } from "@/lib/models"
+import { db, pmIntegrations, workerTasks } from "@/lib/db"
+import { eq, and } from "drizzle-orm"
 
 interface RouteParams {
   params: Promise<{ connectId: string; taskId: string }>
@@ -15,12 +15,12 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const includeHistory = searchParams.get("history") === "true"
     const historyLimit = parseInt(searchParams.get("limit") || "100")
 
-    await connectToDatabase()
-
     // Find integration by connect_id
-    const integration = await PMIntegration.findOne({
-      connect_id: connectId,
-      is_active: true,
+    const integration = await db.query.pmIntegrations.findFirst({
+      where: and(
+        eq(pmIntegrations.connect_id, connectId),
+        eq(pmIntegrations.is_active, true)
+      ),
     })
 
     if (!integration) {
@@ -31,13 +31,22 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     }
 
     // Find task - can be by internal ID or external ID
-    let task = await WorkerTask.findOne({
-      integration_id: integration._id,
-      $or: [
-        { _id: taskId },
-        { external_task_id: taskId },
-      ],
+    // Try by internal UUID first, then by external_task_id
+    let task = await db.query.workerTasks.findFirst({
+      where: and(
+        eq(workerTasks.integration_id, integration.id),
+        eq(workerTasks.id, taskId)
+      ),
     })
+
+    if (!task) {
+      task = await db.query.workerTasks.findFirst({
+        where: and(
+          eq(workerTasks.integration_id, integration.id),
+          eq(workerTasks.external_task_id, taskId)
+        ),
+      })
+    }
 
     if (!task) {
       return NextResponse.json(
@@ -46,12 +55,14 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       )
     }
 
+    const locationTracking = task.location_tracking as any
+
     // Check if task has location tracking
-    if (!task.location_tracking?.current_location) {
+    if (!locationTracking?.current_location) {
       return NextResponse.json({
         success: true,
         data: {
-          tracking_enabled: task.location_tracking?.enabled || false,
+          tracking_enabled: locationTracking?.enabled || false,
           has_location: false,
           message: "No location data available. Worker may not have shared location yet.",
         },
@@ -60,47 +71,49 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
     // Build response
     const locationData: any = {
-      tracking_enabled: task.location_tracking.enabled,
-      tracking_started_at: task.location_tracking.started_at,
-      tracking_stopped_at: task.location_tracking.stopped_at,
+      tracking_enabled: locationTracking.enabled,
+      tracking_started_at: locationTracking.started_at,
+      tracking_stopped_at: locationTracking.stopped_at,
       current_location: {
-        lat: task.location_tracking.current_location.lat,
-        lng: task.location_tracking.current_location.lng,
-        accuracy: task.location_tracking.current_location.accuracy,
-        speed: task.location_tracking.current_location.speed,
-        heading: task.location_tracking.current_location.heading,
-        timestamp: task.location_tracking.current_location.timestamp,
+        lat: locationTracking.current_location.lat,
+        lng: locationTracking.current_location.lng,
+        accuracy: locationTracking.current_location.accuracy,
+        speed: locationTracking.current_location.speed,
+        heading: locationTracking.current_location.heading,
+        timestamp: locationTracking.current_location.timestamp,
       },
-      total_distance_meters: task.location_tracking.total_distance_meters,
-      total_distance_km: (task.location_tracking.total_distance_meters / 1000).toFixed(2),
+      total_distance_meters: locationTracking.total_distance_meters,
+      total_distance_km: ((locationTracking.total_distance_meters ?? 0) / 1000).toFixed(2),
       task_status: task.status,
       task_started_at: task.started_at,
       task_completed_at: task.completed_at,
     }
 
+    const destinationCoords = task.destination_coords as any
+
     // Include destination if set
-    if (task.destination_coords) {
+    if (destinationCoords) {
       locationData.destination = {
-        lat: task.destination_coords.lat,
-        lng: task.destination_coords.lng,
+        lat: destinationCoords.lat,
+        lng: destinationCoords.lng,
         address: task.location,
       }
 
       // Calculate distance to destination
-      if (task.location_tracking.current_location && task.destination_coords.lat) {
+      if (locationTracking.current_location && destinationCoords.lat) {
         const distToDestination = calculateDistance(
-          task.location_tracking.current_location.lat,
-          task.location_tracking.current_location.lng,
-          task.destination_coords.lat,
-          task.destination_coords.lng
+          locationTracking.current_location.lat,
+          locationTracking.current_location.lng,
+          destinationCoords.lat,
+          destinationCoords.lng
         )
         locationData.distance_to_destination_meters = Math.round(distToDestination)
       }
     }
 
     // Include history if requested
-    if (includeHistory && task.location_tracking.history?.length > 0) {
-      locationData.history = task.location_tracking.history
+    if (includeHistory && locationTracking.history?.length > 0) {
+      locationData.history = locationTracking.history
         .slice(-historyLimit)
         .map((point: any) => ({
           lat: point.lat,
@@ -108,7 +121,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
           timestamp: point.timestamp,
           speed: point.speed,
         }))
-      locationData.history_count = task.location_tracking.history.length
+      locationData.history_count = locationTracking.history.length
     }
 
     return NextResponse.json({

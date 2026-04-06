@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { connectToDatabase } from "@/lib/mongodb"
-import { Company, User } from "@/lib/models"
+import { db, users, companies, userCompanies } from "@/lib/db"
+import { eq, count } from "drizzle-orm"
 import { validateTelegramWebAppData } from "@/lib/telegram-validation"
 import { notifyAdminNewCompany } from "@/lib/telegram"
 
@@ -9,7 +9,6 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const { name, telegramId, fullName, username, initData } = body
 
-    // Validate initData if BOT_TOKEN is set
     if (process.env.BOT_TOKEN && initData) {
       const isValid = validateTelegramWebAppData(initData, process.env.BOT_TOKEN)
       if (!isValid) {
@@ -17,79 +16,65 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    await connectToDatabase()
-
     // Find or create user
-    let user = await User.findOne({ telegram_id: telegramId })
+    let user = await db.query.users.findFirst({ where: eq(users.telegram_id, telegramId) })
 
     if (!user) {
-      user = await User.create({
+      const [created] = await db.insert(users).values({
         telegram_id: telegramId,
         full_name: fullName,
         username: username || "",
-        companies: [],
-        preferences: {
-          daily_digest: true,
-          reminder_time: "09:00",
-        },
-      })
+        preferences: { daily_digest: true, reminder_time: "09:00" },
+      }).returning()
+      user = created
     }
 
     // Create company
-    const company = await Company.create({
+    const [company] = await db.insert(companies).values({
       name,
-      created_by: user._id,
-    })
+      created_by: user.id,
+    }).returning()
 
     // Add user to company as admin
-    user.companies.push({
-      company_id: company._id,
+    await db.insert(userCompanies).values({
+      user_id: user.id,
+      company_id: company.id,
       role: "admin",
       department: "",
-      joined_at: new Date(),
     })
-    user.active_company_id = company._id
-    await user.save()
 
-    // Notify WhatsTask admin about new company
+    // Set active company
+    await db.update(users)
+      .set({ active_company_id: company.id, updated_at: new Date() })
+      .where(eq(users.id, user.id))
+
+    // Get all memberships for response
+    const memberships = await db
+      .select({ companyId: userCompanies.company_id, role: userCompanies.role, department: userCompanies.department, joinedAt: userCompanies.joined_at })
+      .from(userCompanies)
+      .where(eq(userCompanies.user_id, user.id))
+
     try {
-      const totalCompanies = await Company.countDocuments()
+      const [row] = await db.select({ value: count() }).from(companies)
       await notifyAdminNewCompany(
-        {
-          name: company.name,
-          companyId: company._id.toString(),
-        },
-        {
-          fullName: user.full_name,
-          username: user.username || undefined,
-          telegramId: user.telegram_id,
-        },
-        { totalCompanies }
+        { name: company.name, companyId: company.id },
+        { fullName: user.full_name, username: user.username || undefined, telegramId: user.telegram_id },
+        { totalCompanies: row?.value ?? 0 }
       )
-    } catch (notifyError) {
-      console.error("Failed to notify admin:", notifyError)
+    } catch (e) {
+      console.error("Failed to notify admin:", e)
     }
 
     return NextResponse.json({
-      company: {
-        id: company._id.toString(),
-        name: company.name,
-        role: "admin",
-        createdAt: company.createdAt,
-      },
+      company: { id: company.id, name: company.name, role: "admin", createdAt: company.created_at },
       user: {
-        id: user._id.toString(),
+        id: user.id,
         telegramId: user.telegram_id,
         fullName: user.full_name,
         username: user.username,
-        activeCompanyId: company._id.toString(),
+        activeCompanyId: company.id,
         preferences: user.preferences,
-        companies: user.companies.map((c: any) => ({
-          companyId: c.company_id.toString(),
-          role: c.role,
-          department: c.department,
-          joinedAt: c.joined_at,
-        })),
+        companies: memberships.map((m) => ({ companyId: m.companyId, role: m.role, department: m.department, joinedAt: m.joinedAt })),
       },
     })
   } catch (error) {
@@ -105,27 +90,23 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Telegram ID required" }, { status: 400 })
     }
 
-    await connectToDatabase()
-
-    const user = await User.findOne({ telegram_id: telegramId }).lean()
+    const user = await db.query.users.findFirst({ where: eq(users.telegram_id, telegramId) })
     if (!user) {
       return NextResponse.json({ companies: [] })
     }
 
-    const companyIds = user.companies.map((c: any) => c.company_id)
-    const companies = await Company.find({ _id: { $in: companyIds } }).lean()
+    const memberships = await db
+      .select({
+        id: companies.id,
+        name: companies.name,
+        role: userCompanies.role,
+        createdAt: companies.created_at,
+      })
+      .from(userCompanies)
+      .innerJoin(companies, eq(userCompanies.company_id, companies.id))
+      .where(eq(userCompanies.user_id, user.id))
 
-    const formattedCompanies = companies.map((c: any) => {
-      const userCompany = user.companies.find((uc: any) => uc.company_id.toString() === c._id.toString())
-      return {
-        id: c._id.toString(),
-        name: c.name,
-        role: userCompany?.role || "employee",
-        createdAt: c.createdAt,
-      }
-    })
-
-    return NextResponse.json({ companies: formattedCompanies })
+    return NextResponse.json({ companies: memberships })
   } catch (error) {
     console.error("Error fetching companies:", error)
     return NextResponse.json({ error: "Failed to fetch companies" }, { status: 500 })

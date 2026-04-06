@@ -1,8 +1,69 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { connectToDatabase } from "@/lib/mongodb"
-import { Task, User } from "@/lib/models"
+import { db, tasks, users, taskAssignees } from "@/lib/db"
+import { eq, inArray } from "drizzle-orm"
 import { taskTransformer } from "@/lib/transformers"
-import mongoose from "mongoose"
+
+/** Build the shape the transformer expects from a Drizzle task row + assignee rows */
+function toTaskDoc(
+  task: any,
+  assigneeRows: Array<{ taskId: string; userId: string; fullName: string; telegramId: string; username: string }>
+) {
+  const myAssignees = assigneeRows
+    .filter((a) => a.taskId === task.id)
+    .map((a) => ({
+      _id: { toString: () => a.userId },
+      telegram_id: a.telegramId,
+      full_name: a.fullName,
+      username: a.username,
+    }))
+
+  return {
+    _id: { toString: () => task.id },
+    title: task.title,
+    description: task.description ?? "",
+    due_date: task.due_date ?? new Date(),
+    status: task.status,
+    priority: task.priority,
+    assigned_to: myAssignees,
+    created_by: task.created_by ?? "",
+    company_id: task.company_id,
+    project_id: task.project_id ?? "",
+    parent_task_id: task.parent_task_id ?? null,
+    depth: task.depth ?? 0,
+    path: task.path ? task.path.split("/").filter(Boolean) : [],
+    category: task.category ?? "",
+    tags: task.tags ?? [],
+    department: task.department ?? "",
+    estimated_hours: task.estimated_hours ?? 0,
+    actual_hours: task.actual_hours ?? 0,
+    completed_at: task.completed_at ?? undefined,
+    createdAt: task.created_at,
+    updatedAt: task.updated_at,
+  } as any
+}
+
+async function fetchAssignees(taskIds: string[]) {
+  if (taskIds.length === 0) return []
+  const rows = await db
+    .select({
+      taskId: taskAssignees.task_id,
+      userId: users.id,
+      fullName: users.full_name,
+      telegramId: users.telegram_id,
+      username: users.username,
+    })
+    .from(taskAssignees)
+    .innerJoin(users, eq(taskAssignees.user_id, users.id))
+    .where(inArray(taskAssignees.task_id, taskIds))
+
+  return rows.map((r) => ({
+    taskId: r.taskId,
+    userId: r.userId,
+    fullName: r.fullName,
+    telegramId: r.telegramId,
+    username: r.username ?? "",
+  }))
+}
 
 // GET /api/tasks/{id}/subtasks - Get direct children of a task
 export async function GET(request: NextRequest, { params }: { params: Promise<{ taskId: string }> }) {
@@ -14,31 +75,25 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       return NextResponse.json({ error: "Telegram ID required" }, { status: 400 })
     }
 
-    await connectToDatabase()
-
-    // Get the parent task
-    let parentTask: any = null
-    if (mongoose.Types.ObjectId.isValid(taskId)) {
-      parentTask = await Task.findById(taskId)
-    }
-
-    if (!parentTask) {
-      parentTask = await Task.findOne({ _id: taskId })
-    }
-
+    const parentTask = await db.query.tasks.findFirst({ where: eq(tasks.id, taskId) })
     if (!parentTask) {
       return NextResponse.json({ error: "Task not found" }, { status: 404 })
     }
 
     // Get all direct children
-    const subtasks = await Task.find({ parent_task_id: parentTask._id })
-      .populate("assigned_to", "telegram_id full_name username")
-      .populate("created_by", "telegram_id full_name username")
-      .sort({ createdAt: -1 })
-      .lean()
+    const subtaskRows = await db
+      .select()
+      .from(tasks)
+      .where(eq(tasks.parent_task_id, taskId))
+      .orderBy(tasks.created_at)
+
+    const taskIds = subtaskRows.map((t) => t.id)
+    const assigneeRows = await fetchAssignees(taskIds)
+
+    const subtaskDocs = subtaskRows.map((t) => toTaskDoc(t, assigneeRows))
 
     return NextResponse.json(
-      { subtasks: taskTransformer.toList(subtasks as any[]) },
+      { subtasks: taskTransformer.toList(subtaskDocs) },
       {
         headers: {
           "Cache-Control": "no-store, no-cache, must-revalidate",
@@ -62,18 +117,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       return NextResponse.json({ error: "Telegram ID required" }, { status: 400 })
     }
 
-    await connectToDatabase()
-
-    // Get the parent task
-    let parentTask: any = null
-    if (mongoose.Types.ObjectId.isValid(taskId)) {
-      parentTask = await Task.findById(taskId)
-    }
-
-    if (!parentTask) {
-      parentTask = await Task.findOne({ _id: taskId })
-    }
-
+    const parentTask = await db.query.tasks.findFirst({ where: eq(tasks.id, taskId) })
     if (!parentTask) {
       return NextResponse.json({ error: "Parent task not found" }, { status: 404 })
     }
@@ -83,59 +127,66 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       return NextResponse.json({ error: "Maximum nesting depth (10) exceeded" }, { status: 400 })
     }
 
-    const user = await User.findOne({ telegram_id: telegramId })
+    const user = await db.query.users.findFirst({ where: eq(users.telegram_id, telegramId) })
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 404 })
     }
 
+    // Fetch parent's current assignees to use as default
+    const parentAssigneeRows = await fetchAssignees([taskId])
+
     // Process assigned users
-    const assignedUserIds: mongoose.Types.ObjectId[] = []
-    if (data.assignedTo && Array.isArray(data.assignedTo)) {
+    const assignedUserIds: string[] = []
+    if (data.assignedTo && Array.isArray(data.assignedTo) && data.assignedTo.length > 0) {
       for (const id of data.assignedTo) {
-        let foundUser = null
-        if (mongoose.Types.ObjectId.isValid(id)) {
-          foundUser = await User.findById(id)
-        }
+        let foundUser = await db.query.users.findFirst({ where: eq(users.id, id) }).catch(() => null)
         if (!foundUser) {
-          foundUser = await User.findOne({ telegram_id: id.toString() })
+          foundUser = await db.query.users.findFirst({ where: eq(users.telegram_id, String(id)) })
         }
-        if (foundUser) {
-          assignedUserIds.push(foundUser._id)
-        }
+        if (foundUser) assignedUserIds.push(foundUser.id)
       }
+    } else {
+      // Default to parent's assignees
+      assignedUserIds.push(...parentAssigneeRows.map((a) => a.userId))
     }
 
-    // Create the subtask
+    // Build depth and materialized path
     const depth = parentTask.depth + 1
-    const path = [...parentTask.path, parentTask._id]
+    const path = parentTask.path ? `${parentTask.path}/${parentTask.id}` : `/${parentTask.id}`
 
-    const subtask = await Task.create({
-      title: data.title,
-      description: data.description || "",
-      due_date: new Date(data.dueDate || parentTask.due_date),
-      status: "pending",
-      priority: data.priority || parentTask.priority,
-      assigned_to: assignedUserIds.length > 0 ? assignedUserIds : parentTask.assigned_to,
-      created_by: user._id,
-      company_id: parentTask.company_id,
-      project_id: parentTask.project_id,
-      parent_task_id: parentTask._id,
-      depth,
-      path,
-      category: data.category || parentTask.category,
-      tags: data.tags || parentTask.tags,
-      department: data.department || parentTask.department,
-      estimated_hours: data.estimatedHours || 0,
-    })
+    const [subtask] = await db
+      .insert(tasks)
+      .values({
+        title: data.title,
+        description: data.description || "",
+        due_date: new Date(data.dueDate || parentTask.due_date || new Date()),
+        status: "pending",
+        priority: data.priority || parentTask.priority,
+        created_by: user.id,
+        company_id: parentTask.company_id,
+        project_id: parentTask.project_id,
+        parent_task_id: parentTask.id,
+        depth,
+        path,
+        category: data.category || parentTask.category || "",
+        tags: data.tags || parentTask.tags || [],
+        department: data.department || parentTask.department || "",
+        estimated_hours: data.estimatedHours || 0,
+      })
+      .returning()
 
-    const populatedSubtask = await Task.findById(subtask._id)
-      .populate("assigned_to", "telegram_id full_name username")
-      .populate("created_by", "telegram_id full_name username")
-      .lean()
+    // Insert assignees
+    if (assignedUserIds.length > 0) {
+      await db.insert(taskAssignees).values(
+        assignedUserIds.map((uid) => ({ task_id: subtask.id, user_id: uid }))
+      )
+    }
+
+    const subtaskAssigneeRows = await fetchAssignees([subtask.id])
 
     return NextResponse.json(
       {
-        subtask: taskTransformer.toFrontend(populatedSubtask as any),
+        subtask: taskTransformer.toFrontend(toTaskDoc(subtask, subtaskAssigneeRows)),
       },
       { status: 201 }
     )

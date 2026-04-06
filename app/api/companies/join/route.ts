@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { connectToDatabase } from "@/lib/mongodb"
-import { User, Invitation, Company } from "@/lib/models"
+import { db, users, companies, userCompanies, invitations } from "@/lib/db"
+import { eq, and, count } from "drizzle-orm"
 import { notifyNewMemberJoined, notifyAdminUserJoinedCompany, notifyAdminNewUser } from "@/lib/telegram"
 
 export async function POST(request: NextRequest) {
@@ -14,20 +14,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invitation code and Telegram ID are required" }, { status: 400 })
     }
 
-    await connectToDatabase()
-
     const normalizedCode = invitationCode.toString().trim().toUpperCase().replace(/\s+/g, "")
     console.log("[v0] Looking for invitation code:", normalizedCode)
 
-    const invitation = await Invitation.findOne({
-      invitation_code: normalizedCode,
+    const invitation = await db.query.invitations.findFirst({
+      where: eq(invitations.invitation_code, normalizedCode),
     })
 
     console.log(
       "[v0] Found invitation:",
       invitation
         ? {
-            id: invitation._id,
+            id: invitation.id,
             code: invitation.invitation_code,
             status: invitation.status,
             expires: invitation.expires_at,
@@ -37,10 +35,10 @@ export async function POST(request: NextRequest) {
 
     if (!invitation) {
       // List all invitations for debugging
-      const allInvitations = await Invitation.find({}).select("invitation_code status").lean()
+      const allInvitations = await db.select({ invitation_code: invitations.invitation_code }).from(invitations)
       console.log(
         "[v0] All invitation codes:",
-        allInvitations.map((i: any) => i.invitation_code),
+        allInvitations.map((i) => i.invitation_code),
       )
 
       return NextResponse.json({ error: "Invalid invitation code. Please check and try again." }, { status: 400 })
@@ -56,16 +54,20 @@ export async function POST(request: NextRequest) {
     }
 
     // Check expiration
-    if (invitation.status === "expired" || new Date(invitation.expires_at) < new Date()) {
+    if (invitation.status === "expired" || (invitation.expires_at && new Date(invitation.expires_at) < new Date())) {
       if (invitation.status !== "expired") {
-        invitation.status = "expired"
-        await invitation.save()
+        await db
+          .update(invitations)
+          .set({ status: "expired", updated_at: new Date() })
+          .where(eq(invitations.id, invitation.id))
       }
       return NextResponse.json({ error: "This invitation code has expired" }, { status: 400 })
     }
 
     // Get company
-    const company = await Company.findById(invitation.company_id)
+    const company = await db.query.companies.findFirst({
+      where: eq(companies.id, invitation.company_id),
+    })
     if (!company) {
       return NextResponse.json({ error: "Company no longer exists" }, { status: 400 })
     }
@@ -73,26 +75,31 @@ export async function POST(request: NextRequest) {
     console.log("[v0] Found company:", company.name)
 
     // Find or create user
-    let user = await User.findOne({ telegram_id: telegramId.toString() })
+    let user = await db.query.users.findFirst({
+      where: eq(users.telegram_id, telegramId.toString()),
+    })
     let isNewUser = false
 
     if (!user) {
       console.log("[v0] Creating new user")
       isNewUser = true
-      user = await User.create({
-        telegram_id: telegramId.toString(),
-        full_name: fullName || "User",
-        username: username || "",
-        companies: [],
-        preferences: {
-          daily_digest: true,
-          reminder_time: "09:00",
-        },
-      })
+      const [newUser] = await db
+        .insert(users)
+        .values({
+          telegram_id: telegramId.toString(),
+          full_name: fullName || "User",
+          username: username || "",
+          preferences: {
+            daily_digest: true,
+            reminder_time: "09:00",
+          },
+        })
+        .returning()
+      user = newUser
 
       // Notify WhatsTask admin about new user
       try {
-        const totalUsers = await User.countDocuments()
+        const [{ value: totalUsers }] = await db.select({ value: count() }).from(users)
         await notifyAdminNewUser(
           {
             fullName: fullName || "User",
@@ -107,43 +114,59 @@ export async function POST(request: NextRequest) {
     }
 
     // Check if user already in company
-    const companyIdStr = invitation.company_id.toString()
-    const alreadyMember = user.companies.some((c: any) => c.company_id?.toString() === companyIdStr)
+    const existingMembership = await db.query.userCompanies.findFirst({
+      where: and(eq(userCompanies.user_id, user.id), eq(userCompanies.company_id, invitation.company_id)),
+    })
 
-    if (alreadyMember) {
+    if (existingMembership) {
       return NextResponse.json({ error: "You are already a member of this company" }, { status: 400 })
     }
 
     // Add user to company
-    user.companies.push({
+    await db.insert(userCompanies).values({
+      user_id: user.id,
       company_id: invitation.company_id,
-      role: invitation.role || "employee",
+      role: (invitation.role as any) || "employee",
       department: invitation.department || "",
-      joined_at: new Date(),
     })
-    user.active_company_id = invitation.company_id
-    await user.save()
+
+    // Update user's active company
+    await db
+      .update(users)
+      .set({ active_company_id: invitation.company_id, updated_at: new Date() })
+      .where(eq(users.id, user.id))
 
     console.log("[v0] User added to company")
 
     // Update invitation status
-    invitation.status = "accepted"
-    invitation.telegram_id = telegramId.toString()
-    invitation.accepted_at = new Date()
-    await invitation.save()
+    await db
+      .update(invitations)
+      .set({
+        status: "accepted",
+        telegram_id: telegramId.toString(),
+        accepted_at: new Date(),
+        updated_at: new Date(),
+      })
+      .where(eq(invitations.id, invitation.id))
 
     console.log("[v0] Invitation marked as accepted")
 
     // Notify company owner and WhatsTask admin about new member
     try {
       // Count total members in the company
-      const companyMembers = await User.countDocuments({
-        "companies.company_id": company._id,
-      })
-      const totalUsers = await User.countDocuments()
+      const [{ value: companyMembersCount }] = await db
+        .select({ value: count() })
+        .from(userCompanies)
+        .where(eq(userCompanies.company_id, company.id))
+      const companyMembers = Number(companyMembersCount)
+
+      const [{ value: totalUsersCount }] = await db.select({ value: count() }).from(users)
+      const totalUsers = Number(totalUsersCount)
 
       // Find company owner (the user who created the company)
-      const companyOwner = await User.findById(company.created_by)
+      const companyOwner = company.created_by
+        ? await db.query.users.findFirst({ where: eq(users.id, company.created_by) })
+        : null
 
       if (companyOwner && companyOwner.telegram_id) {
         await notifyNewMemberJoined(
@@ -156,7 +179,7 @@ export async function POST(request: NextRequest) {
             department: invitation.department || undefined,
           },
           {
-            companyId: company._id.toString(),
+            companyId: company.id,
             companyName: company.name,
           },
           companyMembers
@@ -173,7 +196,7 @@ export async function POST(request: NextRequest) {
         },
         {
           name: company.name,
-          companyId: company._id.toString(),
+          companyId: company.id,
         },
         { companyMembers, totalUsers }
       )
@@ -183,39 +206,48 @@ export async function POST(request: NextRequest) {
       console.error("[v0] Failed to notify:", notifyError)
     }
 
-    // Get all user companies
-    const allCompanyIds = user.companies.map((c: any) => c.company_id)
-    const allCompanies = await Company.find({ _id: { $in: allCompanyIds } })
-
-    const userCompanies = user.companies.map((c: any) => ({
-      companyId: c.company_id?.toString(),
-      role: c.role,
-      department: c.department,
-      joinedAt: c.joined_at,
-    }))
+    // Get all user companies with company details
+    const allUserCompanies = await db
+      .select({
+        companyId: userCompanies.company_id,
+        role: userCompanies.role,
+        department: userCompanies.department,
+        joinedAt: userCompanies.joined_at,
+        companyName: companies.name,
+        companyCreatedBy: companies.created_by,
+        companyCreatedAt: companies.created_at,
+      })
+      .from(userCompanies)
+      .innerJoin(companies, eq(userCompanies.company_id, companies.id))
+      .where(eq(userCompanies.user_id, user.id))
 
     return NextResponse.json({
       success: true,
       company: {
-        id: company._id.toString(),
+        id: company.id,
         name: company.name,
         role: invitation.role || "employee",
-        createdAt: company.createdAt,
+        createdAt: company.created_at,
       },
       user: {
-        id: user._id.toString(),
+        id: user.id,
         telegramId: user.telegram_id,
         fullName: user.full_name,
         username: user.username,
-        activeCompanyId: company._id.toString(),
+        activeCompanyId: company.id,
         preferences: user.preferences,
-        companies: userCompanies,
+        companies: allUserCompanies.map((c) => ({
+          companyId: c.companyId,
+          role: c.role,
+          department: c.department,
+          joinedAt: c.joinedAt,
+        })),
       },
-      allCompanies: allCompanies.map((c: any) => ({
-        id: c._id.toString(),
-        name: c.name,
-        createdBy: c.created_by?.toString() || "",
-        createdAt: c.createdAt,
+      allCompanies: allUserCompanies.map((c) => ({
+        id: c.companyId,
+        name: c.companyName,
+        createdBy: c.companyCreatedBy || "",
+        createdAt: c.companyCreatedAt,
       })),
     })
   } catch (error) {

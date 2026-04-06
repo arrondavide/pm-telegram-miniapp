@@ -1,49 +1,29 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { connectToDatabase } from "@/lib/mongodb"
-import mongoose from "mongoose"
-
-// Notification schema for in-app notifications
-const NotificationSchema = new mongoose.Schema(
-  {
-    telegram_id: { type: String, required: true, index: true },
-    type: {
-      type: String,
-      enum: ["task_assigned", "task_updated", "task_completed", "comment", "reminder", "general"],
-      required: true,
-    },
-    title: { type: String, required: true },
-    message: { type: String, required: true },
-    task_id: { type: String },
-    read: { type: Boolean, default: false },
-    created_at: { type: Date, default: Date.now },
-  },
-  { timestamps: true },
-)
-
-const AppNotification = mongoose.models.AppNotification || mongoose.model("AppNotification", NotificationSchema)
+import { db, notifications, users } from "@/lib/db"
+import { eq, and, desc } from "drizzle-orm"
 
 // GET - Fetch notifications for a user
 export async function GET(request: NextRequest) {
   try {
-    await connectToDatabase()
-
     const telegramId = request.headers.get("X-Telegram-Id")
     if (!telegramId) {
       return NextResponse.json({ error: "Telegram ID required" }, { status: 400 })
     }
 
-    const notifications = await AppNotification.find({ telegram_id: telegramId })
-      .sort({ created_at: -1 })
+    const rows = await db
+      .select()
+      .from(notifications)
+      .where(eq(notifications.telegram_id, telegramId))
+      .orderBy(desc(notifications.created_at))
       .limit(50)
-      .lean()
 
-    const formatted = notifications.map((n: any) => ({
-      id: n._id.toString(),
+    const formatted = rows.map((n) => ({
+      id: n.id,
       type: n.type,
-      title: n.title,
+      title: n.message, // notifications table has no separate title; use message
       message: n.message,
       taskId: n.task_id,
-      read: n.read,
+      read: n.sent,
       createdAt: n.created_at,
     }))
 
@@ -64,8 +44,6 @@ export async function GET(request: NextRequest) {
 // POST - Create a new notification (and optionally send Telegram message)
 export async function POST(request: NextRequest) {
   try {
-    await connectToDatabase()
-
     const body = await request.json()
     const { telegramId, type, title, message, taskId, sendTelegram = true } = body
 
@@ -73,15 +51,30 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
     }
 
-    // Save to database
-    const notification = await AppNotification.create({
-      telegram_id: telegramId,
-      type,
-      title,
-      message,
-      task_id: taskId,
-      read: false,
-    })
+    // Resolve notification type to schema enum values
+    const typeMap: Record<string, "reminder" | "overdue" | "assigned" | "mention" | "status_update" | "daily_digest"> = {
+      task_assigned: "assigned",
+      task_updated: "status_update",
+      task_completed: "status_update",
+      comment: "mention",
+      reminder: "reminder",
+      general: "reminder",
+    }
+    const mappedType = typeMap[type] ?? "reminder"
+
+    // Combine title + message into the message field (schema has no separate title)
+    const fullMessage = title !== message ? `${title}\n\n${message}` : message
+
+    const [notification] = await db
+      .insert(notifications)
+      .values({
+        telegram_id: telegramId,
+        type: mappedType,
+        message: fullMessage,
+        task_id: taskId ?? null,
+        sent: false,
+      })
+      .returning()
 
     // Send Telegram notification if enabled
     const botToken = process.env.TELEGRAM_BOT_TOKEN || process.env.BOT_TOKEN
@@ -106,12 +99,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       notification: {
-        id: notification._id.toString(),
+        id: notification.id,
         type: notification.type,
-        title: notification.title,
+        title,
         message: notification.message,
         taskId: notification.task_id,
-        read: notification.read,
+        read: notification.sent,
         createdAt: notification.created_at,
       },
     })
@@ -124,15 +117,19 @@ export async function POST(request: NextRequest) {
 // PATCH - Mark notifications as read
 export async function PATCH(request: NextRequest) {
   try {
-    await connectToDatabase()
-
     const body = await request.json()
     const { notificationId, markAllRead, telegramId } = body
 
     if (markAllRead && telegramId) {
-      await AppNotification.updateMany({ telegram_id: telegramId }, { $set: { read: true } })
+      await db
+        .update(notifications)
+        .set({ sent: true, sent_at: new Date(), updated_at: new Date() })
+        .where(eq(notifications.telegram_id, telegramId))
     } else if (notificationId) {
-      await AppNotification.findByIdAndUpdate(notificationId, { read: true })
+      await db
+        .update(notifications)
+        .set({ sent: true, sent_at: new Date(), updated_at: new Date() })
+        .where(eq(notifications.id, notificationId))
     }
 
     return NextResponse.json({ success: true })
@@ -145,14 +142,12 @@ export async function PATCH(request: NextRequest) {
 // DELETE - Clear all notifications for a user
 export async function DELETE(request: NextRequest) {
   try {
-    await connectToDatabase()
-
     const telegramId = request.headers.get("X-Telegram-Id")
     if (!telegramId) {
       return NextResponse.json({ error: "Telegram ID required" }, { status: 400 })
     }
 
-    await AppNotification.deleteMany({ telegram_id: telegramId })
+    await db.delete(notifications).where(eq(notifications.telegram_id, telegramId))
 
     return NextResponse.json({ success: true })
   } catch (error) {

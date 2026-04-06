@@ -1,8 +1,43 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { connectToDatabase } from "@/lib/mongodb"
-import { Project, Task, User } from "@/lib/models"
+import { db, projects, tasks, users, userCompanies, taskAssignees } from "@/lib/db"
+import { eq, and, isNull, inArray } from "drizzle-orm"
 import { taskTransformer } from "@/lib/transformers"
-import mongoose from "mongoose"
+
+/** Map a Drizzle task row + assignee rows into the shape the transformer expects */
+function toTaskDoc(task: any, assigneeRows: Array<{ taskId: string; userId: string; fullName: string; telegramId: string; username: string }>) {
+  const myAssignees = assigneeRows
+    .filter((a) => a.taskId === task.id)
+    .map((a) => ({
+      _id: { toString: () => a.userId },
+      telegram_id: a.telegramId,
+      full_name: a.fullName,
+      username: a.username,
+    }))
+
+  return {
+    _id: { toString: () => task.id },
+    title: task.title,
+    description: task.description ?? "",
+    due_date: task.due_date ?? new Date(),
+    status: task.status,
+    priority: task.priority,
+    assigned_to: myAssignees,
+    created_by: task.created_by ?? "",
+    company_id: task.company_id,
+    project_id: task.project_id ?? "",
+    parent_task_id: task.parent_task_id ?? null,
+    depth: task.depth ?? 0,
+    path: task.path ? task.path.split("/").filter(Boolean) : [],
+    category: task.category ?? "",
+    tags: task.tags ?? [],
+    department: task.department ?? "",
+    estimated_hours: task.estimated_hours ?? 0,
+    actual_hours: task.actual_hours ?? 0,
+    completed_at: task.completed_at ?? undefined,
+    createdAt: task.created_at,
+    updatedAt: task.updated_at,
+  } as any
+}
 
 // GET /api/projects/{id}/tasks?hierarchy=true&rootOnly=true
 export async function GET(request: NextRequest, { params }: { params: Promise<{ projectId: string }> }) {
@@ -17,89 +52,84 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       return NextResponse.json({ error: "Telegram ID required" }, { status: 400 })
     }
 
-    await connectToDatabase()
-
-    // Get the project
-    let project: any = null
-    if (mongoose.Types.ObjectId.isValid(projectId)) {
-      project = await Project.findById(projectId)
-    }
-
-    if (!project) {
-      project = await Project.findOne({ _id: projectId })
-    }
-
+    const project = await db.query.projects.findFirst({ where: eq(projects.id, projectId) })
     if (!project) {
       return NextResponse.json({ error: "Project not found" }, { status: 404 })
     }
 
     // Verify user has access
-    const user = await User.findOne({ telegram_id: telegramId })
+    const user = await db.query.users.findFirst({ where: eq(users.telegram_id, telegramId) })
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 404 })
     }
 
-    const hasAccess = user.companies.some(
-      (c: any) => c.company_id.toString() === project.company_id.toString()
-    )
+    const access = await db.query.userCompanies.findFirst({
+      where: and(eq(userCompanies.user_id, user.id), eq(userCompanies.company_id, project.company_id)),
+    })
 
-    if (!hasAccess) {
+    if (!access) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 })
     }
 
-    // Auto-fix: Assign tasks without project_id to this project if they belong to the same company
-    const fixResult = await Task.updateMany(
-      {
-        company_id: project.company_id,
-        $or: [
-          { project_id: null },
-          { project_id: { $exists: false } }
-        ]
-      },
-      {
-        $set: { project_id: project._id }
-      }
-    )
+    // Build query conditions
+    const conditions = rootOnly
+      ? and(eq(tasks.project_id, projectId), isNull(tasks.parent_task_id))
+      : eq(tasks.project_id, projectId)
 
-    if (fixResult.modifiedCount > 0) {
-      console.log(`[Auto-fix] Assigned ${fixResult.modifiedCount} orphan tasks to project ${project._id}`)
+    const taskRows = await db
+      .select()
+      .from(tasks)
+      .where(conditions)
+      .orderBy(tasks.created_at)
+
+    // Fetch assignees for all tasks
+    const taskIds = taskRows.map((t) => t.id)
+    let assigneeRows: Array<{ taskId: string; userId: string; fullName: string; telegramId: string; username: string }> = []
+
+    if (taskIds.length > 0) {
+      const rows = await db
+        .select({
+          taskId: taskAssignees.task_id,
+          userId: users.id,
+          fullName: users.full_name,
+          telegramId: users.telegram_id,
+          username: users.username,
+        })
+        .from(taskAssignees)
+        .innerJoin(users, eq(taskAssignees.user_id, users.id))
+        .where(inArray(taskAssignees.task_id, taskIds))
+
+      assigneeRows = rows.map((r) => ({
+        taskId: r.taskId,
+        userId: r.userId,
+        fullName: r.fullName,
+        telegramId: r.telegramId,
+        username: r.username ?? "",
+      }))
     }
 
-    // Build query
-    const query: any = { project_id: project._id }
-    if (rootOnly) {
-      query.$or = [{ parent_task_id: null }, { parent_task_id: { $exists: false } }]
-    }
+    const taskDocs = taskRows.map((t) => toTaskDoc(t, assigneeRows))
 
-    // Get tasks
-    const tasks = await Task.find(query)
-      .populate("assigned_to", "telegram_id full_name username")
-      .populate("created_by", "telegram_id full_name username")
-      .sort({ createdAt: -1 })
-      .lean()
-
-    // Use centralized transformer
     if (hierarchy) {
       // Build tree structure
       const taskMap = new Map<string, any>()
       const rootTasks: any[] = []
 
       // First pass: transform and create task objects with children array
-      tasks.forEach((task: any) => {
-        const formattedTask: any = taskTransformer.toFrontend(task)
+      taskDocs.forEach((doc: any) => {
+        const formattedTask: any = taskTransformer.toFrontend(doc)
         formattedTask.children = []
         taskMap.set(formattedTask.id, formattedTask)
       })
 
       // Second pass: build tree
-      tasks.forEach((task: any) => {
-        const formattedTask = taskMap.get(task._id.toString())
+      taskRows.forEach((task) => {
+        const formattedTask = taskMap.get(task.id)
         if (task.parent_task_id) {
-          const parent = taskMap.get(task.parent_task_id.toString())
+          const parent = taskMap.get(task.parent_task_id)
           if (parent) {
             parent.children.push(formattedTask)
           } else {
-            // Parent not in result set, add to root
             rootTasks.push(formattedTask)
           }
         } else {
@@ -109,8 +139,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
       return NextResponse.json({ tasks: rootTasks })
     } else {
-      // Return flat list using transformer
-      return NextResponse.json({ tasks: taskTransformer.toList(tasks as any[]) })
+      return NextResponse.json({ tasks: taskTransformer.toList(taskDocs) })
     }
   } catch (error) {
     console.error("Error fetching project tasks:", error)

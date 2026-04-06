@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { connectToDatabase } from "@/lib/mongodb"
-import { SupportTicket, User } from "@/lib/models"
+import { db, supportTickets, users } from "@/lib/db"
+import { eq, desc } from "drizzle-orm"
 
 export async function POST(request: NextRequest) {
   const telegramId = request.headers.get("x-telegram-id")
@@ -8,9 +8,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  await connectToDatabase()
-
-  const user = await User.findOne({ telegram_id: telegramId }).lean()
+  const user = await db.query.users.findFirst({
+    where: eq(users.telegram_id, telegramId),
+  })
   if (!user) {
     return NextResponse.json({ error: "User not found" }, { status: 404 })
   }
@@ -22,17 +22,20 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Subject and message are required" }, { status: 400 })
   }
 
-  const ticket = await SupportTicket.create({
-    user_id: user._id,
-    telegram_id: telegramId,
-    subject: subject.trim(),
-    message: message.trim(),
-    category: category || "general",
-    priority: "medium",
-    status: "open",
-  })
+  const [ticket] = await db
+    .insert(supportTickets)
+    .values({
+      user_id: user.id,
+      telegram_id: telegramId,
+      subject: subject.trim(),
+      message: message.trim(),
+      category: category || "general",
+      priority: "medium",
+      status: "open",
+    })
+    .returning()
 
-  return NextResponse.json({ success: true, ticketId: ticket._id })
+  return NextResponse.json({ success: true, ticketId: ticket.id })
 }
 
 export async function GET(request: NextRequest) {
@@ -41,12 +44,12 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  await connectToDatabase()
-
-  const tickets = await SupportTicket.find({ telegram_id: telegramId })
-    .sort({ createdAt: -1 })
+  const tickets = await db
+    .select()
+    .from(supportTickets)
+    .where(eq(supportTickets.telegram_id, telegramId))
+    .orderBy(desc(supportTickets.created_at))
     .limit(20)
-    .lean()
 
   return NextResponse.json({ tickets })
 }

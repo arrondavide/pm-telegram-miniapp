@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
-import { connectToDatabase } from "@/lib/mongodb"
-import { ApiKey, User } from "@/lib/models"
+import { db, users, userCompanies, apiKeys } from "@/lib/db"
+import { eq, and, desc } from "drizzle-orm"
 import { checkQuota } from "@/lib/quota"
 import crypto from "crypto"
 
@@ -20,29 +20,40 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
     }
 
-    await connectToDatabase()
-
-    const user = await User.findOne({ telegram_id: telegramId })
+    const user = await db.query.users.findFirst({
+      where: eq(users.telegram_id, telegramId),
+    })
     if (!user) {
       return NextResponse.json({ success: false, error: "User not found" }, { status: 404 })
     }
 
-    const keys = await ApiKey.find({ user_id: user._id, is_active: true })
-      .select("-key") // Don't return the actual key hash
-      .sort({ createdAt: -1 })
+    const keys = await db
+      .select({
+        id: apiKeys.id,
+        name: apiKeys.name,
+        key_prefix: apiKeys.key_prefix,
+        permissions: apiKeys.permissions,
+        usage_count: apiKeys.usage_count,
+        last_used_at: apiKeys.last_used_at,
+        rate_limit: apiKeys.rate_limit,
+        created_at: apiKeys.created_at,
+      })
+      .from(apiKeys)
+      .where(and(eq(apiKeys.user_id, user.id), eq(apiKeys.is_active, true)))
+      .orderBy(desc(apiKeys.created_at))
 
     return NextResponse.json({
       success: true,
       data: {
         keys: keys.map((k) => ({
-          id: k._id.toString(),
+          id: k.id,
           name: k.name,
           keyPrefix: k.key_prefix,
           permissions: k.permissions,
           usageCount: k.usage_count,
           lastUsedAt: k.last_used_at,
           rateLimit: k.rate_limit,
-          createdAt: k.createdAt,
+          createdAt: k.created_at,
         })),
       },
     })
@@ -70,17 +81,20 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    await connectToDatabase()
-
-    const user = await User.findOne({ telegram_id: telegramId })
+    const user = await db.query.users.findFirst({
+      where: eq(users.telegram_id, telegramId),
+    })
     if (!user) {
       return NextResponse.json({ success: false, error: "User not found" }, { status: 404 })
     }
 
-    // Check user belongs to company
-    const userCompany = user.companies.find(
-      (c: any) => c.company_id.toString() === companyId
-    )
+    // Check user belongs to company and is admin/manager
+    const userCompany = await db.query.userCompanies.findFirst({
+      where: and(
+        eq(userCompanies.user_id, user.id),
+        eq(userCompanies.company_id, companyId)
+      ),
+    })
     if (!userCompany || userCompany.role === "employee") {
       return NextResponse.json(
         { success: false, error: "Only admins and managers can create API keys" },
@@ -100,26 +114,29 @@ export async function POST(request: NextRequest) {
     // Generate new key
     const { key, hash, prefix } = generateApiKey()
 
-    const apiKey = await ApiKey.create({
-      key: hash,
-      key_prefix: prefix,
-      name,
-      user_id: user._id,
-      company_id: companyId,
-      permissions,
-      rate_limit: 60,
-    })
+    const [apiKey] = await db
+      .insert(apiKeys)
+      .values({
+        key: hash,
+        key_prefix: prefix,
+        name,
+        user_id: user.id,
+        company_id: companyId,
+        permissions,
+        rate_limit: 60,
+      })
+      .returning()
 
     return NextResponse.json({
       success: true,
       data: {
-        id: apiKey._id.toString(),
+        id: apiKey.id,
         name: apiKey.name,
         key, // Return the actual key only on creation!
         keyPrefix: prefix,
         permissions: apiKey.permissions,
         rateLimit: apiKey.rate_limit,
-        createdAt: apiKey.createdAt,
+        createdAt: apiKey.created_at,
       },
       message: "API key created. Save it now - you won't be able to see it again!",
     })

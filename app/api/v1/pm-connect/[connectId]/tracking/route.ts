@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
-import { connectToDatabase } from "@/lib/mongodb"
-import { PMIntegration, WorkerTask } from "@/lib/models"
+import { db, pmIntegrations, pmIntegrationWorkers, workerTasks } from "@/lib/db"
+import { eq, and, desc } from "drizzle-orm"
 
 interface RouteParams {
   params: Promise<{ connectId: string }>
@@ -14,12 +14,12 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const { searchParams } = new URL(request.url)
     const includeCompleted = searchParams.get("completed") === "true"
 
-    await connectToDatabase()
-
     // Find integration
-    const integration = await PMIntegration.findOne({
-      connect_id: connectId,
-      is_active: true,
+    const integration = await db.query.pmIntegrations.findFirst({
+      where: and(
+        eq(pmIntegrations.connect_id, connectId),
+        eq(pmIntegrations.is_active, true)
+      ),
     })
 
     if (!integration) {
@@ -29,51 +29,54 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       )
     }
 
-    // Build query for tasks
-    const query: any = {
-      integration_id: integration._id,
-      "location_tracking.current_location": { $exists: true },
-    }
+    // Fetch all tasks for integration, then filter in JS for location data
+    // (JSON column filtering is not easily done with Drizzle without raw SQL)
+    let allTasks = await db
+      .select()
+      .from(workerTasks)
+      .where(eq(workerTasks.integration_id, integration.id))
+      .orderBy(desc(workerTasks.updated_at))
+      .limit(200)
+
+    // Filter to tasks that have current_location in location_tracking JSON
+    let tasks = allTasks.filter((t) => {
+      const lt = t.location_tracking as any
+      return lt?.current_location != null
+    })
 
     if (!includeCompleted) {
-      query.status = { $in: ["started", "problem"] }
+      tasks = tasks.filter((t) => t.status === "started" || t.status === "problem")
     }
 
-    // Find tasks with location data
-    const tasks = await WorkerTask.find(query)
-      .select({
-        external_task_id: 1,
-        worker_telegram_id: 1,
-        title: 1,
-        status: 1,
-        started_at: 1,
-        completed_at: 1,
-        location: 1,
-        destination_coords: 1,
-        "location_tracking.enabled": 1,
-        "location_tracking.current_location": 1,
-        "location_tracking.total_distance_meters": 1,
-        "location_tracking.started_at": 1,
-      })
-      .sort({ updatedAt: -1 })
-      .limit(50)
+    // Cap at 50
+    tasks = tasks.slice(0, 50)
 
-    // Map worker info
+    // Fetch workers for this integration
+    const workers = await db
+      .select()
+      .from(pmIntegrationWorkers)
+      .where(eq(pmIntegrationWorkers.integration_id, integration.id))
+
+    // Build worker map
     const workerMap = new Map<string, any>()
-    integration.workers.forEach((w: any) => {
-      workerMap.set(w.telegram_id, {
-        name: w.external_name,
-        external_id: w.external_id,
-      })
+    workers.forEach((w) => {
+      if (w.telegram_id) {
+        workerMap.set(w.telegram_id, {
+          name: w.external_name,
+          external_id: w.external_id,
+        })
+      }
     })
 
     // Build response
-    const trackingData = tasks.map((task: any) => {
-      const worker = workerMap.get(task.worker_telegram_id) || {}
-      const loc = task.location_tracking?.current_location
+    const trackingData = tasks.map((task) => {
+      const worker = task.worker_telegram_id ? workerMap.get(task.worker_telegram_id) || {} : {}
+      const locationTracking = task.location_tracking as any
+      const loc = locationTracking?.current_location
+      const destinationCoords = task.destination_coords as any
 
       return {
-        task_id: task._id.toString(),
+        task_id: task.id,
         external_task_id: task.external_task_id,
         title: task.title,
         status: task.status,
@@ -83,8 +86,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
           external_id: worker.external_id,
         },
         tracking: {
-          active: task.location_tracking?.enabled || false,
-          started_at: task.location_tracking?.started_at,
+          active: locationTracking?.enabled || false,
+          started_at: locationTracking?.started_at,
         },
         location: loc ? {
           lat: loc.lat,
@@ -93,13 +96,13 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
           heading: loc.heading,
           updated_at: loc.timestamp,
         } : null,
-        destination: task.destination_coords ? {
-          lat: task.destination_coords.lat,
-          lng: task.destination_coords.lng,
+        destination: destinationCoords ? {
+          lat: destinationCoords.lat,
+          lng: destinationCoords.lng,
           address: task.location,
         } : null,
-        distance_traveled_km: task.location_tracking?.total_distance_meters
-          ? (task.location_tracking.total_distance_meters / 1000).toFixed(2)
+        distance_traveled_km: locationTracking?.total_distance_meters
+          ? (locationTracking.total_distance_meters / 1000).toFixed(2)
           : "0",
         task_started_at: task.started_at,
         task_completed_at: task.completed_at,
@@ -113,7 +116,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
           name: integration.name,
           platform: integration.platform,
         },
-        active_tracking_count: trackingData.filter((t: any) => t.tracking.active).length,
+        active_tracking_count: trackingData.filter((t) => t.tracking.active).length,
         tasks: trackingData,
       },
     })

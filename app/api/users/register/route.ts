@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { connectToDatabase } from "@/lib/mongodb"
-import { User } from "@/lib/models"
+import { db, users } from "@/lib/db"
+import { eq, count } from "drizzle-orm"
 import { validateTelegramWebAppData } from "@/lib/telegram-validation"
 import { notifyAdminNewUser } from "@/lib/telegram"
 
@@ -9,7 +9,6 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const { telegramId, fullName, username, initData } = body
 
-    // Validate initData if BOT_TOKEN is set
     if (process.env.BOT_TOKEN && initData) {
       const isValid = validateTelegramWebAppData(initData, process.env.BOT_TOKEN)
       if (!isValid) {
@@ -17,55 +16,39 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    await connectToDatabase()
+    const existing = await db.query.users.findFirst({ where: eq(users.telegram_id, telegramId) })
 
-    // Check if user already exists
-    let user = await User.findOne({ telegram_id: telegramId })
+    let userId: string
 
-    let isNewUser = false
-
-    if (user) {
-      // Update existing user
-      user.full_name = fullName
-      user.username = username || ""
-      await user.save()
+    if (existing) {
+      await db.update(users)
+        .set({ full_name: fullName, username: username || "", updated_at: new Date() })
+        .where(eq(users.telegram_id, telegramId))
+      userId = existing.id
     } else {
-      // Create new user
-      isNewUser = true
-      user = await User.create({
+      const [created] = await db.insert(users).values({
         telegram_id: telegramId,
         full_name: fullName,
         username: username || "",
-        companies: [],
-        preferences: {
-          daily_digest: true,
-          reminder_time: "09:00",
-        },
-      })
+        preferences: { daily_digest: true, reminder_time: "09:00" },
+      }).returning()
+      userId = created.id
 
-      // Notify WhatsTask admin about new user
       try {
-        const totalUsers = await User.countDocuments()
-        await notifyAdminNewUser(
-          {
-            fullName,
-            username: username || undefined,
-            telegramId,
-          },
-          { totalUsers }
-        )
-      } catch (notifyError) {
-        console.error("Failed to notify admin:", notifyError)
+        const [row] = await db.select({ value: count() }).from(users)
+        await notifyAdminNewUser({ fullName, username: username || undefined, telegramId }, { totalUsers: row?.value ?? 0 })
+      } catch (e) {
+        console.error("Failed to notify admin:", e)
       }
     }
 
     return NextResponse.json({
       user: {
-        id: user._id.toString(),
-        telegramId: user.telegram_id,
-        fullName: user.full_name,
-        username: user.username,
-        preferences: user.preferences,
+        id: userId,
+        telegramId,
+        fullName,
+        username: username || "",
+        preferences: { daily_digest: true, reminder_time: "09:00" },
         companies: [],
       },
     })

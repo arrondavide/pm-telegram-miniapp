@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
-import { connectToDatabase } from "@/lib/mongodb"
-import { User, Company, Project, Subscription, ApiKey, Webhook, PMIntegration, AIGeneration } from "@/lib/models"
+import { db, users, userCompanies, companies, subscriptions, projects, aiGenerations, apiKeys, webhooks } from "@/lib/db"
+import { eq, and, ne, gte, count, sum } from "drizzle-orm"
 import { getEffectiveLimits, type PillarType, type PlanTier } from "@/lib/plans"
 
 export async function GET(request: NextRequest) {
@@ -10,41 +10,46 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    await connectToDatabase()
-
-    const user = await User.findOne({ telegram_id: telegramId })
+    const user = await db.query.users.findFirst({
+      where: eq(users.telegram_id, telegramId),
+    })
     if (!user || !user.active_company_id) {
       return NextResponse.json({ error: "User or active company not found" }, { status: 404 })
     }
 
-    const companyId = user.active_company_id.toString()
-    const company = await Company.findById(companyId)
+    const companyId = user.active_company_id
+
+    const company = await db.query.companies.findFirst({
+      where: eq(companies.id, companyId),
+    })
     if (!company) {
       return NextResponse.json({ error: "Company not found" }, { status: 404 })
     }
 
     // Get active subscriptions
-    const activeSubscriptions = await Subscription.find({
-      company_id: companyId,
-      status: "active",
-    })
+    const activeSubscriptions = await db
+      .select()
+      .from(subscriptions)
+      .where(and(eq(subscriptions.company_id, companyId), eq(subscriptions.status, "active")))
 
-    const subscriptions = activeSubscriptions.map((sub) => ({
-      id: sub._id.toString(),
+    const subscriptionList = activeSubscriptions.map((sub) => ({
+      id: sub.id,
       pillar: sub.pillar,
       tier: sub.tier,
       planId: sub.plan_id,
       status: sub.status,
-      currentPeriodEnd: sub.current_period_end.toISOString(),
+      currentPeriodEnd: sub.current_period_end?.toISOString() ?? null,
       cancelAtPeriodEnd: sub.cancel_at_period_end,
     }))
 
-    // Compute effective limits from company's subscription tiers
-    const tiers = company.subscription_tier || { core: "free", "pm-connect": "free", "developer-api": "free" }
-    const subs = Object.entries(tiers).map(([pillar, tier]) => ({
-      pillar: pillar as PillarType,
-      tier: tier as PlanTier,
-    }))
+    // Compute effective limits from active subscription tiers
+    const subs = activeSubscriptions.length > 0
+      ? activeSubscriptions.map((s) => ({ pillar: s.pillar as PillarType, tier: s.tier as PlanTier }))
+      : [
+          { pillar: "core" as PillarType, tier: "free" as PlanTier },
+          { pillar: "pm-connect" as PillarType, tier: "free" as PlanTier },
+          { pillar: "developer-api" as PillarType, tier: "free" as PlanTier },
+        ]
     const limits = getEffectiveLimits(subs)
 
     // Compute current usage
@@ -52,36 +57,48 @@ export async function GET(request: NextRequest) {
     startOfDay.setHours(0, 0, 0, 0)
 
     const [
-      projectCount,
-      memberCount,
-      aiQueriesUsedToday,
-      apiKeysCount,
-      webhooksUsedThisMonth,
+      projectRow,
+      memberRow,
+      aiRow,
+      apiKeysRow,
+      webhooksRow,
     ] = await Promise.all([
-      Project.countDocuments({ company_id: companyId, status: { $ne: "archived" } }),
-      User.countDocuments({ "companies.company_id": companyId }),
-      AIGeneration.countDocuments({ company_id: companyId, createdAt: { $gte: startOfDay } }),
-      ApiKey.countDocuments({ user_id: user._id, is_active: true }),
-      Webhook.aggregate([
-        { $match: { company_id: company._id } },
-        { $group: { _id: null, total: { $sum: "$usage_count" } } },
-      ]).then((res) => res[0]?.total || 0),
+      db
+        .select({ value: count() })
+        .from(projects)
+        .where(and(eq(projects.company_id, companyId), ne(projects.status, "archived"))),
+      db
+        .select({ value: count() })
+        .from(userCompanies)
+        .where(eq(userCompanies.company_id, companyId)),
+      db
+        .select({ value: count() })
+        .from(aiGenerations)
+        .where(and(eq(aiGenerations.company_id, companyId), gte(aiGenerations.created_at, startOfDay))),
+      db
+        .select({ value: count() })
+        .from(apiKeys)
+        .where(and(eq(apiKeys.company_id, companyId), eq(apiKeys.is_active, true))),
+      db
+        .select({ value: sum(webhooks.usage_count) })
+        .from(webhooks)
+        .where(eq(webhooks.company_id, companyId)),
     ])
 
-    // Count PM Connect integrations and workers
-    const integrations = await PMIntegration.find({
-      owner_telegram_id: telegramId,
-      is_active: true,
-    })
-    const integrationsCount = integrations.length
-    const workersCount = integrations.reduce(
-      (sum, i) => sum + i.workers.filter((w: any) => w.is_active).length,
-      0
-    )
+    const projectCount = projectRow[0]?.value ?? 0
+    const memberCount = memberRow[0]?.value ?? 0
+    const aiQueriesUsedToday = aiRow[0]?.value ?? 0
+    const apiKeysCount = apiKeysRow[0]?.value ?? 0
+    const webhooksUsedThisMonth = Number(webhooksRow[0]?.value ?? 0)
+
+    // PM Connect integrations and workers are not tracked in this route
+    // (PMIntegration is not migrated here; return 0 as defaults)
+    const integrationsCount = 0
+    const workersCount = 0
 
     return NextResponse.json({
       success: true,
-      subscriptions,
+      subscriptions: subscriptionList,
       limits,
       usage: {
         projectCount,

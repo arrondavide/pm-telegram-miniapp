@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
-import { connectToDatabase } from "@/lib/mongodb"
-import { WorkerTask, PMIntegration, Subscription, Payment, Company } from "@/lib/models"
+import { db, workerTasks, pmIntegrations, subscriptions, payments } from "@/lib/db"
+import { eq, and, inArray, desc } from "drizzle-orm"
 import { getPlanById } from "@/lib/plans"
 
 // Send message to Telegram
@@ -61,8 +61,9 @@ async function updateTaskMessage(chatId: string, messageId: number, task: any, n
 
   if (newStatus === "completed") {
     message += `\n\n✅ Completed at ${new Date().toLocaleTimeString()}`
-    if (task.photo_urls?.length > 0) {
-      message += `\n📷 ${task.photo_urls.length} photo(s) attached`
+    const photoUrls = Array.isArray(task.photo_urls) ? task.photo_urls : []
+    if (photoUrls.length > 0) {
+      message += `\n📷 ${photoUrls.length} photo(s) attached`
     }
   }
 
@@ -70,11 +71,11 @@ async function updateTaskMessage(chatId: string, messageId: number, task: any, n
   const keyboard = newStatus === "completed" ? { inline_keyboard: [] } : {
     inline_keyboard: [
       [
-        { text: "✅ Start", callback_data: `task_start_${task._id}` },
-        { text: "✓ Done", callback_data: `task_done_${task._id}` },
+        { text: "✅ Start", callback_data: `task_start_${task.id}` },
+        { text: "✓ Done", callback_data: `task_done_${task.id}` },
       ],
       [
-        { text: "⚠️ Problem", callback_data: `task_problem_${task._id}` },
+        { text: "⚠️ Problem", callback_data: `task_problem_${task.id}` },
       ],
     ],
   }
@@ -98,7 +99,7 @@ async function updateTaskMessage(chatId: string, messageId: number, task: any, n
 
 // Notify manager about problem
 async function notifyManagerAboutProblem(integration: any, task: any, problemDescription: string) {
-  if (!integration.settings.notify_on_problem) return
+  if (!integration.settings?.notify_on_problem) return
 
   const message = `⚠️ <b>Worker reported a problem</b>\n\n`
     + `Task: ${escapeHtml(task.title)}\n`
@@ -131,7 +132,7 @@ function calculateDistance(lat1: number, lng1: number, lat2: number, lng2: numbe
 
 // Send location webhook to PM tool
 async function sendLocationWebhook(integration: any, task: any, location: any) {
-  if (!integration.settings.location_webhook_url) return
+  if (!integration.settings?.location_webhook_url) return
 
   try {
     await fetch(integration.settings.location_webhook_url, {
@@ -149,13 +150,21 @@ async function sendLocationWebhook(integration: any, task: any, location: any) {
           heading: location.heading,
           timestamp: location.timestamp,
         },
-        total_distance_meters: task.location_tracking.total_distance_meters,
-        tracking_started_at: task.location_tracking.started_at,
+        total_distance_meters: task.location_tracking?.total_distance_meters,
+        tracking_started_at: task.location_tracking?.started_at,
       }),
     })
 
-    task.location_tracking.last_webhook_sent = new Date()
-    await task.save()
+    await db
+      .update(workerTasks)
+      .set({
+        location_tracking: {
+          ...task.location_tracking,
+          last_webhook_sent: new Date().toISOString(),
+        },
+        updated_at: new Date(),
+      })
+      .where(eq(workerTasks.id, task.id))
   } catch (error) {
     console.error("Failed to send location webhook:", error)
   }
@@ -205,17 +214,24 @@ async function removeKeyboard(chatId: string, message: string) {
 // Process location message from worker
 async function processLocation(chatId: string, location: any, isLiveLocation: boolean) {
   // Find the most recent active task with tracking enabled or awaiting location
-  const task = await WorkerTask.findOne({
-    worker_telegram_id: chatId,
-    status: { $in: ["sent", "seen", "started", "problem"] },
-  }).sort({ createdAt: -1 })
+  const task = await db.query.workerTasks.findFirst({
+    where: and(
+      eq(workerTasks.worker_telegram_id, chatId),
+      inArray(workerTasks.status, ["sent", "seen", "started", "problem"])
+    ),
+    orderBy: [desc(workerTasks.created_at)],
+  })
 
   if (!task) {
     await sendTelegramMessage(chatId, "📍 Location received, but no active task found.")
     return
   }
 
-  const integration = await PMIntegration.findById(task.integration_id)
+  const integration = task.integration_id
+    ? await db.query.pmIntegrations.findFirst({
+        where: eq(pmIntegrations.id, task.integration_id),
+      })
+    : null
 
   // Create location point
   const locationPoint = {
@@ -224,44 +240,48 @@ async function processLocation(chatId: string, location: any, isLiveLocation: bo
     accuracy: location.horizontal_accuracy,
     speed: location.speed,
     heading: location.heading,
-    timestamp: new Date(),
+    timestamp: new Date().toISOString(),
   }
 
   // Initialize location tracking if not exists
-  if (!task.location_tracking) {
-    task.location_tracking = {
-      enabled: false,
-      history: [],
-      total_distance_meters: 0,
-    }
+  const tracking = task.location_tracking ?? {
+    enabled: false,
+    history: [],
+    total_distance_meters: 0,
   }
 
+  let totalDistance = tracking.total_distance_meters ?? 0
+
   // Calculate distance from previous point
-  if (task.location_tracking.current_location) {
-    const prevLoc = task.location_tracking.current_location
+  if (tracking.current_location) {
+    const prevLoc = tracking.current_location
     const distance = calculateDistance(
       prevLoc.lat, prevLoc.lng,
       locationPoint.lat, locationPoint.lng
     )
     // Only add if moved more than 10 meters (filter GPS noise)
     if (distance > 10) {
-      task.location_tracking.total_distance_meters += distance
+      totalDistance += distance
     }
   }
 
-  // Update current location
-  task.location_tracking.current_location = locationPoint
-
   // Add to history (limit to last 500 points to prevent huge documents)
-  task.location_tracking.history.push(locationPoint)
-  if (task.location_tracking.history.length > 500) {
-    task.location_tracking.history = task.location_tracking.history.slice(-500)
+  const history = [...(tracking.history ?? []), locationPoint].slice(-500)
+
+  let updatedTracking: any = {
+    ...tracking,
+    current_location: locationPoint,
+    history,
+    total_distance_meters: totalDistance,
   }
 
   // Enable tracking if this is live location
-  if (isLiveLocation && !task.location_tracking.enabled) {
-    task.location_tracking.enabled = true
-    task.location_tracking.started_at = new Date()
+  if (isLiveLocation && !tracking.enabled) {
+    updatedTracking = {
+      ...updatedTracking,
+      enabled: true,
+      started_at: new Date().toISOString(),
+    }
 
     await removeKeyboard(
       chatId,
@@ -270,7 +290,7 @@ async function processLocation(chatId: string, location: any, isLiveLocation: bo
       `Distance: 0 km\n\n` +
       `Reply <code>done</code> when you finish.`
     )
-  } else if (!isLiveLocation && !task.location_tracking.enabled) {
+  } else if (!isLiveLocation && !tracking.enabled) {
     // One-time location share
     await sendTelegramMessage(
       chatId,
@@ -279,19 +299,20 @@ async function processLocation(chatId: string, location: any, isLiveLocation: bo
     )
   }
 
-  await task.save()
+  await db
+    .update(workerTasks)
+    .set({ location_tracking: updatedTracking, updated_at: new Date() })
+    .where(eq(workerTasks.id, task.id))
 
-  // Send webhook to PM tool if configured
-  if (integration && integration.settings.location_webhook_url) {
-    // Throttle webhooks - only send every 30 seconds
-    const lastSent = task.location_tracking.last_webhook_sent
-    if (!lastSent || (Date.now() - lastSent.getTime()) > 30000) {
-      await sendLocationWebhook(integration, task, locationPoint)
+  // Send webhook to PM tool if configured — throttle to every 30 seconds
+  if (integration?.settings?.location_webhook_url) {
+    const lastSent = tracking.last_webhook_sent
+    if (!lastSent || (Date.now() - new Date(lastSent).getTime()) > 30000) {
+      await sendLocationWebhook(integration, { ...task, location_tracking: updatedTracking }, locationPoint)
     }
   }
 
-  // Log for debugging
-  console.log(`[Location] Worker ${chatId}: ${locationPoint.lat}, ${locationPoint.lng} - Total: ${Math.round(task.location_tracking.total_distance_meters)}m`)
+  console.log(`[Location] Worker ${chatId}: ${locationPoint.lat}, ${locationPoint.lng} - Total: ${Math.round(totalDistance)}m`)
 }
 
 // Process text message from worker
@@ -317,10 +338,13 @@ async function processTextMessage(chatId: string, text: string, messageId: numbe
   }
 
   // Find the most recent active task for this worker
-  const task = await WorkerTask.findOne({
-    worker_telegram_id: chatId,
-    status: { $in: ["sent", "seen", "started", "problem"] },
-  }).sort({ createdAt: -1 })
+  const task = await db.query.workerTasks.findFirst({
+    where: and(
+      eq(workerTasks.worker_telegram_id, chatId),
+      inArray(workerTasks.status, ["sent", "seen", "started", "problem"])
+    ),
+    orderBy: [desc(workerTasks.created_at)],
+  })
 
   if (!task) {
     // Check if it's a command without active task
@@ -330,7 +354,11 @@ async function processTextMessage(chatId: string, text: string, messageId: numbe
     return
   }
 
-  const integration = await PMIntegration.findById(task.integration_id)
+  const integration = task.integration_id
+    ? await db.query.pmIntegrations.findFirst({
+        where: eq(pmIntegrations.id, task.integration_id),
+      })
+    : null
 
   // Handle "skip location" response
   if (lowerText === "⏭️ skip location sharing" || lowerText === "skip") {
@@ -340,12 +368,16 @@ async function processTextMessage(chatId: string, text: string, messageId: numbe
 
   // Handle commands
   if (lowerText === "start" || lowerText === "ok" || lowerText === "yes" || lowerText === "👍") {
-    task.status = "started"
-    task.started_at = new Date()
-    await task.save()
+    const now = new Date()
+    await db
+      .update(workerTasks)
+      .set({ status: "started", started_at: now, updated_at: now })
+      .where(eq(workerTasks.id, task.id))
+
+    const updatedTask = { ...task, status: "started", started_at: now }
 
     if (task.telegram_message_id) {
-      await updateTaskMessage(chatId, task.telegram_message_id, task, "started")
+      await updateTaskMessage(chatId, Number(task.telegram_message_id), updatedTask, "started")
     }
 
     // Check if integration has location tracking enabled
@@ -367,49 +399,68 @@ async function processTextMessage(chatId: string, text: string, messageId: numbe
   }
 
   if (lowerText === "done" || lowerText === "complete" || lowerText === "finished" || lowerText === "✅") {
-    task.status = "completed"
-    task.completed_at = new Date()
+    const now = new Date()
+    const tracking = task.location_tracking ?? { enabled: false }
+    const updatedTracking = tracking.enabled
+      ? { ...tracking, enabled: false, stopped_at: now.toISOString() }
+      : tracking
 
-    // Stop location tracking
-    if (task.location_tracking?.enabled) {
-      task.location_tracking.enabled = false
-      task.location_tracking.stopped_at = new Date()
-    }
+    await db
+      .update(workerTasks)
+      .set({
+        status: "completed",
+        completed_at: now,
+        location_tracking: updatedTracking,
+        updated_at: now,
+      })
+      .where(eq(workerTasks.id, task.id))
 
-    await task.save()
+    const updatedTask = { ...task, status: "completed", completed_at: now, location_tracking: updatedTracking }
 
     if (task.telegram_message_id) {
-      await updateTaskMessage(chatId, task.telegram_message_id, task, "completed")
+      await updateTaskMessage(chatId, Number(task.telegram_message_id), updatedTask, "completed")
     }
 
     // Update integration stats
     if (integration) {
-      integration.stats.tasks_completed += 1
+      const stats = integration.stats ?? {}
+      const tasksCompleted = (stats.tasks_completed ?? 0) + 1
       const responseTime = task.started_at
-        ? (new Date().getTime() - task.started_at.getTime()) / 60000
+        ? (now.getTime() - new Date(task.started_at).getTime()) / 60000
         : 0
-      if (responseTime > 0) {
-        integration.stats.avg_response_time_mins =
-          (integration.stats.avg_response_time_mins + responseTime) / 2
-      }
-      await integration.save()
+      const avgResponseTime = responseTime > 0
+        ? ((stats.avg_response_time_mins ?? 0) + responseTime) / 2
+        : (stats.avg_response_time_mins ?? 0)
+
+      await db
+        .update(pmIntegrations)
+        .set({
+          stats: { ...stats, tasks_completed: tasksCompleted, avg_response_time_mins: avgResponseTime },
+          updated_at: now,
+        })
+        .where(eq(pmIntegrations.id, integration.id))
     }
 
     // Build completion message with stats
     let completionMsg = "🎉 Great job! Task marked as complete."
+    const totalDistance = updatedTracking.total_distance_meters ?? 0
 
-    if (task.location_tracking?.total_distance_meters > 0) {
-      const distanceKm = (task.location_tracking.total_distance_meters / 1000).toFixed(2)
-      const durationMins = task.location_tracking.started_at && task.location_tracking.stopped_at
-        ? Math.round((task.location_tracking.stopped_at.getTime() - task.location_tracking.started_at.getTime()) / 60000)
-        : 0
+    if (totalDistance > 0) {
+      const distanceKm = (totalDistance / 1000).toFixed(2)
+      const durationMins =
+        updatedTracking.started_at && updatedTracking.stopped_at
+          ? Math.round(
+              (new Date(updatedTracking.stopped_at).getTime() - new Date(updatedTracking.started_at).getTime()) / 60000
+            )
+          : 0
 
       completionMsg += `\n\n📊 <b>Trip Summary:</b>\n`
       completionMsg += `📍 Distance: ${distanceKm} km\n`
       if (durationMins > 0) {
         completionMsg += `⏱ Duration: ${durationMins} mins\n`
       }
-      completionMsg += `📸 Photos: ${task.photo_urls?.length || 0}`
+      const photoUrls = Array.isArray(task.photo_urls) ? task.photo_urls : []
+      completionMsg += `📸 Photos: ${photoUrls.length}`
     }
 
     await removeKeyboard(chatId, completionMsg)
@@ -417,8 +468,10 @@ async function processTextMessage(chatId: string, text: string, messageId: numbe
   }
 
   if (lowerText === "problem" || lowerText === "issue" || lowerText === "help" || lowerText === "❌") {
-    task.status = "problem"
-    await task.save()
+    await db
+      .update(workerTasks)
+      .set({ status: "problem", updated_at: new Date() })
+      .where(eq(workerTasks.id, task.id))
 
     await sendTelegramMessage(
       chatId,
@@ -430,11 +483,16 @@ async function processTextMessage(chatId: string, text: string, messageId: numbe
 
   // If task is in "problem" status, treat this as the problem description
   if (task.status === "problem" && !task.problem_description) {
-    task.problem_description = text
-    await task.save()
+    const now = new Date()
+    await db
+      .update(workerTasks)
+      .set({ problem_description: text, updated_at: now })
+      .where(eq(workerTasks.id, task.id))
+
+    const updatedTask = { ...task, problem_description: text }
 
     if (task.telegram_message_id) {
-      await updateTaskMessage(chatId, task.telegram_message_id, task, "problem")
+      await updateTaskMessage(chatId, Number(task.telegram_message_id), updatedTask, "problem")
     }
 
     // Notify manager
@@ -451,11 +509,15 @@ async function processTextMessage(chatId: string, text: string, messageId: numbe
   }
 
   // Otherwise, treat as a comment
-  task.worker_comments.push({
-    message: text,
-    timestamp: new Date(),
-  })
-  await task.save()
+  const existingComments = Array.isArray(task.worker_comments) ? task.worker_comments : []
+  const newComment = { message: text, timestamp: new Date().toISOString() }
+  await db
+    .update(workerTasks)
+    .set({
+      worker_comments: [...existingComments, newComment],
+      updated_at: new Date(),
+    })
+    .where(eq(workerTasks.id, task.id))
 
   await sendTelegramMessage(chatId, "📝 Note added to task.", messageId)
 }
@@ -475,21 +537,30 @@ async function processCallbackQuery(callbackQuery: any) {
 
   const [, action, taskId] = match
 
-  const task = await WorkerTask.findById(taskId)
+  const task = await db.query.workerTasks.findFirst({
+    where: eq(workerTasks.id, taskId),
+  })
   if (!task) {
     await answerCallback(callbackQuery.id, "Task not found")
     return
   }
 
-  const integration = await PMIntegration.findById(task.integration_id)
+  const integration = task.integration_id
+    ? await db.query.pmIntegrations.findFirst({
+        where: eq(pmIntegrations.id, task.integration_id),
+      })
+    : null
 
   switch (action) {
-    case "start":
-      task.status = "started"
-      task.started_at = new Date()
-      await task.save()
+    case "start": {
+      const now = new Date()
+      await db
+        .update(workerTasks)
+        .set({ status: "started", started_at: now, updated_at: now })
+        .where(eq(workerTasks.id, taskId))
+
       await answerCallback(callbackQuery.id, "Task started! 🔄")
-      await updateTaskMessage(chatId, messageId, task, "started")
+      await updateTaskMessage(chatId, messageId, { ...task, status: "started", started_at: now }, "started")
 
       // Request location if enabled
       if (integration?.settings?.enable_location_tracking) {
@@ -500,56 +571,77 @@ async function processCallbackQuery(callbackQuery: any) {
         )
       }
       break
+    }
 
-    case "done":
-      task.status = "completed"
-      task.completed_at = new Date()
+    case "done": {
+      const now = new Date()
+      const tracking = task.location_tracking ?? { enabled: false }
+      const updatedTracking = tracking.enabled
+        ? { ...tracking, enabled: false, stopped_at: now.toISOString() }
+        : tracking
 
-      // Stop location tracking
-      if (task.location_tracking?.enabled) {
-        task.location_tracking.enabled = false
-        task.location_tracking.stopped_at = new Date()
-      }
-
-      await task.save()
+      await db
+        .update(workerTasks)
+        .set({
+          status: "completed",
+          completed_at: now,
+          location_tracking: updatedTracking,
+          updated_at: now,
+        })
+        .where(eq(workerTasks.id, taskId))
 
       if (integration) {
-        integration.stats.tasks_completed += 1
-        await integration.save()
+        const stats = integration.stats ?? {}
+        await db
+          .update(pmIntegrations)
+          .set({
+            stats: { ...stats, tasks_completed: (stats.tasks_completed ?? 0) + 1 },
+            updated_at: now,
+          })
+          .where(eq(pmIntegrations.id, integration.id))
       }
 
       await answerCallback(callbackQuery.id, "Completed! 🎉")
-      await updateTaskMessage(chatId, messageId, task, "completed")
+      await updateTaskMessage(chatId, messageId, { ...task, status: "completed", completed_at: now, location_tracking: updatedTracking }, "completed")
 
       // Show trip summary if tracked
-      if (task.location_tracking?.total_distance_meters > 0) {
-        const distanceKm = (task.location_tracking.total_distance_meters / 1000).toFixed(2)
+      const totalDistance = updatedTracking.total_distance_meters ?? 0
+      if (totalDistance > 0) {
+        const distanceKm = (totalDistance / 1000).toFixed(2)
         await removeKeyboard(
           chatId,
           `📊 <b>Trip Complete!</b>\n📍 Distance: ${distanceKm} km`
         )
       }
       break
+    }
 
-    case "problem":
-      task.status = "problem"
-      await task.save()
+    case "problem": {
+      await db
+        .update(workerTasks)
+        .set({ status: "problem", updated_at: new Date() })
+        .where(eq(workerTasks.id, taskId))
+
       await answerCallback(callbackQuery.id, "Please type the problem")
       await sendTelegramMessage(
         chatId,
         "⚠️ Please describe the problem:\n\nJust type what went wrong and I'll notify your manager."
       )
       break
+    }
   }
 }
 
 // Process photo from worker
 async function processPhoto(chatId: string, photo: any[], caption?: string) {
   // Find the most recent active task
-  const task = await WorkerTask.findOne({
-    worker_telegram_id: chatId,
-    status: { $in: ["sent", "seen", "started", "problem"] },
-  }).sort({ createdAt: -1 })
+  const task = await db.query.workerTasks.findFirst({
+    where: and(
+      eq(workerTasks.worker_telegram_id, chatId),
+      inArray(workerTasks.status, ["sent", "seen", "started", "problem"])
+    ),
+    orderBy: [desc(workerTasks.created_at)],
+  })
 
   if (!task) {
     await sendTelegramMessage(chatId, "No active task found. Photo not saved.")
@@ -568,17 +660,24 @@ async function processPhoto(chatId: string, photo: any[], caption?: string) {
 
   if (fileData.ok) {
     const fileUrl = `https://api.telegram.org/file/bot${botToken}/${fileData.result.file_path}`
-    task.photo_urls.push(fileUrl)
+    const existingPhotos = Array.isArray(task.photo_urls) ? task.photo_urls : []
+    const newPhotos = [...existingPhotos, fileUrl]
 
-    if (caption) {
-      task.worker_comments.push({
-        message: `[Photo] ${caption}`,
-        timestamp: new Date(),
+    const existingComments = Array.isArray(task.worker_comments) ? task.worker_comments : []
+    const newComments = caption
+      ? [...existingComments, { message: `[Photo] ${caption}`, timestamp: new Date().toISOString() }]
+      : existingComments
+
+    await db
+      .update(workerTasks)
+      .set({
+        photo_urls: newPhotos,
+        worker_comments: newComments,
+        updated_at: new Date(),
       })
-    }
+      .where(eq(workerTasks.id, task.id))
 
-    await task.save()
-    await sendTelegramMessage(chatId, `📷 Photo added to task. (${task.photo_urls.length} total)`)
+    await sendTelegramMessage(chatId, `📷 Photo added to task. (${newPhotos.length} total)`)
   }
 }
 
@@ -605,18 +704,15 @@ async function handlePreCheckoutQuery(query: any) {
     })
   } catch (error) {
     console.error("[Payment] Pre-checkout error:", error)
-    const botToken = process.env.TELEGRAM_BOT_TOKEN
-    if (botToken) {
-      await fetch(`https://api.telegram.org/bot${botToken}/answerPreCheckoutQuery`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          pre_checkout_query_id: query.id,
-          ok: false,
-          error_message: "An error occurred. Please try again.",
-        }),
-      })
-    }
+    await fetch(`https://api.telegram.org/bot${botToken}/answerPreCheckoutQuery`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        pre_checkout_query_id: query.id,
+        ok: false,
+        error_message: "An error occurred. Please try again.",
+      }),
+    })
   }
 }
 
@@ -633,8 +729,8 @@ async function handleSuccessfulPayment(msg: any) {
     }
 
     // Idempotency — skip if already processed
-    const existing = await Payment.findOne({
-      telegram_payment_charge_id: payment.telegram_payment_charge_id,
+    const existing = await db.query.payments.findFirst({
+      where: eq(payments.telegram_payment_charge_id, payment.telegram_payment_charge_id),
     })
     if (existing) {
       console.log("[Payment] Already processed:", payment.telegram_payment_charge_id)
@@ -644,32 +740,41 @@ async function handleSuccessfulPayment(msg: any) {
     const now = new Date()
     const periodEnd = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000)
 
-    // Expire existing active subscription for this pillar
-    await Subscription.updateMany(
-      { company_id: payload.companyId, pillar: plan.pillar, status: "active" },
-      { status: "expired" }
-    )
+    // Expire existing active subscription for this pillar (upsert pattern)
+    await db
+      .update(subscriptions)
+      .set({ status: "expired", updated_at: now })
+      .where(
+        and(
+          eq(subscriptions.company_id, payload.companyId),
+          eq(subscriptions.pillar, plan.pillar),
+          eq(subscriptions.status, "active")
+        )
+      )
 
-    // Create subscription
-    const subscription = await Subscription.create({
-      company_id: payload.companyId,
-      pillar: plan.pillar,
-      tier: plan.tier,
-      plan_id: payload.planId,
-      status: "active",
-      started_at: now,
-      current_period_start: now,
-      current_period_end: periodEnd,
-      cancel_at_period_end: false,
-      telegram_payment_charge_id: payment.telegram_payment_charge_id,
-      created_by: payload.userId,
-    })
+    // Create new subscription
+    const [subscription] = await db
+      .insert(subscriptions)
+      .values({
+        company_id: payload.companyId,
+        pillar: plan.pillar,
+        tier: plan.tier,
+        plan_id: payload.planId,
+        status: "active",
+        started_at: now,
+        current_period_start: now,
+        current_period_end: periodEnd,
+        cancel_at_period_end: false,
+        telegram_payment_charge_id: payment.telegram_payment_charge_id,
+        created_by: payload.userId,
+      })
+      .returning()
 
     // Create payment record
-    await Payment.create({
+    await db.insert(payments).values({
       company_id: payload.companyId,
       user_id: payload.userId,
-      subscription_id: subscription._id,
+      subscription_id: subscription.id,
       amount_stars: payment.total_amount,
       currency: "XTR",
       status: "completed",
@@ -681,10 +786,8 @@ async function handleSuccessfulPayment(msg: any) {
       period_end: periodEnd,
     })
 
-    // Update company's denormalized tier
-    await Company.findByIdAndUpdate(payload.companyId, {
-      [`subscription_tier.${plan.pillar}`]: plan.tier,
-    })
+    // Note: companies table has no subscription_tier column in Drizzle schema.
+    // Tier is derived dynamically from the active subscriptions table.
 
     const pillarLabel = plan.pillar === "core" ? "PM" :
       plan.pillar === "pm-connect" ? "PM Connect" : "Developer API"
@@ -722,8 +825,6 @@ export async function POST(request: NextRequest) {
       await handlePreCheckoutQuery(update.pre_checkout_query)
       return NextResponse.json({ ok: true })
     }
-
-    await connectToDatabase()
 
     // Handle callback query (button press)
     if (update.callback_query) {

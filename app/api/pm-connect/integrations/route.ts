@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
-import { connectToDatabase } from "@/lib/mongodb"
-import { PMIntegration, User } from "@/lib/models"
+import { db, pmIntegrations, pmIntegrationWorkers, users } from "@/lib/db"
+import { eq, desc } from "drizzle-orm"
 import { checkQuota } from "@/lib/quota"
 import crypto from "crypto"
 
@@ -17,27 +17,32 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
     }
 
-    await connectToDatabase()
-
-    const integrations = await PMIntegration.find({
-      owner_telegram_id: telegramId,
-    }).sort({ createdAt: -1 })
+    const integrationList = await db
+      .select()
+      .from(pmIntegrations)
+      .where(eq(pmIntegrations.owner_telegram_id, telegramId))
+      .orderBy(desc(pmIntegrations.created_at))
 
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "https://whatstask.com"
 
-    return NextResponse.json({
-      success: true,
-      data: {
-        integrations: integrations.map((i) => ({
-          id: i._id.toString(),
+    // Fetch workers for all integrations
+    const result = await Promise.all(
+      integrationList.map(async (i) => {
+        const workers = await db
+          .select()
+          .from(pmIntegrationWorkers)
+          .where(eq(pmIntegrationWorkers.integration_id, i.id))
+
+        return {
+          id: i.id,
           connectId: i.connect_id,
           name: i.name,
           platform: i.platform,
           webhookUrl: `${baseUrl}/api/v1/pm-connect/${i.connect_id}`,
           companyName: i.company_name,
           isActive: i.is_active,
-          workersCount: i.workers.filter(w => w.is_active).length,
-          workers: i.workers.map(w => ({
+          workersCount: workers.filter((w) => w.is_active).length,
+          workers: workers.map((w) => ({
             externalId: w.external_id,
             externalName: w.external_name,
             telegramId: w.telegram_id,
@@ -45,9 +50,14 @@ export async function GET(request: NextRequest) {
           })),
           stats: i.stats,
           settings: i.settings,
-          createdAt: i.createdAt,
-        })),
-      },
+          createdAt: i.created_at,
+        }
+      })
+    )
+
+    return NextResponse.json({
+      success: true,
+      data: { integrations: result },
     })
   } catch (error) {
     console.error("Error listing integrations:", error)
@@ -81,11 +91,9 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    await connectToDatabase()
-
     // Check integration quota
-    const user = await User.findOne({ telegram_id: telegramId })
-    const companyId = user?.active_company_id?.toString()
+    const user = await db.query.users.findFirst({ where: eq(users.telegram_id, telegramId) })
+    const companyId = user?.active_company_id ?? undefined
     if (companyId) {
       const quotaResult = await checkQuota(companyId, "integrations", { telegramId })
       if (!quotaResult.allowed) {
@@ -98,37 +106,48 @@ export async function POST(request: NextRequest) {
 
     const connectId = generateConnectId()
 
-    const integration = await PMIntegration.create({
-      connect_id: connectId,
-      name,
-      platform,
-      owner_telegram_id: telegramId,
-      company_name: companyName || "",
-      workers: workers.map((w: any) => ({
-        external_id: w.externalId || w.external_id || "",
-        external_name: w.externalName || w.external_name || "",
-        telegram_id: w.telegramId || w.telegram_id || "",
-        is_active: true,
-      })),
-      settings: {
-        auto_start_on_view: false,
-        require_photo_proof: false,
-        notify_on_problem: true,
-        language: "en",
-      },
-    })
+    const [integration] = await db
+      .insert(pmIntegrations)
+      .values({
+        connect_id: connectId,
+        name,
+        platform,
+        owner_telegram_id: telegramId,
+        company_name: companyName || "",
+        settings: {
+          auto_start_on_view: false,
+          require_photo_proof: false,
+          notify_on_problem: true,
+          language: "en",
+        },
+        stats: { tasks_sent: 0, tasks_completed: 0 },
+      })
+      .returning()
+
+    // Insert initial workers if provided
+    if (workers.length > 0) {
+      await db.insert(pmIntegrationWorkers).values(
+        workers.map((w: any) => ({
+          integration_id: integration.id,
+          external_id: w.externalId || w.external_id || "",
+          external_name: w.externalName || w.external_name || "",
+          telegram_id: w.telegramId || w.telegram_id || "",
+          is_active: true,
+        }))
+      )
+    }
 
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "https://whatstask.com"
 
     return NextResponse.json({
       success: true,
       data: {
-        id: integration._id.toString(),
+        id: integration.id,
         connectId: integration.connect_id,
         name: integration.name,
         platform: integration.platform,
         webhookUrl: `${baseUrl}/api/v1/pm-connect/${connectId}`,
-        createdAt: integration.createdAt,
+        createdAt: integration.created_at,
       },
       message: "Integration created! Add this webhook URL to your PM tool.",
     })

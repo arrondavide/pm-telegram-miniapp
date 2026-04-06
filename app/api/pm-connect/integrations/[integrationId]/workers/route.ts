@@ -1,16 +1,10 @@
 import { NextRequest, NextResponse } from "next/server"
-import { connectToDatabase } from "@/lib/mongodb"
-import { PMIntegration, User } from "@/lib/models"
+import { db, pmIntegrations, pmIntegrationWorkers, users } from "@/lib/db"
+import { eq, and } from "drizzle-orm"
 import { checkQuota } from "@/lib/quota"
-import mongoose from "mongoose"
 
 interface RouteParams {
   params: Promise<{ integrationId: string }>
-}
-
-// Validate MongoDB ObjectId
-function isValidObjectId(id: string): boolean {
-  return mongoose.Types.ObjectId.isValid(id) && new mongoose.Types.ObjectId(id).toString() === id
 }
 
 // POST /api/pm-connect/integrations/:integrationId/workers - Add worker
@@ -21,10 +15,6 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     if (!telegramId) {
       return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
-    }
-
-    if (!isValidObjectId(integrationId)) {
-      return NextResponse.json({ success: false, error: "Invalid integration ID" }, { status: 400 })
     }
 
     const body = await request.json()
@@ -45,11 +35,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       )
     }
 
-    await connectToDatabase()
-
-    const integration = await PMIntegration.findOne({
-      _id: integrationId,
-      owner_telegram_id: telegramId,
+    const integration = await db.query.pmIntegrations.findFirst({
+      where: and(
+        eq(pmIntegrations.id, integrationId),
+        eq(pmIntegrations.owner_telegram_id, telegramId)
+      ),
     })
 
     if (!integration) {
@@ -59,15 +49,18 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       )
     }
 
-    // Check worker quota before adding new worker
-    const existingWorker = integration.workers.find(
-      w => w.telegram_id === workerTelegramId
-    )
+    // Check if worker already exists
+    const existingWorker = await db.query.pmIntegrationWorkers.findFirst({
+      where: and(
+        eq(pmIntegrationWorkers.integration_id, integration.id),
+        eq(pmIntegrationWorkers.telegram_id, workerTelegramId)
+      ),
+    })
 
     if (!existingWorker) {
       // Only check quota for new workers, not reactivations
-      const user = await User.findOne({ telegram_id: telegramId })
-      const companyId = user?.active_company_id?.toString()
+      const user = await db.query.users.findFirst({ where: eq(users.telegram_id, telegramId) })
+      const companyId = user?.active_company_id ?? undefined
       if (companyId) {
         const quotaResult = await checkQuota(companyId, "workers", { telegramId })
         if (!quotaResult.allowed) {
@@ -81,12 +74,19 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     if (existingWorker) {
       // Update existing worker
-      existingWorker.external_id = externalId || existingWorker.external_id
-      existingWorker.external_name = externalName || existingWorker.external_name
-      existingWorker.is_active = true
+      await db
+        .update(pmIntegrationWorkers)
+        .set({
+          external_id: externalId || existingWorker.external_id,
+          external_name: externalName || existingWorker.external_name,
+          is_active: true,
+          updated_at: new Date(),
+        })
+        .where(eq(pmIntegrationWorkers.id, existingWorker.id))
     } else {
       // Add new worker
-      integration.workers.push({
+      await db.insert(pmIntegrationWorkers).values({
+        integration_id: integration.id,
         external_id: externalId || "",
         external_name: externalName || "",
         telegram_id: workerTelegramId,
@@ -94,13 +94,19 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       })
     }
 
-    await integration.save()
+    // Count active workers
+    const allWorkers = await db
+      .select()
+      .from(pmIntegrationWorkers)
+      .where(eq(pmIntegrationWorkers.integration_id, integration.id))
+
+    const activeCount = allWorkers.filter((w) => w.is_active).length
 
     return NextResponse.json({
       success: true,
       message: existingWorker ? "Worker updated" : "Worker added",
       data: {
-        workersCount: integration.workers.filter(w => w.is_active).length,
+        workersCount: activeCount,
       },
     })
   } catch (error) {
@@ -119,10 +125,6 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
     }
 
-    if (!isValidObjectId(integrationId)) {
-      return NextResponse.json({ success: false, error: "Invalid integration ID" }, { status: 400 })
-    }
-
     const { searchParams } = new URL(request.url)
     const workerTelegramId = searchParams.get("workerTelegramId")
 
@@ -133,11 +135,11 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       )
     }
 
-    await connectToDatabase()
-
-    const integration = await PMIntegration.findOne({
-      _id: integrationId,
-      owner_telegram_id: telegramId,
+    const integration = await db.query.pmIntegrations.findFirst({
+      where: and(
+        eq(pmIntegrations.id, integrationId),
+        eq(pmIntegrations.owner_telegram_id, telegramId)
+      ),
     })
 
     if (!integration) {
@@ -148,17 +150,33 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     }
 
     // Find and deactivate worker
-    const worker = integration.workers.find(w => w.telegram_id === workerTelegramId)
+    const worker = await db.query.pmIntegrationWorkers.findFirst({
+      where: and(
+        eq(pmIntegrationWorkers.integration_id, integration.id),
+        eq(pmIntegrationWorkers.telegram_id, workerTelegramId)
+      ),
+    })
+
     if (worker) {
-      worker.is_active = false
-      await integration.save()
+      await db
+        .update(pmIntegrationWorkers)
+        .set({ is_active: false, updated_at: new Date() })
+        .where(eq(pmIntegrationWorkers.id, worker.id))
     }
+
+    // Count active workers
+    const allWorkers = await db
+      .select()
+      .from(pmIntegrationWorkers)
+      .where(eq(pmIntegrationWorkers.integration_id, integration.id))
+
+    const activeCount = allWorkers.filter((w) => w.is_active).length
 
     return NextResponse.json({
       success: true,
       message: "Worker removed",
       data: {
-        workersCount: integration.workers.filter(w => w.is_active).length,
+        workersCount: activeCount,
       },
     })
   } catch (error) {

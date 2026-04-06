@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
-import { connectToDatabase } from "@/lib/mongodb"
-import { Company, Project, Task, User, TimeLog, Update } from "@/lib/models"
+import { db, companies, projects, tasks, users, userCompanies, timeLogs, taskUpdates, taskAssignees } from "@/lib/db"
+import { eq, and, gte, lte, lt, inArray, count, desc } from "drizzle-orm"
 import { generateDailyDigest, formatDigestAsText } from "@/lib/ai/digest-generator.service"
 import type { DigestInput } from "@/lib/ai/prompts/daily-digest"
 
@@ -18,10 +18,8 @@ export async function GET(request: Request) {
       )
     }
 
-    await connectToDatabase()
-
     // Get company
-    const company = await Company.findById(companyId)
+    const company = await db.query.companies.findFirst({ where: eq(companies.id, companyId) })
     if (!company) {
       return NextResponse.json(
         { success: false, error: "Company not found" },
@@ -36,78 +34,133 @@ export async function GET(request: Request) {
     const endOfDay = new Date(targetDate)
     endOfDay.setHours(23, 59, 59, 999)
 
-    // Get all projects for this company
-    const projects = await Project.find({
-      company_id: companyId,
-      status: { $in: ["active", "on_hold"] },
-    })
+    // Get all active/on-hold projects for this company
+    const activeProjects = await db
+      .select()
+      .from(projects)
+      .where(
+        and(
+          eq(projects.company_id, companyId),
+          inArray(projects.status, ["active", "on_hold"])
+        )
+      )
 
-    // Get all users in this company
-    const users = await User.find({
-      "companies.company_id": companyId,
-    })
+    // Get all users in this company via userCompanies join
+    const memberships = await db
+      .select()
+      .from(userCompanies)
+      .where(eq(userCompanies.company_id, companyId))
 
-    const userMap = new Map(users.map(u => [u._id.toString(), u.full_name]))
+    const userIds = memberships.map((m) => m.user_id)
+
+    const companyUsers = userIds.length > 0
+      ? await db.select().from(users).where(inArray(users.id, userIds))
+      : []
+
+    const userMap = new Map(companyUsers.map((u) => [u.id, u.full_name]))
 
     // Gather data for each project
     const projectSummaries: DigestInput["projectSummaries"] = []
 
-    for (const project of projects) {
+    for (const project of activeProjects) {
       // Tasks completed today
-      const tasksCompleted = await Task.countDocuments({
-        project_id: project._id,
-        status: "completed",
-        completed_at: { $gte: startOfDay, $lte: endOfDay },
-      })
+      const [{ value: tasksCompleted }] = await db
+        .select({ value: count() })
+        .from(tasks)
+        .where(
+          and(
+            eq(tasks.project_id, project.id),
+            eq(tasks.status, "completed"),
+            gte(tasks.completed_at, startOfDay),
+            lte(tasks.completed_at, endOfDay)
+          )
+        )
 
       // Tasks created today
-      const tasksCreated = await Task.countDocuments({
-        project_id: project._id,
-        createdAt: { $gte: startOfDay, $lte: endOfDay },
-      })
+      const [{ value: tasksCreated }] = await db
+        .select({ value: count() })
+        .from(tasks)
+        .where(
+          and(
+            eq(tasks.project_id, project.id),
+            gte(tasks.created_at, startOfDay),
+            lte(tasks.created_at, endOfDay)
+          )
+        )
 
       // Tasks in progress
-      const tasksInProgress = await Task.countDocuments({
-        project_id: project._id,
-        status: { $in: ["in_progress", "started"] },
-      })
+      const [{ value: tasksInProgress }] = await db
+        .select({ value: count() })
+        .from(tasks)
+        .where(
+          and(
+            eq(tasks.project_id, project.id),
+            inArray(tasks.status, ["in_progress", "started"])
+          )
+        )
 
       // Overdue tasks
-      const tasksOverdue = await Task.countDocuments({
-        project_id: project._id,
-        status: { $nin: ["completed", "cancelled"] },
-        due_date: { $lt: startOfDay },
-      })
+      const [{ value: tasksOverdue }] = await db
+        .select({ value: count() })
+        .from(tasks)
+        .where(
+          and(
+            eq(tasks.project_id, project.id),
+            inArray(tasks.status, ["pending", "started", "in_progress", "blocked"]),
+            lt(tasks.due_date, startOfDay)
+          )
+        )
 
       // Blocked tasks
-      const tasksBlocked = await Task.countDocuments({
-        project_id: project._id,
-        status: "blocked",
-      })
+      const [{ value: tasksBlocked }] = await db
+        .select({ value: count() })
+        .from(tasks)
+        .where(
+          and(
+            eq(tasks.project_id, project.id),
+            eq(tasks.status, "blocked")
+          )
+        )
 
-      // Recent activity from updates
-      const recentUpdates = await Update.find({
-        task_id: { $in: await Task.find({ project_id: project._id }).distinct("_id") },
-        createdAt: { $gte: startOfDay, $lte: endOfDay },
-      })
-        .sort({ createdAt: -1 })
-        .limit(10)
-        .populate("task_id", "title")
+      // Get task IDs for this project to fetch updates
+      const projectTaskIds = await db
+        .select({ id: tasks.id, title: tasks.title })
+        .from(tasks)
+        .where(eq(tasks.project_id, project.id))
 
-      const recentActivity = recentUpdates.map(update => ({
+      const taskIdList = projectTaskIds.map((t) => t.id)
+      const taskTitleMap = new Map(projectTaskIds.map((t) => [t.id, t.title]))
+
+      // Recent activity from task updates
+      const recentUpdates = taskIdList.length > 0
+        ? await db
+            .select()
+            .from(taskUpdates)
+            .where(
+              and(
+                inArray(taskUpdates.task_id, taskIdList),
+                gte(taskUpdates.created_at, startOfDay),
+                lte(taskUpdates.created_at, endOfDay)
+              )
+            )
+            .orderBy(desc(taskUpdates.created_at))
+            .limit(10)
+        : []
+
+      const recentActivity = recentUpdates.map((update) => ({
         type: update.action as "completed" | "created" | "commented" | "status_changed",
-        taskTitle: (update.task_id as any)?.title || "Unknown task",
-        userName: userMap.get(update.user_id.toString()) || "Unknown",
-        timestamp: update.createdAt.toISOString(),
+        taskTitle: taskTitleMap.get(update.task_id) || "Unknown task",
+        userName: update.user_id ? (userMap.get(update.user_id) || "Unknown") : "Unknown",
+        timestamp: update.created_at.toISOString(),
       }))
 
       projectSummaries.push({
         projectName: project.name,
-        tasksCompleted,
-        tasksCreated,
-        tasksInProgress,
-        tasksOverdue,
-        tasksBlocked,
+        tasksCompleted: Number(tasksCompleted),
+        tasksCreated: Number(tasksCreated),
+        tasksInProgress: Number(tasksInProgress),
+        tasksOverdue: Number(tasksOverdue),
+        tasksBlocked: Number(tasksBlocked),
         recentActivity,
       })
     }
@@ -115,92 +168,196 @@ export async function GET(request: Request) {
     // Team activity
     const teamActivity: DigestInput["teamActivity"] = []
 
-    for (const user of users) {
-      const tasksCompleted = await Task.countDocuments({
-        company_id: companyId,
-        assigned_to: user._id,
-        status: "completed",
-        completed_at: { $gte: startOfDay, $lte: endOfDay },
-      })
+    for (const user of companyUsers) {
+      // Tasks completed today assigned to this user (via taskAssignees join)
+      const completedTaskIds = await db
+        .select({ task_id: taskAssignees.task_id })
+        .from(taskAssignees)
+        .where(eq(taskAssignees.user_id, user.id))
 
-      const tasksWorkedOn = await Update.countDocuments({
-        user_id: user._id,
-        createdAt: { $gte: startOfDay, $lte: endOfDay },
-      })
+      const assignedTaskIds = completedTaskIds.map((r) => r.task_id)
 
-      // Hours logged today
-      const timeLogs = await TimeLog.find({
-        user_id: user._id,
-        start_time: { $gte: startOfDay, $lte: endOfDay },
-      })
-      const hoursLogged = timeLogs.reduce((sum, log) => sum + (log.duration_minutes || 0), 0) / 60
+      let tasksCompleted = 0
+      if (assignedTaskIds.length > 0) {
+        const [{ value }] = await db
+          .select({ value: count() })
+          .from(tasks)
+          .where(
+            and(
+              inArray(tasks.id, assignedTaskIds),
+              eq(tasks.company_id, companyId),
+              eq(tasks.status, "completed"),
+              gte(tasks.completed_at, startOfDay),
+              lte(tasks.completed_at, endOfDay)
+            )
+          )
+        tasksCompleted = Number(value)
+      }
 
-      if (tasksCompleted > 0 || tasksWorkedOn > 0 || hoursLogged > 0) {
+      // Tasks worked on (updates created by this user today)
+      const [{ value: tasksWorkedOn }] = await db
+        .select({ value: count() })
+        .from(taskUpdates)
+        .where(
+          and(
+            eq(taskUpdates.user_id, user.id),
+            gte(taskUpdates.created_at, startOfDay),
+            lte(taskUpdates.created_at, endOfDay)
+          )
+        )
+
+      // Hours logged today (duration_seconds / 3600)
+      const userTimeLogs = await db
+        .select()
+        .from(timeLogs)
+        .where(
+          and(
+            eq(timeLogs.user_id, user.id),
+            gte(timeLogs.start_time, startOfDay),
+            lte(timeLogs.start_time, endOfDay)
+          )
+        )
+
+      const hoursLogged = userTimeLogs.reduce((sum, log) => sum + (log.duration_seconds || 0), 0) / 3600
+
+      if (tasksCompleted > 0 || Number(tasksWorkedOn) > 0 || hoursLogged > 0) {
         teamActivity.push({
           userName: user.full_name,
           tasksCompleted,
-          tasksWorkedOn,
+          tasksWorkedOn: Number(tasksWorkedOn),
           hoursLogged: Math.round(hoursLogged * 10) / 10,
         })
       }
     }
 
-    // Overdue tasks
-    const overdueTaskDocs = await Task.find({
-      company_id: companyId,
-      status: { $nin: ["completed", "cancelled"] },
-      due_date: { $lt: startOfDay },
-    })
-      .populate("project_id", "name")
-      .populate("assigned_to", "full_name")
+    // Overdue tasks with project and assignee info
+    const overdueTaskDocs = await db
+      .select()
+      .from(tasks)
+      .where(
+        and(
+          eq(tasks.company_id, companyId),
+          inArray(tasks.status, ["pending", "started", "in_progress", "blocked"]),
+          lt(tasks.due_date, startOfDay)
+        )
+      )
       .limit(10)
 
-    const overdueTasks = overdueTaskDocs.map(task => {
+    // Fetch project and assignee info for overdue tasks
+    const overdueProjectIds = [...new Set(overdueTaskDocs.map((t) => t.project_id).filter(Boolean) as string[])]
+    const overdueProjects = overdueProjectIds.length > 0
+      ? await db.select().from(projects).where(inArray(projects.id, overdueProjectIds))
+      : []
+    const overdueProjectMap = new Map(overdueProjects.map((p) => [p.id, p.name]))
+
+    const overdueAssigneeRows = overdueTaskDocs.length > 0
+      ? await db
+          .select()
+          .from(taskAssignees)
+          .where(inArray(taskAssignees.task_id, overdueTaskDocs.map((t) => t.id)))
+      : []
+
+    // Map task_id → first assignee name
+    const taskFirstAssigneeMap = new Map<string, string>()
+    for (const row of overdueAssigneeRows) {
+      if (!taskFirstAssigneeMap.has(row.task_id)) {
+        taskFirstAssigneeMap.set(row.task_id, userMap.get(row.user_id) || "Unassigned")
+      }
+    }
+
+    const overdueTasks = overdueTaskDocs.map((task) => {
       const daysOverdue = Math.ceil(
-        (startOfDay.getTime() - new Date(task.due_date).getTime()) / (1000 * 60 * 60 * 24)
+        (startOfDay.getTime() - new Date(task.due_date!).getTime()) / (1000 * 60 * 60 * 24)
       )
       return {
         title: task.title,
-        projectName: (task.project_id as any)?.name || "Unknown",
-        assignee: (task.assigned_to as any)?.[0]?.full_name || "Unassigned",
+        projectName: task.project_id ? (overdueProjectMap.get(task.project_id) || "Unknown") : "Unknown",
+        assignee: taskFirstAssigneeMap.get(task.id) || "Unassigned",
         daysOverdue,
       }
     })
 
     // Blocked tasks
-    const blockedTaskDocs = await Task.find({
-      company_id: companyId,
-      status: "blocked",
-    })
-      .populate("project_id", "name")
-      .populate("assigned_to", "full_name")
+    const blockedTaskDocs = await db
+      .select()
+      .from(tasks)
+      .where(
+        and(
+          eq(tasks.company_id, companyId),
+          eq(tasks.status, "blocked")
+        )
+      )
       .limit(10)
 
-    const blockedTasks = blockedTaskDocs.map(task => ({
+    const blockedProjectIds = [...new Set(blockedTaskDocs.map((t) => t.project_id).filter(Boolean) as string[])]
+    const blockedProjects = blockedProjectIds.length > 0
+      ? await db.select().from(projects).where(inArray(projects.id, blockedProjectIds))
+      : []
+    const blockedProjectMap = new Map(blockedProjects.map((p) => [p.id, p.name]))
+
+    const blockedAssigneeRows = blockedTaskDocs.length > 0
+      ? await db
+          .select()
+          .from(taskAssignees)
+          .where(inArray(taskAssignees.task_id, blockedTaskDocs.map((t) => t.id)))
+      : []
+
+    const blockedTaskFirstAssigneeMap = new Map<string, string>()
+    for (const row of blockedAssigneeRows) {
+      if (!blockedTaskFirstAssigneeMap.has(row.task_id)) {
+        blockedTaskFirstAssigneeMap.set(row.task_id, userMap.get(row.user_id) || "Unassigned")
+      }
+    }
+
+    const blockedTasks = blockedTaskDocs.map((task) => ({
       title: task.title,
-      projectName: (task.project_id as any)?.name || "Unknown",
-      assignee: (task.assigned_to as any)?.[0]?.full_name || "Unassigned",
+      projectName: task.project_id ? (blockedProjectMap.get(task.project_id) || "Unknown") : "Unknown",
+      assignee: blockedTaskFirstAssigneeMap.get(task.id) || "Unassigned",
     }))
 
     // Upcoming deadlines (next 3 days)
     const threeDaysLater = new Date(endOfDay)
     threeDaysLater.setDate(threeDaysLater.getDate() + 3)
 
-    const upcomingTaskDocs = await Task.find({
-      company_id: companyId,
-      status: { $nin: ["completed", "cancelled"] },
-      due_date: { $gte: endOfDay, $lte: threeDaysLater },
-    })
-      .populate("project_id", "name")
-      .populate("assigned_to", "full_name")
-      .sort({ due_date: 1 })
+    const upcomingTaskDocs = await db
+      .select()
+      .from(tasks)
+      .where(
+        and(
+          eq(tasks.company_id, companyId),
+          inArray(tasks.status, ["pending", "started", "in_progress", "blocked"]),
+          gte(tasks.due_date, endOfDay),
+          lte(tasks.due_date, threeDaysLater)
+        )
+      )
+      .orderBy(tasks.due_date)
       .limit(10)
 
-    const upcomingDeadlines = upcomingTaskDocs.map(task => ({
+    const upcomingProjectIds = [...new Set(upcomingTaskDocs.map((t) => t.project_id).filter(Boolean) as string[])]
+    const upcomingProjects = upcomingProjectIds.length > 0
+      ? await db.select().from(projects).where(inArray(projects.id, upcomingProjectIds))
+      : []
+    const upcomingProjectMap = new Map(upcomingProjects.map((p) => [p.id, p.name]))
+
+    const upcomingAssigneeRows = upcomingTaskDocs.length > 0
+      ? await db
+          .select()
+          .from(taskAssignees)
+          .where(inArray(taskAssignees.task_id, upcomingTaskDocs.map((t) => t.id)))
+      : []
+
+    const upcomingTaskFirstAssigneeMap = new Map<string, string>()
+    for (const row of upcomingAssigneeRows) {
+      if (!upcomingTaskFirstAssigneeMap.has(row.task_id)) {
+        upcomingTaskFirstAssigneeMap.set(row.task_id, userMap.get(row.user_id) || "Unassigned")
+      }
+    }
+
+    const upcomingDeadlines = upcomingTaskDocs.map((task) => ({
       title: task.title,
-      projectName: (task.project_id as any)?.name || "Unknown",
-      dueDate: new Date(task.due_date).toLocaleDateString(),
-      assignee: (task.assigned_to as any)?.[0]?.full_name || "Unassigned",
+      projectName: task.project_id ? (upcomingProjectMap.get(task.project_id) || "Unknown") : "Unknown",
+      dueDate: new Date(task.due_date!).toLocaleDateString(),
+      assignee: upcomingTaskFirstAssigneeMap.get(task.id) || "Unassigned",
     }))
 
     // Build digest input

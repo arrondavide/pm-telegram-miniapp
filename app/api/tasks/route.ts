@@ -1,9 +1,47 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { connectToDatabase } from "@/lib/mongodb"
-import { Task, User, Update, Project } from "@/lib/models"
+import { db, tasks, users, taskAssignees, taskUpdates, projects } from "@/lib/db"
+import { eq, and, isNull, inArray } from "drizzle-orm"
 import { taskTransformer } from "@/lib/transformers"
 import { notificationService } from "@/lib/services"
-import mongoose from "mongoose"
+
+/** Build the shape the transformer expects from a Drizzle task row + assignee rows */
+function toTaskDoc(
+  task: any,
+  assigneeRows: Array<{ taskId: string; userId: string; fullName: string; telegramId: string; username: string }>
+) {
+  const myAssignees = assigneeRows
+    .filter((a) => a.taskId === task.id)
+    .map((a) => ({
+      _id: { toString: () => a.userId },
+      telegram_id: a.telegramId,
+      full_name: a.fullName,
+      username: a.username,
+    }))
+
+  return {
+    _id: { toString: () => task.id },
+    title: task.title,
+    description: task.description ?? "",
+    due_date: task.due_date ?? new Date(),
+    status: task.status,
+    priority: task.priority,
+    assigned_to: myAssignees,
+    created_by: task.created_by ?? "",
+    company_id: task.company_id,
+    project_id: task.project_id ?? "",
+    parent_task_id: task.parent_task_id ?? null,
+    depth: task.depth ?? 0,
+    path: task.path ? task.path.split("/").filter(Boolean) : [],
+    category: task.category ?? "",
+    tags: task.tags ?? [],
+    department: task.department ?? "",
+    estimated_hours: task.estimated_hours ?? 0,
+    actual_hours: task.actual_hours ?? 0,
+    completed_at: task.completed_at ?? undefined,
+    createdAt: task.created_at,
+    updatedAt: task.updated_at,
+  } as any
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -32,27 +70,24 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Project ID required" }, { status: 400 })
     }
 
-    await connectToDatabase()
-
-    const user = await User.findOne({ telegram_id: telegramId })
+    const user = await db.query.users.findFirst({ where: eq(users.telegram_id, telegramId) })
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 404 })
     }
 
-    const assignedUserIds: mongoose.Types.ObjectId[] = []
+    // Resolve assignee user IDs and collect user info for notifications
+    const assignedUserIds: string[] = []
     const assignedUsers: any[] = []
 
     if (assignedTo && Array.isArray(assignedTo)) {
       for (const id of assignedTo) {
-        let foundUser = null
-        if (mongoose.Types.ObjectId.isValid(id)) {
-          foundUser = await User.findById(id)
-        }
+        // Try by UUID first, then by telegram_id
+        let foundUser = await db.query.users.findFirst({ where: eq(users.id, id) }).catch(() => null)
         if (!foundUser) {
-          foundUser = await User.findOne({ telegram_id: id.toString() })
+          foundUser = await db.query.users.findFirst({ where: eq(users.telegram_id, String(id)) })
         }
         if (foundUser) {
-          assignedUserIds.push(foundUser._id)
+          assignedUserIds.push(foundUser.id)
           assignedUsers.push(foundUser)
         }
       }
@@ -60,18 +95,13 @@ export async function POST(request: NextRequest) {
 
     // Calculate depth and path from parent
     let depth = 0
-    let path: mongoose.Types.ObjectId[] = []
-    let parentTask = null
+    let path = ""
+    let parentTask: any = null
 
     if (parentTaskId) {
-      parentTask = await Task.findById(parentTaskId)
+      parentTask = await db.query.tasks.findFirst({ where: eq(tasks.id, parentTaskId) })
       if (!parentTask) {
         return NextResponse.json({ error: "Parent task not found" }, { status: 404 })
-      }
-
-      // Prevent circular references
-      if (parentTask.path.some((p: any) => p.toString() === parentTaskId)) {
-        return NextResponse.json({ error: "Circular reference detected" }, { status: 400 })
       }
 
       // Enforce max depth of 10 levels
@@ -80,32 +110,42 @@ export async function POST(request: NextRequest) {
       }
 
       depth = parentTask.depth + 1
-      path = [...parentTask.path, parentTask._id]
+      // Build materialized path: parent's path + parent's id
+      path = parentTask.path ? `${parentTask.path}/${parentTask.id}` : `/${parentTask.id}`
     }
 
-    const task = await Task.create({
-      title,
-      description: description || "",
-      due_date: new Date(dueDate),
-      status: "pending",
-      priority: priority || "medium",
-      assigned_to: assignedUserIds,
-      created_by: user._id,
-      company_id: new mongoose.Types.ObjectId(companyId),
-      project_id: new mongoose.Types.ObjectId(projectId),
-      parent_task_id: parentTaskId ? new mongoose.Types.ObjectId(parentTaskId) : undefined,
-      depth,
-      path,
-      category: category || "",
-      tags: tags || [],
-      department: department || "",
-      estimated_hours: estimatedHours || 0,
-    })
+    const [task] = await db
+      .insert(tasks)
+      .values({
+        title,
+        description: description || "",
+        due_date: new Date(dueDate),
+        status: "pending",
+        priority: priority || "medium",
+        created_by: user.id,
+        company_id: companyId,
+        project_id: projectId,
+        parent_task_id: parentTaskId || null,
+        depth,
+        path,
+        category: category || "",
+        tags: tags || [],
+        department: department || "",
+        estimated_hours: estimatedHours || 0,
+      })
+      .returning()
+
+    // Insert task assignees
+    if (assignedUserIds.length > 0) {
+      await db.insert(taskAssignees).values(
+        assignedUserIds.map((uid) => ({ task_id: task.id, user_id: uid }))
+      )
+    }
 
     // Create activity log
-    await Update.create({
-      task_id: task._id,
-      user_id: user._id,
+    await db.insert(taskUpdates).values({
+      task_id: task.id,
+      user_id: user.id,
       action: "created",
       message: `Task "${title}" created`,
     })
@@ -113,16 +153,16 @@ export async function POST(request: NextRequest) {
     // Get project details for notifications
     let projectName: string | undefined
     if (projectId) {
-      const project = await Project.findById(projectId).lean()
+      const project = await db.query.projects.findFirst({ where: eq(projects.id, projectId) })
       projectName = project?.name
     }
 
-    // Send notifications to assigned users using centralized service
+    // Send notifications to assigned users
     if (assignedUsers.length > 0) {
       await notificationService.notifyTaskAssignment({
         assignedUsers,
         taskTitle: title,
-        taskId: task._id.toString(),
+        taskId: task.id,
         assignedBy: user.full_name,
         dueDate: new Date(dueDate),
         priority: priority || "medium",
@@ -133,14 +173,17 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    // Populate the task for a complete response
-    const populatedTask = await Task.findById(task._id)
-      .populate("assigned_to", "full_name username telegram_id")
-      .populate("created_by", "full_name username telegram_id")
-      .lean()
+    // Build response doc
+    const assigneeRows = assignedUsers.map((u) => ({
+      taskId: task.id,
+      userId: u.id,
+      fullName: u.full_name,
+      telegramId: u.telegram_id,
+      username: u.username ?? "",
+    }))
 
     return NextResponse.json({
-      task: taskTransformer.toFrontend(populatedTask as any),
+      task: taskTransformer.toFrontend(toTaskDoc(task, assigneeRows)),
     })
   } catch (error) {
     console.error("Error creating task:", error)
@@ -163,55 +206,99 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Company ID required" }, { status: 400 })
     }
 
-    await connectToDatabase()
-
-    const query: any = { company_id: new mongoose.Types.ObjectId(companyId) }
+    // Build conditions
+    const conditions: any[] = [eq(tasks.company_id, companyId)]
 
     if (projectId) {
-      query.project_id = new mongoose.Types.ObjectId(projectId)
+      conditions.push(eq(tasks.project_id, projectId))
     }
 
     if (rootOnly) {
-      query.$or = [{ parent_task_id: null }, { parent_task_id: { $exists: false } }]
+      conditions.push(isNull(tasks.parent_task_id))
     } else if (parentTaskId) {
-      query.parent_task_id = new mongoose.Types.ObjectId(parentTaskId)
+      conditions.push(eq(tasks.parent_task_id, parentTaskId))
     }
 
-    if (status && status !== "all") query.status = status
-    if (priority && priority !== "all") query.priority = priority
-    if (assignedTo) query.assigned_to = new mongoose.Types.ObjectId(assignedTo)
+    if (status && status !== "all") {
+      conditions.push(eq(tasks.status, status as any))
+    }
+    if (priority && priority !== "all") {
+      conditions.push(eq(tasks.priority, priority as any))
+    }
 
-    console.log("[Tasks API] Query:", JSON.stringify(query, null, 2))
+    console.log("[Tasks API] Query conditions count:", conditions.length)
 
-    const tasks = await Task.find(query)
-      .populate("assigned_to", "full_name username telegram_id")
-      .populate("created_by", "full_name username telegram_id")
-      .sort({ due_date: 1 })
-      .lean()
+    let taskRows: any[]
 
-    console.log(`[Tasks API] Found ${tasks.length} tasks for query`)
+    if (assignedTo) {
+      // Filter by assignee via join
+      const assignedTaskIds = await db
+        .select({ task_id: taskAssignees.task_id })
+        .from(taskAssignees)
+        .where(eq(taskAssignees.user_id, assignedTo))
 
-    // Debug: Log first task's details
-    if (tasks.length > 0) {
-      const firstTask = tasks[0] as any
+      const ids = assignedTaskIds.map((r) => r.task_id)
+      if (ids.length === 0) {
+        taskRows = []
+      } else {
+        conditions.push(inArray(tasks.id, ids))
+        taskRows = await db
+          .select()
+          .from(tasks)
+          .where(and(...conditions))
+          .orderBy(tasks.due_date)
+      }
+    } else {
+      taskRows = await db
+        .select()
+        .from(tasks)
+        .where(and(...conditions))
+        .orderBy(tasks.due_date)
+    }
+
+    console.log(`[Tasks API] Found ${taskRows.length} tasks for query`)
+
+    if (taskRows.length > 0) {
+      const firstTask = taskRows[0]
       console.log("[Tasks API] First task:", JSON.stringify({
-        _id: firstTask._id?.toString(),
+        id: firstTask.id,
         title: firstTask.title,
-        project_id: firstTask.project_id?.toString(),
-        parent_task_id: firstTask.parent_task_id?.toString() || null,
+        project_id: firstTask.project_id,
+        parent_task_id: firstTask.parent_task_id,
         depth: firstTask.depth,
-        assigned_to: firstTask.assigned_to?.map((a: any) => ({
-          _id: a._id?.toString(),
-          telegram_id: a.telegram_id,
-          full_name: a.full_name
-        }))
       }, null, 2))
     } else {
       console.log("[Tasks API] No tasks found!")
     }
 
-    // Use centralized transformer instead of manual mapping
-    const formattedTasks = taskTransformer.toList(tasks as any[])
+    // Fetch assignees for all tasks
+    const taskIds = taskRows.map((t) => t.id)
+    let assigneeRows: Array<{ taskId: string; userId: string; fullName: string; telegramId: string; username: string }> = []
+
+    if (taskIds.length > 0) {
+      const rows = await db
+        .select({
+          taskId: taskAssignees.task_id,
+          userId: users.id,
+          fullName: users.full_name,
+          telegramId: users.telegram_id,
+          username: users.username,
+        })
+        .from(taskAssignees)
+        .innerJoin(users, eq(taskAssignees.user_id, users.id))
+        .where(inArray(taskAssignees.task_id, taskIds))
+
+      assigneeRows = rows.map((r) => ({
+        taskId: r.taskId,
+        userId: r.userId,
+        fullName: r.fullName,
+        telegramId: r.telegramId,
+        username: r.username ?? "",
+      }))
+    }
+
+    const taskDocs = taskRows.map((t) => toTaskDoc(t, assigneeRows))
+    const formattedTasks = taskTransformer.toList(taskDocs)
 
     return NextResponse.json(
       { tasks: formattedTasks },

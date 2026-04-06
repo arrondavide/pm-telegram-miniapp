@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
-import { connectToDatabase } from "@/lib/mongodb"
-import { User, Company } from "@/lib/models"
+import { db, users, userCompanies, companies } from "@/lib/db"
+import { eq, and } from "drizzle-orm"
 import { getPlanById } from "@/lib/plans"
 
 const BOT_API_BASE = "https://api.telegram.org/bot"
@@ -22,22 +22,27 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid or free plan" }, { status: 400 })
     }
 
-    await connectToDatabase()
-
-    const user = await User.findOne({ telegram_id: telegramId })
+    const user = await db.query.users.findFirst({
+      where: eq(users.telegram_id, telegramId),
+    })
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 404 })
     }
 
     // Check user is admin/manager of company
-    const userCompany = user.companies.find(
-      (c: any) => c.company_id.toString() === companyId
-    )
+    const userCompany = await db.query.userCompanies.findFirst({
+      where: and(
+        eq(userCompanies.user_id, user.id),
+        eq(userCompanies.company_id, companyId)
+      ),
+    })
     if (!userCompany || userCompany.role === "employee") {
       return NextResponse.json({ error: "Only admins and managers can manage subscriptions" }, { status: 403 })
     }
 
-    const company = await Company.findById(companyId)
+    const company = await db.query.companies.findFirst({
+      where: eq(companies.id, companyId),
+    })
     if (!company) {
       return NextResponse.json({ error: "Company not found" }, { status: 404 })
     }
@@ -46,7 +51,7 @@ export async function POST(request: NextRequest) {
     const payload = JSON.stringify({
       planId,
       companyId,
-      userId: user._id.toString(),
+      userId: user.id,
       telegramId,
       pillar: plan.pillar,
       tier: plan.tier,

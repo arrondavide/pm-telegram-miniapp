@@ -1,10 +1,9 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { connectToDatabase } from "@/lib/mongodb"
-import { Project, User } from "@/lib/models"
+import { db, projects, users, userCompanies } from "@/lib/db"
+import { eq, and } from "drizzle-orm"
 import { projectTransformer } from "@/lib/transformers"
 import { validateBody, createProjectSchema } from "@/lib/validators"
 import { checkQuota } from "@/lib/quota"
-import mongoose from "mongoose"
 
 // GET /api/projects?companyId={id}
 export async function GET(request: NextRequest) {
@@ -17,51 +16,49 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Company ID and Telegram ID required" }, { status: 400 })
     }
 
-    await connectToDatabase()
-
     // Verify user has access to this company
-    const user = await User.findOne({ telegram_id: telegramId })
+    const user = await db.query.users.findFirst({ where: eq(users.telegram_id, telegramId) })
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 404 })
     }
 
-    const hasAccess = user.companies.some(
-      (c: any) => c.company_id.toString() === companyId || c.company_id === companyId
-    )
+    const access = await db.query.userCompanies.findFirst({
+      where: and(eq(userCompanies.user_id, user.id), eq(userCompanies.company_id, companyId)),
+    })
 
-    if (!hasAccess) {
+    if (!access) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 })
     }
 
-    // Get all projects for this company
-    let companyObjectId: mongoose.Types.ObjectId | null = null
-    let companyQuery: any = { company_id: companyId }
-
-    if (mongoose.Types.ObjectId.isValid(companyId)) {
-      companyObjectId = new mongoose.Types.ObjectId(companyId)
-      companyQuery = { company_id: companyObjectId }
-    }
-
-    const projects = await Project.find(companyQuery)
-      .populate("created_by", "telegram_id full_name username")
-      .sort({ createdAt: -1 })
-      .lean()
-
-    // Fallback if ObjectId doesn't match
-    if (projects.length === 0 && companyObjectId) {
-      const fallbackProjects = await Project.find({ company_id: companyId })
-        .populate("created_by", "telegram_id full_name username")
-        .sort({ createdAt: -1 })
-        .lean()
-
-      return NextResponse.json({
-        projects: projectTransformer.toList(fallbackProjects as any[]),
-      })
-    }
-
-    return NextResponse.json({
-      projects: projectTransformer.toList(projects as any[]),
+    // Get all projects for this company with created_by user info
+    const projectRows = await db.query.projects.findMany({
+      where: eq(projects.company_id, companyId),
+      with: { created_by: true },
+      orderBy: (p, { desc }) => [desc(p.created_at)],
     })
+
+    const formatted = projectRows.map((p) =>
+      projectTransformer.toFrontend({
+        _id: { toString: () => p.id },
+        name: p.name,
+        description: p.description ?? "",
+        company_id: p.company_id,
+        status: p.status,
+        created_by: p.created_by
+          ? { _id: { toString: () => (p.created_by as any).id }, telegram_id: (p.created_by as any).telegram_id, full_name: (p.created_by as any).full_name, username: (p.created_by as any).username ?? "" }
+          : p.created_by ?? "",
+        color: p.color ?? "#3b82f6",
+        icon: p.icon ?? "📁",
+        start_date: p.start_date ?? undefined,
+        target_end_date: p.target_end_date ?? undefined,
+        completed_at: p.completed_at ?? undefined,
+        archived_at: p.archived_at ?? undefined,
+        createdAt: p.created_at,
+        updatedAt: p.updated_at,
+      } as any)
+    )
+
+    return NextResponse.json({ projects: formatted })
   } catch (error) {
     console.error("Error fetching projects:", error)
     return NextResponse.json({ error: "Failed to fetch projects" }, { status: 500 })
@@ -84,17 +81,15 @@ export async function POST(request: NextRequest) {
 
     const { companyId, name, description, color, icon, startDate, targetEndDate } = validation.data!
 
-    await connectToDatabase()
-
     // Verify user exists and has access to this company
-    const user = await User.findOne({ telegram_id: telegramId })
+    const user = await db.query.users.findFirst({ where: eq(users.telegram_id, telegramId) })
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 404 })
     }
 
-    const companyAccess = user.companies.find(
-      (c: any) => c.company_id.toString() === companyId || c.company_id === companyId
-    )
+    const companyAccess = await db.query.userCompanies.findFirst({
+      where: and(eq(userCompanies.user_id, user.id), eq(userCompanies.company_id, companyId)),
+    })
 
     if (!companyAccess) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 })
@@ -114,30 +109,45 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Create the project using transformer for database format
-    const companyObjectId = mongoose.Types.ObjectId.isValid(companyId)
-      ? new mongoose.Types.ObjectId(companyId)
-      : companyId
+    // Create the project
+    const [project] = await db
+      .insert(projects)
+      .values({
+        name,
+        description: description || "",
+        company_id: companyId,
+        status: "active",
+        created_by: user.id,
+        color: color || "#3b82f6",
+        icon: icon || "📁",
+        start_date: startDate ? new Date(startDate) : undefined,
+        target_end_date: targetEndDate ? new Date(targetEndDate) : undefined,
+      })
+      .returning()
 
-    const project = await Project.create({
-      name,
-      description: description || "",
-      company_id: companyObjectId,
-      status: "active",
-      created_by: user._id,
-      color: color || "#3b82f6",
-      icon: icon || "📁",
-      start_date: startDate ? new Date(startDate) : undefined,
-      target_end_date: targetEndDate ? new Date(targetEndDate) : undefined,
-    })
-
-    const populatedProject = await Project.findById(project._id)
-      .populate("created_by", "telegram_id full_name username")
-      .lean()
+    // Fetch creator info for response
+    const creatorUser = await db.query.users.findFirst({ where: eq(users.id, user.id) })
 
     return NextResponse.json(
       {
-        project: projectTransformer.toFrontend(populatedProject as any),
+        project: projectTransformer.toFrontend({
+          _id: { toString: () => project.id },
+          name: project.name,
+          description: project.description ?? "",
+          company_id: project.company_id,
+          status: project.status,
+          created_by: creatorUser
+            ? { _id: { toString: () => creatorUser.id }, telegram_id: creatorUser.telegram_id, full_name: creatorUser.full_name, username: creatorUser.username ?? "" }
+            : project.created_by ?? "",
+          color: project.color ?? "#3b82f6",
+          icon: project.icon ?? "📁",
+          start_date: project.start_date ?? undefined,
+          target_end_date: project.target_end_date ?? undefined,
+          completed_at: project.completed_at ?? undefined,
+          archived_at: project.archived_at ?? undefined,
+          createdAt: project.created_at,
+          updatedAt: project.updated_at,
+        } as any),
       },
       { status: 201 }
     )

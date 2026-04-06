@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { generateProjectStructure } from "@/lib/ai"
-import { connectToDatabase } from "@/lib/mongodb"
-import { User, AIGeneration } from "@/lib/models"
+import { db, users, aiGenerations } from "@/lib/db"
+import { eq } from "drizzle-orm"
 import { checkQuota } from "@/lib/quota"
 
 export async function POST(request: Request) {
@@ -16,17 +16,15 @@ export async function POST(request: Request) {
       )
     }
 
-    await connectToDatabase()
-
     // Get user context
     let userId: string | undefined
     let companyId: string | undefined
 
     if (telegramId) {
-      const user = await User.findOne({ telegram_id: telegramId })
+      const user = await db.query.users.findFirst({ where: eq(users.telegram_id, telegramId) })
       if (user) {
-        userId = user._id.toString()
-        companyId = user.active_company_id?.toString()
+        userId = user.id
+        companyId = user.active_company_id ?? undefined
       }
     }
 
@@ -56,7 +54,7 @@ export async function POST(request: Request) {
 
     // Log AI generation for learning
     if (userId && companyId) {
-      await AIGeneration.create({
+      await db.insert(aiGenerations).values({
         user_id: userId,
         company_id: companyId,
         type: "project_structure",

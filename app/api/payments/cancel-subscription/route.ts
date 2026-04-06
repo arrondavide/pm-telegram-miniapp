@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
-import { connectToDatabase } from "@/lib/mongodb"
-import { User, Subscription } from "@/lib/models"
+import { db, users, userCompanies, subscriptions } from "@/lib/db"
+import { eq, and } from "drizzle-orm"
 
 export async function POST(request: NextRequest) {
   try {
@@ -19,25 +19,30 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid pillar. Must be one of: core, pm-connect, developer-api" }, { status: 400 })
     }
 
-    await connectToDatabase()
-
-    const user = await User.findOne({ telegram_id: telegramId })
+    const user = await db.query.users.findFirst({
+      where: eq(users.telegram_id, telegramId),
+    })
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 404 })
     }
 
     // Check user is admin/manager
-    const userCompany = user.companies.find(
-      (c: any) => c.company_id.toString() === companyId
-    )
+    const userCompany = await db.query.userCompanies.findFirst({
+      where: and(
+        eq(userCompanies.user_id, user.id),
+        eq(userCompanies.company_id, companyId)
+      ),
+    })
     if (!userCompany || userCompany.role === "employee") {
       return NextResponse.json({ error: "Only admins and managers can cancel subscriptions" }, { status: 403 })
     }
 
-    const subscription = await Subscription.findOne({
-      company_id: companyId,
-      pillar,
-      status: "active",
+    const subscription = await db.query.subscriptions.findFirst({
+      where: and(
+        eq(subscriptions.company_id, companyId),
+        eq(subscriptions.pillar, pillar),
+        eq(subscriptions.status, "active")
+      ),
     })
 
     if (!subscription) {
@@ -45,14 +50,21 @@ export async function POST(request: NextRequest) {
     }
 
     // Mark for cancellation at period end (user keeps access until then)
-    subscription.cancel_at_period_end = true
-    subscription.cancelled_at = new Date()
-    await subscription.save()
+    const now = new Date()
+    const [updated] = await db
+      .update(subscriptions)
+      .set({
+        cancel_at_period_end: true,
+        cancelled_at: now,
+        updated_at: now,
+      })
+      .where(eq(subscriptions.id, subscription.id))
+      .returning()
 
     return NextResponse.json({
       success: true,
       message: "Subscription will be cancelled at the end of the current period",
-      periodEnd: subscription.current_period_end.toISOString(),
+      periodEnd: updated.current_period_end?.toISOString() ?? null,
     })
   } catch (error) {
     console.error("[Payment] Cancel subscription error:", error)

@@ -1,7 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { connectToDatabase } from "@/lib/mongodb"
-import { TimeLog, User } from "@/lib/models"
-import mongoose from "mongoose"
+import { db, timeLogs, users } from "@/lib/db"
+import { eq, and, isNull } from "drizzle-orm"
 
 export async function POST(request: NextRequest) {
   try {
@@ -13,33 +12,38 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Telegram ID required" }, { status: 400 })
     }
 
-    await connectToDatabase()
-
-    const user = await User.findOne({ telegram_id: telegramId })
+    const user = await db.query.users.findFirst({
+      where: eq(users.telegram_id, telegramId),
+    })
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 404 })
     }
 
     // Check for existing active log
-    const existingLog = await TimeLog.findOne({
-      user_id: user._id,
-      end_time: null,
+    const existingLog = await db.query.timeLogs.findFirst({
+      where: and(
+        eq(timeLogs.user_id, user.id),
+        isNull(timeLogs.end_time)
+      ),
     })
 
     if (existingLog) {
       return NextResponse.json({ error: "Already clocked in" }, { status: 400 })
     }
 
-    const timeLog = await TimeLog.create({
-      task_id: new mongoose.Types.ObjectId(taskId),
-      user_id: user._id,
-      start_time: new Date(),
-    })
+    const [timeLog] = await db
+      .insert(timeLogs)
+      .values({
+        task_id: taskId,
+        user_id: user.id,
+        start_time: new Date(),
+      })
+      .returning()
 
     return NextResponse.json({
       timeLog: {
-        id: timeLog._id.toString(),
-        taskId,
+        id: timeLog.id,
+        taskId: timeLog.task_id,
         startTime: timeLog.start_time,
       },
     })

@@ -1,6 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { connectToDatabase } from "@/lib/mongodb"
-import { NotificationApiLog } from "@/lib/models"
+import { db, notificationApiLogs } from "@/lib/db"
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || process.env.BOT_TOKEN
 
@@ -20,7 +19,15 @@ export async function POST(request: NextRequest) {
 
     if (!telegramId || !message) {
       // Log failed request (missing fields)
-      logApiCall({ telegram_id: telegramId || "unknown", type: type || "general", status: "error", error_message: "Missing required fields", ip_address: ip, user_agent: userAgent, response_time_ms: Date.now() - startTime })
+      logApiCall({
+        telegram_id: telegramId || "unknown",
+        type: type || "general",
+        status: "error",
+        error_message: "Missing required fields",
+        ip_address: ip,
+        user_agent: userAgent,
+        response_time_ms: Date.now() - startTime,
+      })
       return NextResponse.json({ error: "telegramId and message required" }, { status: 400 })
     }
 
@@ -39,17 +46,40 @@ export async function POST(request: NextRequest) {
 
     if (!result.ok) {
       console.error("Telegram API error:", result)
-      logApiCall({ telegram_id: telegramId, type: type || "general", status: "error", error_message: result.description || "Telegram API error", ip_address: ip, user_agent: userAgent, response_time_ms: Date.now() - startTime })
+      logApiCall({
+        telegram_id: telegramId,
+        type: type || "general",
+        status: "error",
+        error_message: result.description || "Telegram API error",
+        ip_address: ip,
+        user_agent: userAgent,
+        response_time_ms: Date.now() - startTime,
+      })
       return NextResponse.json({ error: "Failed to send notification" }, { status: 500 })
     }
 
     // Log successful request
-    logApiCall({ telegram_id: telegramId, type: type || "general", status: "success", ip_address: ip, user_agent: userAgent, response_time_ms: Date.now() - startTime })
+    logApiCall({
+      telegram_id: telegramId,
+      type: type || "general",
+      status: "success",
+      ip_address: ip,
+      user_agent: userAgent,
+      response_time_ms: Date.now() - startTime,
+    })
 
     return NextResponse.json({ success: true })
   } catch (error) {
     console.error("Error sending notification:", error)
-    logApiCall({ telegram_id: "unknown", type: "general", status: "error", error_message: String(error), ip_address: ip, user_agent: userAgent, response_time_ms: Date.now() - startTime })
+    logApiCall({
+      telegram_id: "unknown",
+      type: "general",
+      status: "error",
+      error_message: String(error),
+      ip_address: ip,
+      user_agent: userAgent,
+      response_time_ms: Date.now() - startTime,
+    })
     return NextResponse.json({ error: "Failed to send notification" }, { status: 500 })
   }
 }
@@ -58,13 +88,21 @@ export async function POST(request: NextRequest) {
 function logApiCall(data: {
   telegram_id: string
   type: string
-  status: "success" | "error"
+  status: string
   error_message?: string
   ip_address: string
   user_agent: string
   response_time_ms: number
 }) {
-  connectToDatabase()
-    .then(() => NotificationApiLog.create(data))
+  db.insert(notificationApiLogs)
+    .values({
+      telegram_id: data.telegram_id,
+      type: data.type,
+      status: data.status,
+      error_message: data.error_message ?? null,
+      ip_address: data.ip_address,
+      user_agent: data.user_agent,
+      response_time_ms: data.response_time_ms,
+    })
     .catch((err) => console.error("Failed to log notification API call:", err))
 }

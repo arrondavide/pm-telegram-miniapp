@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
-import { connectToDatabase } from "@/lib/mongodb"
-import { Webhook, User } from "@/lib/models"
-import mongoose from "mongoose"
+import { db, users, webhooks, projects } from "@/lib/db"
+import { eq, and } from "drizzle-orm"
 
 interface RouteParams {
   params: Promise<{ webhookId: string }>
@@ -17,25 +16,19 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
 
     const { webhookId } = await params
 
-    // Validate ObjectId
-    if (!mongoose.Types.ObjectId.isValid(webhookId)) {
-      return NextResponse.json(
-        { success: false, error: "Invalid webhook ID" },
-        { status: 400 }
-      )
-    }
-
-    await connectToDatabase()
-
-    const user = await User.findOne({ telegram_id: telegramId })
+    const user = await db.query.users.findFirst({
+      where: eq(users.telegram_id, telegramId),
+    })
     if (!user) {
       return NextResponse.json({ success: false, error: "User not found" }, { status: 404 })
     }
 
     // Find webhook and verify ownership
-    const webhook = await Webhook.findOne({
-      _id: webhookId,
-      user_id: user._id,
+    const webhook = await db.query.webhooks.findFirst({
+      where: and(
+        eq(webhooks.id, webhookId),
+        eq(webhooks.user_id, user.id)
+      ),
     })
 
     if (!webhook) {
@@ -46,14 +39,16 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     }
 
     // Soft delete by setting is_active to false
-    webhook.is_active = false
-    await webhook.save()
+    await db
+      .update(webhooks)
+      .set({ is_active: false, updated_at: new Date() })
+      .where(eq(webhooks.id, webhookId))
 
     return NextResponse.json({
       success: true,
       message: "Webhook deleted successfully",
       data: {
-        id: webhook._id.toString(),
+        id: webhook.id,
         name: webhook.name,
       },
     })
@@ -76,27 +71,38 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
     const { webhookId } = await params
 
-    if (!mongoose.Types.ObjectId.isValid(webhookId)) {
-      return NextResponse.json(
-        { success: false, error: "Invalid webhook ID" },
-        { status: 400 }
-      )
-    }
-
-    await connectToDatabase()
-
-    const user = await User.findOne({ telegram_id: telegramId })
+    const user = await db.query.users.findFirst({
+      where: eq(users.telegram_id, telegramId),
+    })
     if (!user) {
       return NextResponse.json({ success: false, error: "User not found" }, { status: 404 })
     }
 
-    const webhook = await Webhook.findOne({
-      _id: webhookId,
-      user_id: user._id,
-      is_active: true,
-    }).populate("project_id", "name")
+    const [row] = await db
+      .select({
+        id: webhooks.id,
+        hook_id: webhooks.hook_id,
+        name: webhooks.name,
+        target_type: webhooks.target_type,
+        project_id: webhooks.project_id,
+        default_priority: webhooks.default_priority,
+        default_recipients: webhooks.default_recipients,
+        usage_count: webhooks.usage_count,
+        last_triggered_at: webhooks.last_triggered_at,
+        created_at: webhooks.created_at,
+        project_name: projects.name,
+      })
+      .from(webhooks)
+      .leftJoin(projects, eq(webhooks.project_id, projects.id))
+      .where(
+        and(
+          eq(webhooks.id, webhookId),
+          eq(webhooks.user_id, user.id),
+          eq(webhooks.is_active, true)
+        )
+      )
 
-    if (!webhook) {
+    if (!row) {
       return NextResponse.json(
         { success: false, error: "Webhook not found" },
         { status: 404 }
@@ -108,19 +114,17 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     return NextResponse.json({
       success: true,
       data: {
-        id: webhook._id.toString(),
-        hookId: webhook.hook_id,
-        name: webhook.name,
-        url: `${baseUrl}/api/v1/webhook/${webhook.hook_id}`,
-        targetType: webhook.target_type,
-        project: webhook.project_id
-          ? { id: (webhook.project_id as any)._id, name: (webhook.project_id as any).name }
-          : null,
-        defaultPriority: webhook.default_priority,
-        defaultRecipients: webhook.default_recipients || [],
-        usageCount: webhook.usage_count,
-        lastTriggeredAt: webhook.last_triggered_at,
-        createdAt: webhook.createdAt,
+        id: row.id,
+        hookId: row.hook_id,
+        name: row.name,
+        url: `${baseUrl}/api/v1/webhook/${row.hook_id}`,
+        targetType: row.target_type,
+        project: row.project_id ? { id: row.project_id, name: row.project_name } : null,
+        defaultPriority: row.default_priority,
+        defaultRecipients: row.default_recipients || [],
+        usageCount: row.usage_count,
+        lastTriggeredAt: row.last_triggered_at,
+        createdAt: row.created_at,
       },
     })
   } catch (error) {

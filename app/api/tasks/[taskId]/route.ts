@@ -1,41 +1,94 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { connectToDatabase } from "@/lib/mongodb"
-import { Task, User, Update, Project } from "@/lib/models"
+import { db, tasks, users, taskAssignees, taskUpdates, projects } from "@/lib/db"
+import { eq, inArray } from "drizzle-orm"
 import { taskTransformer } from "@/lib/transformers"
 import { notificationService } from "@/lib/services"
-import mongoose from "mongoose"
+
+/** Build the shape the transformer expects from a Drizzle task row + assignee rows */
+function toTaskDoc(
+  task: any,
+  assigneeRows: Array<{ taskId: string; userId: string; fullName: string; telegramId: string; username: string }>
+) {
+  const myAssignees = assigneeRows
+    .filter((a) => a.taskId === task.id)
+    .map((a) => ({
+      _id: { toString: () => a.userId },
+      telegram_id: a.telegramId,
+      full_name: a.fullName,
+      username: a.username,
+    }))
+
+  return {
+    _id: { toString: () => task.id },
+    title: task.title,
+    description: task.description ?? "",
+    due_date: task.due_date ?? new Date(),
+    status: task.status,
+    priority: task.priority,
+    assigned_to: myAssignees,
+    created_by: task.created_by ?? "",
+    company_id: task.company_id,
+    project_id: task.project_id ?? "",
+    parent_task_id: task.parent_task_id ?? null,
+    depth: task.depth ?? 0,
+    path: task.path ? task.path.split("/").filter(Boolean) : [],
+    category: task.category ?? "",
+    tags: task.tags ?? [],
+    department: task.department ?? "",
+    estimated_hours: task.estimated_hours ?? 0,
+    actual_hours: task.actual_hours ?? 0,
+    completed_at: task.completed_at ?? undefined,
+    createdAt: task.created_at,
+    updatedAt: task.updated_at,
+  } as any
+}
+
+async function getTaskAssignees(taskId: string) {
+  const rows = await db
+    .select({
+      taskId: taskAssignees.task_id,
+      userId: users.id,
+      fullName: users.full_name,
+      telegramId: users.telegram_id,
+      username: users.username,
+    })
+    .from(taskAssignees)
+    .innerJoin(users, eq(taskAssignees.user_id, users.id))
+    .where(eq(taskAssignees.task_id, taskId))
+
+  return rows.map((r) => ({
+    taskId: r.taskId,
+    userId: r.userId,
+    fullName: r.fullName,
+    telegramId: r.telegramId,
+    username: r.username ?? "",
+  }))
+}
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ taskId: string }> }) {
   try {
     const { taskId } = await params
     console.log("[Task API GET] Fetching task:", taskId)
 
-    // Validate taskId format
-    if (!taskId || !mongoose.Types.ObjectId.isValid(taskId)) {
-      console.log("[Task API GET] Invalid taskId format:", taskId)
+    if (!taskId) {
       return NextResponse.json({ error: "Invalid task ID format" }, { status: 400 })
     }
 
-    await connectToDatabase()
-
-    const task = await Task.findById(taskId)
-      .populate("assigned_to", "full_name username telegram_id")
-      .populate("created_by", "full_name username telegram_id")
-      .lean()
+    const task = await db.query.tasks.findFirst({ where: eq(tasks.id, taskId) })
 
     if (!task) {
       console.log("[Task API GET] Task not found in database:", taskId)
       return NextResponse.json({ error: "Task not found" }, { status: 404 })
     }
 
-    console.log("[Task API GET] Task found:", task._id, task.title)
-    const transformedTask = taskTransformer.toFrontend(task as any)
+    console.log("[Task API GET] Task found:", task.id, task.title)
+
+    const assigneeRows = await getTaskAssignees(taskId)
+    const transformedTask = taskTransformer.toFrontend(toTaskDoc(task, assigneeRows))
     console.log("[Task API GET] Transformed task id:", transformedTask.id)
 
     return NextResponse.json(
-      {
-        task: transformedTask,
-      },
+      { task: transformedTask },
       {
         headers: {
           "Cache-Control": "no-store, no-cache, must-revalidate",
@@ -58,116 +111,85 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       return NextResponse.json({ error: "Telegram ID required" }, { status: 400 })
     }
 
-    await connectToDatabase()
-
-    const user = await User.findOne({ telegram_id: telegramId })
+    const user = await db.query.users.findFirst({ where: eq(users.telegram_id, telegramId) })
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 404 })
     }
 
-    const task = await Task.findById(taskId)
-      .populate("assigned_to", "telegram_id full_name")
-      .populate("created_by", "telegram_id full_name")
+    const task = await db.query.tasks.findFirst({ where: eq(tasks.id, taskId) })
     if (!task) {
       return NextResponse.json({ error: "Task not found" }, { status: 404 })
     }
 
     const oldStatus = task.status
-    // Track old assignees for notification comparison
-    const oldAssigneeIds = new Set(
-      (task.assigned_to as any[]).map((u) => u.telegram_id || u._id?.toString())
-    )
 
-    // Update fields
-    if (body.title !== undefined) task.title = body.title
-    if (body.description !== undefined) task.description = body.description
-    if (body.dueDate !== undefined) task.due_date = new Date(body.dueDate)
+    // Fetch current assignees for notification comparison
+    const currentAssigneeRows = await getTaskAssignees(taskId)
+    const oldAssigneeTelegramIds = new Set(currentAssigneeRows.map((a) => a.telegramId))
+
+    // Build update payload
+    const updateData: Record<string, any> = { updated_at: new Date() }
+    if (body.title !== undefined) updateData.title = body.title
+    if (body.description !== undefined) updateData.description = body.description
+    if (body.dueDate !== undefined) updateData.due_date = new Date(body.dueDate)
     if (body.status !== undefined) {
-      task.status = body.status
+      updateData.status = body.status
       if (body.status === "completed") {
-        task.completed_at = new Date()
+        updateData.completed_at = new Date()
       }
     }
-    if (body.priority !== undefined) task.priority = body.priority
-    if (body.category !== undefined) task.category = body.category
-    if (body.tags !== undefined) task.tags = body.tags
+    if (body.priority !== undefined) updateData.priority = body.priority
+    if (body.category !== undefined) updateData.category = body.category
+    if (body.tags !== undefined) updateData.tags = body.tags
 
     // Handle assignedTo updates
+    let newAssigneeRows: typeof currentAssigneeRows = currentAssigneeRows
     if (body.assignedTo !== undefined) {
-      const assignedUserIds: mongoose.Types.ObjectId[] = []
+      // Resolve new assignee IDs
+      const resolvedAssignees: any[] = []
       for (const id of body.assignedTo) {
-        let foundUser = null
-        // Try finding by ObjectId first
-        if (mongoose.Types.ObjectId.isValid(id)) {
-          foundUser = await User.findById(id)
-        }
-        // Try finding by telegram_id
+        let foundUser = await db.query.users.findFirst({ where: eq(users.id, id) }).catch(() => null)
         if (!foundUser) {
-          foundUser = await User.findOne({ telegram_id: id.toString() })
+          foundUser = await db.query.users.findFirst({ where: eq(users.telegram_id, String(id)) })
         }
-        if (foundUser) {
-          assignedUserIds.push(foundUser._id)
-        }
-      }
-      task.assigned_to = assignedUserIds
-    }
-
-    await task.save()
-
-    // Re-populate assigned_to and created_by after save for notifications
-    await task.populate("assigned_to", "telegram_id full_name")
-    await task.populate("created_by", "telegram_id full_name")
-
-    console.log("[Task PATCH] Task after populate:", {
-      taskId: task._id.toString(),
-      title: task.title,
-      assigned_to: (task.assigned_to as any[])?.map((u: any) => ({
-        id: u._id?.toString(),
-        telegram_id: u.telegram_id
-      })),
-      created_by: {
-        id: (task.created_by as any)?._id?.toString(),
-        telegram_id: (task.created_by as any)?.telegram_id,
-      },
-    })
-
-    // Send notifications to newly assigned users
-    if (body.assignedTo !== undefined) {
-      // Get project details for notifications
-      let projectName: string | undefined
-      let projectId: string | undefined
-      if (task.project_id) {
-        const project = await Project.findById(task.project_id).lean()
-        projectName = project?.name
-        projectId = project?._id?.toString()
+        if (foundUser) resolvedAssignees.push(foundUser)
       }
 
-      // Find newly assigned users (users in new list but not in old list)
-      const newlyAssignedUsers: Array<{ telegram_id: string; full_name: string }> = []
-      for (const id of body.assignedTo) {
-        // Check if this user was NOT in the old assignees
-        let foundUser = null
-        if (mongoose.Types.ObjectId.isValid(id)) {
-          foundUser = await User.findById(id)
-        }
-        if (!foundUser) {
-          foundUser = await User.findOne({ telegram_id: id.toString() })
-        }
-        if (foundUser && !oldAssigneeIds.has(foundUser.telegram_id) && foundUser.telegram_id !== telegramId) {
-          newlyAssignedUsers.push({
-            telegram_id: foundUser.telegram_id,
-            full_name: foundUser.full_name || "User",
-          })
-        }
+      // Replace assignees
+      await db.delete(taskAssignees).where(eq(taskAssignees.task_id, taskId))
+      if (resolvedAssignees.length > 0) {
+        await db.insert(taskAssignees).values(
+          resolvedAssignees.map((u) => ({ task_id: taskId, user_id: u.id }))
+        )
       }
+
+      newAssigneeRows = resolvedAssignees.map((u) => ({
+        taskId,
+        userId: u.id,
+        fullName: u.full_name,
+        telegramId: u.telegram_id,
+        username: u.username ?? "",
+      }))
 
       // Send assignment notifications to newly assigned users
+      const newlyAssignedUsers = resolvedAssignees.filter(
+        (u) => !oldAssigneeTelegramIds.has(u.telegram_id) && u.telegram_id !== telegramId
+      )
+
       if (newlyAssignedUsers.length > 0) {
+        let projectName: string | undefined
+        let projectId: string | undefined
+        if (task.project_id) {
+          const project = await db.query.projects.findFirst({ where: eq(projects.id, task.project_id) })
+          projectName = project?.name
+          projectId = project?.id
+        }
+
         console.log("[Task PATCH] Sending assignment notifications to:", newlyAssignedUsers.map((u) => u.telegram_id))
         await notificationService.notifyTaskAssignment({
-          assignedUsers: newlyAssignedUsers,
+          assignedUsers: newlyAssignedUsers.map((u) => ({ telegram_id: u.telegram_id, full_name: u.full_name })),
           taskTitle: task.title,
-          taskId: task._id.toString(),
+          taskId: task.id,
           assignedBy: user.full_name,
           dueDate: task.due_date || new Date(),
           priority: task.priority,
@@ -179,53 +201,59 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       }
     }
 
-    // Log status change
+    const [updatedTask] = await db
+      .update(tasks)
+      .set(updateData)
+      .where(eq(tasks.id, taskId))
+      .returning()
+
+    console.log("[Task PATCH] Task updated:", {
+      taskId: updatedTask.id,
+      title: updatedTask.title,
+      assigned_to: newAssigneeRows.map((a) => ({ id: a.userId, telegram_id: a.telegramId })),
+    })
+
+    // Log status change and send notifications
     if (body.status && body.status !== oldStatus) {
-      await Update.create({
-        task_id: task._id,
-        user_id: user._id,
+      await db.insert(taskUpdates).values({
+        task_id: taskId,
+        user_id: user.id,
         action: "status_changed",
         old_value: oldStatus,
         new_value: body.status,
         message: `Status changed from ${oldStatus} to ${body.status}`,
       })
 
-      // Get project details for notifications
       let projectName: string | undefined
       let projectId: string | undefined
-      if (task.project_id) {
-        const project = await Project.findById(task.project_id).lean()
+      if (updatedTask.project_id) {
+        const project = await db.query.projects.findFirst({ where: eq(projects.id, updatedTask.project_id) })
         projectName = project?.name
-        projectId = project?._id?.toString()
+        projectId = project?.id
       }
 
       const peopleToNotify = new Map<string, { telegramId: string; fullName: string }>()
 
       // Add all assigned users
-      const assignedUsers = task.assigned_to as any[]
-      for (const assignedUser of assignedUsers) {
-        if (assignedUser.telegram_id && assignedUser.telegram_id !== telegramId) {
-          peopleToNotify.set(assignedUser.telegram_id, {
-            telegramId: assignedUser.telegram_id,
-            fullName: assignedUser.full_name || "User",
+      for (const a of newAssigneeRows) {
+        if (a.telegramId && a.telegramId !== telegramId) {
+          peopleToNotify.set(a.telegramId, { telegramId: a.telegramId, fullName: a.fullName || "User" })
+        }
+      }
+
+      // Add task creator
+      if (updatedTask.created_by) {
+        const creator = await db.query.users.findFirst({ where: eq(users.id, updatedTask.created_by) })
+        if (creator?.telegram_id && creator.telegram_id !== telegramId) {
+          peopleToNotify.set(creator.telegram_id, {
+            telegramId: creator.telegram_id,
+            fullName: creator.full_name || "User",
           })
         }
       }
 
-      // Add task creator (admin notification)
-      const creator = task.created_by as any
-      if (creator?.telegram_id && creator.telegram_id !== telegramId) {
-        peopleToNotify.set(creator.telegram_id, {
-          telegramId: creator.telegram_id,
-          fullName: creator.full_name || "User",
-        })
-      }
-
-      // Send notifications using centralized service
       console.log("[Task PATCH] Status changed from", oldStatus, "to", body.status)
       console.log("[Task PATCH] People to notify for status change:", Array.from(peopleToNotify.keys()))
-      console.log("[Task PATCH] Assigned users:", assignedUsers?.map((u: any) => u.telegram_id))
-      console.log("[Task PATCH] Creator:", creator?.telegram_id)
       console.log("[Task PATCH] Changed by (excluded):", telegramId)
 
       for (const [notifyTelegramId, recipient] of peopleToNotify) {
@@ -234,8 +262,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
           await notificationService.notifyTaskCompleted({
             telegramId: notifyTelegramId,
             recipientName: recipient.fullName,
-            taskTitle: task.title,
-            taskId: task._id.toString(),
+            taskTitle: updatedTask.title,
+            taskId: updatedTask.id,
             completedBy: user.full_name,
             completedByTelegramId: telegramId,
             projectName,
@@ -245,8 +273,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
           await notificationService.notifyTaskStatusChange({
             telegramId: notifyTelegramId,
             recipientName: recipient.fullName,
-            taskTitle: task.title,
-            taskId: task._id.toString(),
+            taskTitle: updatedTask.title,
+            taskId: updatedTask.id,
             oldStatus,
             newStatus: body.status,
             changedBy: user.full_name,
@@ -274,9 +302,7 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
       return NextResponse.json({ error: "Telegram ID required" }, { status: 400 })
     }
 
-    await connectToDatabase()
-
-    await Task.findByIdAndDelete(taskId)
+    await db.delete(tasks).where(eq(tasks.id, taskId))
 
     return NextResponse.json({ success: true })
   } catch (error) {

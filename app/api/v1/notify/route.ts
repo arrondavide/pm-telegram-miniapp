@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
-import { connectToDatabase } from "@/lib/mongodb"
-import { ApiKey, User, ApiUsageLog, Company } from "@/lib/models"
+import { db, apiKeys, apiUsageLogs, users, userCompanies, companies } from "@/lib/db"
+import { eq, and } from "drizzle-orm"
 import crypto from "crypto"
 
 // Simple in-memory rate limiter (in production, use Redis)
@@ -31,7 +31,9 @@ async function validateApiKey(apiKey: string) {
 
   const hash = crypto.createHash("sha256").update(apiKey).digest("hex")
 
-  const key = await ApiKey.findOne({ key: hash, is_active: true })
+  const key = await db.query.apiKeys.findFirst({
+    where: and(eq(apiKeys.key, hash), eq(apiKeys.is_active, true)),
+  })
   if (!key) return null
 
   // Check expiration
@@ -70,7 +72,7 @@ async function sendTelegramNotification(chatId: string, message: string, parseMo
 // POST /api/v1/notify - Send a notification via Telegram
 export async function POST(request: NextRequest) {
   const startTime = Date.now()
-  let apiKeyDoc: any = null
+  let apiKeyDoc: typeof apiKeys.$inferSelect | null = null
 
   try {
     // Get API key from header or body
@@ -89,8 +91,6 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    await connectToDatabase()
-
     // Validate API key
     apiKeyDoc = await validateApiKey(apiKey)
     if (!apiKeyDoc) {
@@ -101,7 +101,8 @@ export async function POST(request: NextRequest) {
     }
 
     // Check permissions
-    if (!apiKeyDoc.permissions.includes("notify")) {
+    const permissions = (apiKeyDoc.permissions as string[]) ?? []
+    if (!permissions.includes("notify")) {
       return NextResponse.json(
         { success: false, error: "API key does not have 'notify' permission" },
         { status: 403 }
@@ -109,7 +110,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Rate limiting
-    if (!checkRateLimit(apiKeyDoc._id.toString(), apiKeyDoc.rate_limit)) {
+    if (!checkRateLimit(apiKeyDoc.id, apiKeyDoc.rate_limit ?? 100)) {
       return NextResponse.json(
         { success: false, error: "Rate limit exceeded. Try again later." },
         { status: 429 }
@@ -127,13 +128,15 @@ export async function POST(request: NextRequest) {
     }
 
     // Find target user
-    let targetTelegramId = telegram_id
+    let targetTelegramId: string | undefined = telegram_id
 
     if (!targetTelegramId && user_id) {
       // Look up user by internal ID
-      const user = await User.findById(user_id)
-      if (user) {
-        targetTelegramId = user.telegram_id
+      const foundUser = await db.query.users.findFirst({
+        where: eq(users.id, user_id),
+      })
+      if (foundUser) {
+        targetTelegramId = foundUser.telegram_id
       }
     }
 
@@ -145,12 +148,17 @@ export async function POST(request: NextRequest) {
     }
 
     // Verify user belongs to the same company as the API key
-    const user = await User.findOne({ telegram_id: targetTelegramId })
-    if (user) {
-      const belongsToCompany = user.companies.some(
-        (c: any) => c.company_id.toString() === apiKeyDoc.company_id.toString()
-      )
-      if (!belongsToCompany) {
+    const targetUser = await db.query.users.findFirst({
+      where: eq(users.telegram_id, targetTelegramId),
+    })
+    if (targetUser) {
+      const membership = await db.query.userCompanies.findFirst({
+        where: and(
+          eq(userCompanies.user_id, targetUser.id),
+          eq(userCompanies.company_id, apiKeyDoc.company_id)
+        ),
+      })
+      if (!membership) {
         return NextResponse.json(
           { success: false, error: "User does not belong to your company" },
           { status: 403 }
@@ -186,7 +194,9 @@ export async function POST(request: NextRequest) {
     }
 
     // Get company name for footer
-    const company = await Company.findById(apiKeyDoc.company_id)
+    const company = await db.query.companies.findFirst({
+      where: eq(companies.id, apiKeyDoc.company_id),
+    })
     if (company) {
       fullMessage += `\n\n—\nvia WhatsTask API • ${escapeHtml(company.name)}`
     }
@@ -195,13 +205,18 @@ export async function POST(request: NextRequest) {
     await sendTelegramNotification(targetTelegramId, fullMessage)
 
     // Update usage stats
-    apiKeyDoc.usage_count += 1
-    apiKeyDoc.last_used_at = new Date()
-    await apiKeyDoc.save()
+    await db
+      .update(apiKeys)
+      .set({
+        usage_count: (apiKeyDoc.usage_count ?? 0) + 1,
+        last_used_at: new Date(),
+        updated_at: new Date(),
+      })
+      .where(eq(apiKeys.id, apiKeyDoc.id))
 
     // Log usage
-    await ApiUsageLog.create({
-      api_key_id: apiKeyDoc._id,
+    await db.insert(apiUsageLogs).values({
+      api_key_id: apiKeyDoc.id,
       endpoint: "/api/v1/notify",
       method: "POST",
       status_code: 200,
@@ -223,8 +238,8 @@ export async function POST(request: NextRequest) {
 
     // Log error
     if (apiKeyDoc) {
-      await ApiUsageLog.create({
-        api_key_id: apiKeyDoc._id,
+      await db.insert(apiUsageLogs).values({
+        api_key_id: apiKeyDoc.id,
         endpoint: "/api/v1/notify",
         method: "POST",
         status_code: 500,

@@ -1,8 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { connectToDatabase } from "@/lib/mongodb"
-import { User, Invitation } from "@/lib/models"
+import { db, users, userCompanies, invitations } from "@/lib/db"
+import { eq, and, desc } from "drizzle-orm"
 import { randomBytes } from "crypto"
-import mongoose from "mongoose"
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ companyId: string }> }) {
   try {
@@ -17,16 +16,18 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       return NextResponse.json({ error: "Telegram ID required" }, { status: 400 })
     }
 
-    await connectToDatabase()
-
-    const user = await User.findOne({ telegram_id: telegramId })
+    const user = await db.query.users.findFirst({
+      where: eq(users.telegram_id, telegramId),
+    })
 
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 404 })
     }
 
     // Verify user is admin or manager
-    const userCompany = user.companies.find((c: any) => c.company_id.toString() === companyId)
+    const userCompany = await db.query.userCompanies.findFirst({
+      where: and(eq(userCompanies.user_id, user.id), eq(userCompanies.company_id, companyId)),
+    })
     if (!userCompany || !["admin", "manager"].includes(userCompany.role)) {
       return NextResponse.json({ error: "Not authorized to invite members" }, { status: 403 })
     }
@@ -38,22 +39,25 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     console.log("[v0] Generated invitation code:", invitationCode)
     console.log("[v0] Expires at:", expiresAt)
 
-    const invitation = await Invitation.create({
-      company_id: new mongoose.Types.ObjectId(companyId),
-      invited_by: user._id,
-      username: username || "",
-      role,
-      department,
-      invitation_code: invitationCode,
-      expires_at: expiresAt,
-      status: "pending",
-    })
+    const [invitation] = await db
+      .insert(invitations)
+      .values({
+        company_id: companyId,
+        invited_by: user.id,
+        username: username || "",
+        role: role as any,
+        department,
+        invitation_code: invitationCode,
+        expires_at: expiresAt,
+        status: "pending",
+      })
+      .returning()
 
-    console.log("[v0] Invitation created:", invitation._id)
+    console.log("[v0] Invitation created:", invitation.id)
 
     return NextResponse.json({
       invitation: {
-        id: invitation._id.toString(),
+        id: invitation.id,
         code: invitation.invitation_code,
         role: invitation.role,
         expiresAt: invitation.expires_at,
@@ -74,24 +78,32 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       return NextResponse.json({ error: "Telegram ID required" }, { status: 400 })
     }
 
-    await connectToDatabase()
+    // Join invitations with the inviting user to get their name
+    const rows = await db
+      .select({
+        id: invitations.id,
+        invitation_code: invitations.invitation_code,
+        username: invitations.username,
+        role: invitations.role,
+        status: invitations.status,
+        expires_at: invitations.expires_at,
+        created_at: invitations.created_at,
+        invited_by_name: users.full_name,
+      })
+      .from(invitations)
+      .leftJoin(users, eq(invitations.invited_by, users.id))
+      .where(eq(invitations.company_id, companyId))
+      .orderBy(desc(invitations.created_at))
 
-    const invitations = await Invitation.find({
-      company_id: new mongoose.Types.ObjectId(companyId),
-    })
-      .populate("invited_by", "full_name username")
-      .sort({ createdAt: -1 })
-      .lean()
-
-    const formattedInvitations = invitations.map((inv: any) => ({
-      id: inv._id.toString(),
+    const formattedInvitations = rows.map((inv) => ({
+      id: inv.id,
       code: inv.invitation_code,
       username: inv.username,
       role: inv.role,
       status: inv.status,
-      invitedBy: inv.invited_by?.full_name || "Unknown",
+      invitedBy: inv.invited_by_name || "Unknown",
       expiresAt: inv.expires_at,
-      createdAt: inv.createdAt,
+      createdAt: inv.created_at,
     }))
 
     return NextResponse.json(

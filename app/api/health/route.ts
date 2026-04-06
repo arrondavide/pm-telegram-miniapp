@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server"
-import { connectToDatabase } from "@/lib/mongodb"
+import { db } from "@/lib/db"
+import { sql } from "drizzle-orm"
 
 export async function GET() {
   const start = Date.now()
   try {
-    await connectToDatabase()
+    await db.execute(sql`SELECT 1`)
     return NextResponse.json({ ok: true, latencyMs: Date.now() - start })
   } catch {
     return NextResponse.json({ ok: false, latencyMs: Date.now() - start }, { status: 503 })

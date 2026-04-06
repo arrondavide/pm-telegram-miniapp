@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
-import { connectToDatabase } from "@/lib/mongodb"
-import { User, Payment } from "@/lib/models"
+import { db, users, userCompanies, payments } from "@/lib/db"
+import { eq, and, desc } from "drizzle-orm"
 
 export async function GET(request: NextRequest) {
   try {
@@ -15,33 +15,39 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "companyId is required" }, { status: 400 })
     }
 
-    await connectToDatabase()
-
-    const user = await User.findOne({ telegram_id: telegramId })
+    const user = await db.query.users.findFirst({
+      where: eq(users.telegram_id, telegramId),
+    })
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 404 })
     }
 
     // Check user belongs to company
-    const userCompany = user.companies.find(
-      (c: any) => c.company_id.toString() === companyId
-    )
+    const userCompany = await db.query.userCompanies.findFirst({
+      where: and(
+        eq(userCompanies.user_id, user.id),
+        eq(userCompanies.company_id, companyId)
+      ),
+    })
     if (!userCompany) {
       return NextResponse.json({ error: "Not a member of this company" }, { status: 403 })
     }
 
-    const payments = await Payment.find({ company_id: companyId })
-      .sort({ createdAt: -1 })
+    const paymentList = await db
+      .select()
+      .from(payments)
+      .where(eq(payments.company_id, companyId))
+      .orderBy(desc(payments.created_at))
       .limit(50)
 
     return NextResponse.json({
       success: true,
-      payments: payments.map((p) => ({
-        id: p._id.toString(),
+      payments: paymentList.map((p) => ({
+        id: p.id,
         amountStars: p.amount_stars,
         planId: p.plan_id,
         status: p.status,
-        createdAt: p.createdAt.toISOString(),
+        createdAt: p.created_at.toISOString(),
       })),
     })
   } catch (error) {

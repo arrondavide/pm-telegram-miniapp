@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { connectToDatabase } from "@/lib/mongodb"
-import { TimeLog, Task, User } from "@/lib/models"
+import { db, timeLogs, tasks, users } from "@/lib/db"
+import { eq, and, isNull, sql } from "drizzle-orm"
 
 export async function POST(request: NextRequest) {
   try {
@@ -10,16 +10,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Telegram ID required" }, { status: 400 })
     }
 
-    await connectToDatabase()
-
-    const user = await User.findOne({ telegram_id: telegramId })
+    const user = await db.query.users.findFirst({
+      where: eq(users.telegram_id, telegramId),
+    })
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 404 })
     }
 
-    const timeLog = await TimeLog.findOne({
-      user_id: user._id,
-      end_time: null,
+    const timeLog = await db.query.timeLogs.findFirst({
+      where: and(
+        eq(timeLogs.user_id, user.id),
+        isNull(timeLogs.end_time)
+      ),
     })
 
     if (!timeLog) {
@@ -27,21 +29,33 @@ export async function POST(request: NextRequest) {
     }
 
     const endTime = new Date()
-    const durationMinutes = Math.round((endTime.getTime() - timeLog.start_time.getTime()) / 60000)
+    const durationSeconds = Math.round((endTime.getTime() - timeLog.start_time.getTime()) / 1000)
 
-    timeLog.end_time = endTime
-    timeLog.duration_minutes = durationMinutes
-    await timeLog.save()
+    await db
+      .update(timeLogs)
+      .set({
+        end_time: endTime,
+        duration_seconds: durationSeconds,
+        updated_at: new Date(),
+      })
+      .where(eq(timeLogs.id, timeLog.id))
 
-    // Update task actual hours
-    await Task.findByIdAndUpdate(timeLog.task_id, {
-      $inc: { actual_hours: durationMinutes / 60 },
-    })
+    // Update task actual_hours (duration_seconds / 3600, rounded to nearest integer hour)
+    if (timeLog.task_id) {
+      const additionalHours = Math.round(durationSeconds / 3600)
+      await db
+        .update(tasks)
+        .set({
+          actual_hours: sql`COALESCE(${tasks.actual_hours}, 0) + ${additionalHours}`,
+          updated_at: new Date(),
+        })
+        .where(eq(tasks.id, timeLog.task_id))
+    }
 
     return NextResponse.json({
       timeLog: {
-        id: timeLog._id.toString(),
-        durationMinutes,
+        id: timeLog.id,
+        durationMinutes: Math.round(durationSeconds / 60),
         endTime,
       },
     })

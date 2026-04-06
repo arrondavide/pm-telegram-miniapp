@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
-import { connectToDatabase } from "@/lib/mongodb"
-import { Company, User, Project, Task, Update, TimeLog } from "@/lib/models"
+import { db, companies, users, userCompanies, projects, tasks, taskAssignees, taskUpdates, timeLogs } from "@/lib/db"
+import { eq, and, or, inArray, gte, lte, lt, ne, not, sql } from "drizzle-orm"
 import { generateDailyDigest } from "@/lib/ai/digest-generator.service"
 import { sendDigestToUsers } from "@/lib/telegram"
 import type { DigestInput } from "@/lib/ai/prompts/daily-digest"
@@ -29,10 +29,10 @@ export async function POST(request: Request) {
       )
     }
 
-    await connectToDatabase()
-
     // Get company
-    const company = await Company.findById(companyId)
+    const company = await db.query.companies.findFirst({
+      where: eq(companies.id, companyId),
+    })
     if (!company) {
       return NextResponse.json(
         { success: false, error: "Company not found" },
@@ -48,32 +48,53 @@ export async function POST(request: Request) {
     endOfDay.setHours(23, 59, 59, 999)
 
     // Get users to notify
-    let usersToNotify
+    let usersToNotify: typeof users.$inferSelect[] = []
+
     if (testMode && telegramId) {
-      // Test mode - only send to requesting user
-      usersToNotify = await User.find({
-        telegram_id: telegramId,
-        "companies.company_id": companyId,
+      // Test mode - only send to requesting user who belongs to this company
+      const testUser = await db.query.users.findFirst({
+        where: eq(users.telegram_id, telegramId),
       })
+      if (testUser) {
+        const membership = await db.query.userCompanies.findFirst({
+          where: and(
+            eq(userCompanies.user_id, testUser.id),
+            eq(userCompanies.company_id, companyId)
+          ),
+        })
+        if (membership) {
+          usersToNotify = [testUser]
+        }
+      }
     } else if (userIds && userIds.length > 0) {
-      // Specific users
-      usersToNotify = await User.find({
-        _id: { $in: userIds },
-        "companies.company_id": companyId,
-        "preferences.daily_digest": true,
-      })
+      // Specific users who are in this company and have digest enabled
+      const specificUsers = await db.select({ user: users, uc: userCompanies })
+        .from(users)
+        .innerJoin(userCompanies, and(
+          eq(userCompanies.user_id, users.id),
+          eq(userCompanies.company_id, companyId)
+        ))
+        .where(inArray(users.id, userIds))
+
+      usersToNotify = specificUsers
+        .filter(({ user }) => (user.preferences as any)?.daily_digest === true)
+        .map(({ user }) => user)
     } else {
-      // All users with digest enabled (admins and managers only by default)
-      usersToNotify = await User.find({
-        "companies.company_id": companyId,
-        "preferences.daily_digest": true,
-        "companies": {
-          $elemMatch: {
-            company_id: companyId,
-            role: { $in: ["admin", "manager"] },
-          },
-        },
-      })
+      // All admins/managers with digest enabled
+      const allEligible = await db.select({ user: users, uc: userCompanies })
+        .from(users)
+        .innerJoin(userCompanies, and(
+          eq(userCompanies.user_id, users.id),
+          eq(userCompanies.company_id, companyId)
+        ))
+        .where(or(
+          eq(userCompanies.role, "admin"),
+          eq(userCompanies.role, "manager")
+        ))
+
+      usersToNotify = allEligible
+        .filter(({ user }) => (user.preferences as any)?.daily_digest === true)
+        .map(({ user }) => user)
     }
 
     if (usersToNotify.length === 0) {
@@ -87,64 +108,77 @@ export async function POST(request: Request) {
       })
     }
 
-    // Gather digest data
-    const projects = await Project.find({
-      company_id: companyId,
-      status: { $in: ["active", "on_hold"] },
-    })
+    // Gather digest data — all users in the company
+    const activeProjects = await db
+      .select()
+      .from(projects)
+      .where(and(
+        eq(projects.company_id, companyId),
+        or(eq(projects.status, "active"), eq(projects.status, "on_hold"))
+      ))
 
-    const allUsers = await User.find({
-      "companies.company_id": companyId,
-    })
-    const userMap = new Map(allUsers.map(u => [u._id.toString(), u.full_name]))
+    const allCompanyMembers = await db
+      .select({ user: users })
+      .from(users)
+      .innerJoin(userCompanies, and(
+        eq(userCompanies.user_id, users.id),
+        eq(userCompanies.company_id, companyId)
+      ))
+    const allUsers = allCompanyMembers.map(({ user }) => user)
+    const userMap = new Map(allUsers.map((u) => [u.id, u.full_name]))
 
     // Build project summaries
     const projectSummaries: DigestInput["projectSummaries"] = []
 
-    for (const project of projects) {
-      const tasksCompleted = await Task.countDocuments({
-        project_id: project._id,
-        status: "completed",
-        completed_at: { $gte: startOfDay, $lte: endOfDay },
-      })
+    for (const project of activeProjects) {
+      // Tasks for this project
+      const projectTasks = await db
+        .select()
+        .from(tasks)
+        .where(eq(tasks.project_id, project.id))
 
-      const tasksCreated = await Task.countDocuments({
-        project_id: project._id,
-        createdAt: { $gte: startOfDay, $lte: endOfDay },
-      })
+      const tasksCompleted = projectTasks.filter(
+        (t) => t.status === "completed" && t.completed_at && t.completed_at >= startOfDay && t.completed_at <= endOfDay
+      ).length
 
-      const tasksInProgress = await Task.countDocuments({
-        project_id: project._id,
-        status: { $in: ["in_progress", "started"] },
-      })
+      const tasksCreated = projectTasks.filter(
+        (t) => t.created_at >= startOfDay && t.created_at <= endOfDay
+      ).length
 
-      const tasksOverdue = await Task.countDocuments({
-        project_id: project._id,
-        status: { $nin: ["completed", "cancelled"] },
-        due_date: { $lt: startOfDay },
-      })
+      const tasksInProgress = projectTasks.filter(
+        (t) => t.status === "in_progress" || t.status === "started"
+      ).length
 
-      const tasksBlocked = await Task.countDocuments({
-        project_id: project._id,
-        status: "blocked",
-      })
+      const tasksOverdue = projectTasks.filter(
+        (t) => !["completed", "cancelled"].includes(t.status) && t.due_date && t.due_date < startOfDay
+      ).length
 
-      const recentUpdates = await Update.find({
-        task_id: { $in: await Task.find({ project_id: project._id }).distinct("_id") },
-        createdAt: { $gte: startOfDay, $lte: endOfDay },
-      })
-        .sort({ createdAt: -1 })
-        .limit(5)
-        .populate("task_id", "title")
+      const tasksBlocked = projectTasks.filter((t) => t.status === "blocked").length
 
-      const recentActivity = recentUpdates.map(update => ({
+      // Recent task updates for this project
+      const projectTaskIds = projectTasks.map((t) => t.id)
+      const recentUpdatesWithTask =
+        projectTaskIds.length > 0
+          ? await db
+              .select({ update: taskUpdates, task: tasks })
+              .from(taskUpdates)
+              .innerJoin(tasks, eq(tasks.id, taskUpdates.task_id))
+              .where(and(
+                inArray(taskUpdates.task_id, projectTaskIds),
+                gte(taskUpdates.created_at, startOfDay),
+                lte(taskUpdates.created_at, endOfDay)
+              ))
+              .orderBy(sql`${taskUpdates.created_at} DESC`)
+              .limit(5)
+          : []
+
+      const recentActivity = recentUpdatesWithTask.map(({ update, task }) => ({
         type: update.action as "completed" | "created" | "commented" | "status_changed",
-        taskTitle: (update.task_id as any)?.title || "Unknown task",
-        userName: userMap.get(update.user_id.toString()) || "Unknown",
-        timestamp: update.createdAt.toISOString(),
+        taskTitle: task.title || "Unknown task",
+        userName: update.user_id ? (userMap.get(update.user_id) || "Unknown") : "Unknown",
+        timestamp: update.created_at.toISOString(),
       }))
 
-      // Only include projects with activity
       if (tasksCompleted > 0 || tasksCreated > 0 || tasksInProgress > 0) {
         projectSummaries.push({
           projectName: project.name,
@@ -158,26 +192,56 @@ export async function POST(request: Request) {
       }
     }
 
+    // All company tasks (for overdue/upcoming/blocked queries)
+    const allCompanyTasks = await db
+      .select()
+      .from(tasks)
+      .where(eq(tasks.company_id, companyId))
+
     // Team activity
     const teamActivity: DigestInput["teamActivity"] = []
+
     for (const user of allUsers) {
-      const tasksCompleted = await Task.countDocuments({
-        company_id: companyId,
-        assigned_to: user._id,
-        status: "completed",
-        completed_at: { $gte: startOfDay, $lte: endOfDay },
-      })
+      // Tasks assigned to this user that were completed today
+      const assignedTaskIds = await db
+        .select({ task_id: taskAssignees.task_id })
+        .from(taskAssignees)
+        .where(eq(taskAssignees.user_id, user.id))
+      const assignedIds = assignedTaskIds.map((r) => r.task_id)
 
-      const tasksWorkedOn = await Update.countDocuments({
-        user_id: user._id,
-        createdAt: { $gte: startOfDay, $lte: endOfDay },
-      })
+      const tasksCompleted =
+        assignedIds.length > 0
+          ? allCompanyTasks.filter(
+              (t) =>
+                assignedIds.includes(t.id) &&
+                t.status === "completed" &&
+                t.completed_at &&
+                t.completed_at >= startOfDay &&
+                t.completed_at <= endOfDay
+            ).length
+          : 0
 
-      const timeLogs = await TimeLog.find({
-        user_id: user._id,
-        start_time: { $gte: startOfDay, $lte: endOfDay },
-      })
-      const hoursLogged = timeLogs.reduce((sum, log) => sum + (log.duration_minutes || 0), 0) / 60
+      const tasksWorkedOn = await db
+        .select()
+        .from(taskUpdates)
+        .where(and(
+          eq(taskUpdates.user_id, user.id),
+          gte(taskUpdates.created_at, startOfDay),
+          lte(taskUpdates.created_at, endOfDay)
+        ))
+        .then((rows) => rows.length)
+
+      const userTimeLogs = await db
+        .select()
+        .from(timeLogs)
+        .where(and(
+          eq(timeLogs.user_id, user.id),
+          gte(timeLogs.start_time, startOfDay),
+          lte(timeLogs.start_time, endOfDay)
+        ))
+
+      const hoursLogged =
+        userTimeLogs.reduce((sum, log) => sum + (log.duration_seconds || 0), 0) / 3600
 
       if (tasksCompleted > 0 || tasksWorkedOn > 0 || hoursLogged > 0) {
         teamActivity.push({
@@ -189,60 +253,94 @@ export async function POST(request: Request) {
       }
     }
 
-    // Overdue tasks
-    const overdueTaskDocs = await Task.find({
-      company_id: companyId,
-      status: { $nin: ["completed", "cancelled"] },
-      due_date: { $lt: startOfDay },
-    })
-      .populate("project_id", "name")
-      .populate("assigned_to", "full_name")
-      .limit(5)
+    // Overdue tasks with project and assignee info
+    const overdueTaskDocs = allCompanyTasks
+      .filter(
+        (t) =>
+          !["completed", "cancelled"].includes(t.status) &&
+          t.due_date &&
+          t.due_date < startOfDay
+      )
+      .slice(0, 5)
 
-    const overdueTasks = overdueTaskDocs.map(task => ({
-      title: task.title,
-      projectName: (task.project_id as any)?.name || "Unknown",
-      assignee: (task.assigned_to as any)?.[0]?.full_name || "Unassigned",
-      daysOverdue: Math.ceil(
-        (startOfDay.getTime() - new Date(task.due_date).getTime()) / (1000 * 60 * 60 * 24)
-      ),
-    }))
+    const overdueTasks = await Promise.all(
+      overdueTaskDocs.map(async (task) => {
+        const project = task.project_id
+          ? await db.query.projects.findFirst({ where: eq(projects.id, task.project_id) })
+          : null
+        const firstAssignee = await db.query.taskAssignees
+          .findFirst({ where: eq(taskAssignees.task_id, task.id) })
+          .then(async (ta) => {
+            if (!ta) return null
+            return db.query.users.findFirst({ where: eq(users.id, ta.user_id) })
+          })
+        return {
+          title: task.title,
+          projectName: project?.name || "Unknown",
+          assignee: firstAssignee?.full_name || "Unassigned",
+          daysOverdue: Math.ceil(
+            (startOfDay.getTime() - new Date(task.due_date!).getTime()) / (1000 * 60 * 60 * 24)
+          ),
+        }
+      })
+    )
 
     // Blocked tasks
-    const blockedTaskDocs = await Task.find({
-      company_id: companyId,
-      status: "blocked",
-    })
-      .populate("project_id", "name")
-      .populate("assigned_to", "full_name")
-      .limit(5)
+    const blockedTaskDocs = allCompanyTasks.filter((t) => t.status === "blocked").slice(0, 5)
 
-    const blockedTasks = blockedTaskDocs.map(task => ({
-      title: task.title,
-      projectName: (task.project_id as any)?.name || "Unknown",
-      assignee: (task.assigned_to as any)?.[0]?.full_name || "Unassigned",
-    }))
+    const blockedTasks = await Promise.all(
+      blockedTaskDocs.map(async (task) => {
+        const project = task.project_id
+          ? await db.query.projects.findFirst({ where: eq(projects.id, task.project_id) })
+          : null
+        const firstAssignee = await db.query.taskAssignees
+          .findFirst({ where: eq(taskAssignees.task_id, task.id) })
+          .then(async (ta) => {
+            if (!ta) return null
+            return db.query.users.findFirst({ where: eq(users.id, ta.user_id) })
+          })
+        return {
+          title: task.title,
+          projectName: project?.name || "Unknown",
+          assignee: firstAssignee?.full_name || "Unassigned",
+        }
+      })
+    )
 
-    // Upcoming deadlines
+    // Upcoming deadlines (next 3 days)
     const threeDaysLater = new Date(endOfDay)
     threeDaysLater.setDate(threeDaysLater.getDate() + 3)
 
-    const upcomingTaskDocs = await Task.find({
-      company_id: companyId,
-      status: { $nin: ["completed", "cancelled"] },
-      due_date: { $gte: endOfDay, $lte: threeDaysLater },
-    })
-      .populate("project_id", "name")
-      .populate("assigned_to", "full_name")
-      .sort({ due_date: 1 })
-      .limit(5)
+    const upcomingTaskDocs = allCompanyTasks
+      .filter(
+        (t) =>
+          !["completed", "cancelled"].includes(t.status) &&
+          t.due_date &&
+          t.due_date >= endOfDay &&
+          t.due_date <= threeDaysLater
+      )
+      .sort((a, b) => new Date(a.due_date!).getTime() - new Date(b.due_date!).getTime())
+      .slice(0, 5)
 
-    const upcomingDeadlines = upcomingTaskDocs.map(task => ({
-      title: task.title,
-      projectName: (task.project_id as any)?.name || "Unknown",
-      dueDate: new Date(task.due_date).toLocaleDateString(),
-      assignee: (task.assigned_to as any)?.[0]?.full_name || "Unassigned",
-    }))
+    const upcomingDeadlines = await Promise.all(
+      upcomingTaskDocs.map(async (task) => {
+        const project = task.project_id
+          ? await db.query.projects.findFirst({ where: eq(projects.id, task.project_id) })
+          : null
+        const firstAssignee = await db.query.taskAssignees
+          .findFirst({ where: eq(taskAssignees.task_id, task.id) })
+          .then(async (ta) => {
+            if (!ta) return null
+            return db.query.users.findFirst({ where: eq(users.id, ta.user_id) })
+          })
+        return {
+          title: task.title,
+          projectName: project?.name || "Unknown",
+          dueDate: new Date(task.due_date!).toLocaleDateString(),
+          assignee: firstAssignee?.full_name || "Unassigned",
+        }
+      })
+    )
 
     // Generate digest
     const digestInput: DigestInput = {
@@ -263,7 +361,7 @@ export async function POST(request: Request) {
     const digest = await generateDailyDigest(digestInput)
 
     // Send to users
-    const telegramIds = usersToNotify.map(u => u.telegram_id)
+    const telegramIds = usersToNotify.map((u) => u.telegram_id)
     const appUrl = process.env.TELEGRAM_WEBAPP_URL || process.env.NEXT_PUBLIC_APP_URL
 
     const result = await sendDigestToUsers(
@@ -297,7 +395,7 @@ export async function POST(request: Request) {
 }
 
 /**
- * GET /api/notifications/digest/schedule
+ * GET /api/notifications/digest
  *
  * Get digest schedule info for a company
  */
@@ -313,21 +411,26 @@ export async function GET(request: Request) {
       )
     }
 
-    await connectToDatabase()
+    // Get users with digest enabled who belong to this company
+    const companyUsers = await db
+      .select({ user: users })
+      .from(users)
+      .innerJoin(userCompanies, and(
+        eq(userCompanies.user_id, users.id),
+        eq(userCompanies.company_id, companyId)
+      ))
 
-    // Get users with digest enabled
-    const usersWithDigest = await User.find({
-      "companies.company_id": companyId,
-      "preferences.daily_digest": true,
-    }).select("full_name telegram_id preferences.reminder_time")
+    const usersWithDigest = companyUsers
+      .map(({ user }) => user)
+      .filter((u) => (u.preferences as any)?.daily_digest === true)
 
     return NextResponse.json({
       success: true,
       data: {
         subscribedUsers: usersWithDigest.length,
-        users: usersWithDigest.map(u => ({
+        users: usersWithDigest.map((u) => ({
           name: u.full_name,
-          reminderTime: u.preferences?.reminder_time || "09:00",
+          reminderTime: (u.preferences as any)?.reminder_time || "09:00",
         })),
       },
     })

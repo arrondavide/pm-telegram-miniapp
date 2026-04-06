@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
-import { connectToDatabase } from "@/lib/mongodb"
-import { AIGeneration } from "@/lib/models"
+import { db, aiGenerations, users } from "@/lib/db"
+import { eq, and, desc } from "drizzle-orm"
 
 // Update AI generation with user feedback (accepted, rejected, or modified)
 export async function POST(request: Request) {
@@ -22,30 +22,9 @@ export async function POST(request: Request) {
       )
     }
 
-    await connectToDatabase()
-
-    const update: Record<string, unknown> = {
-      status,
-    }
-
-    if (status === "accepted") {
-      update.accepted_at = new Date()
-    } else if (status === "rejected") {
-      update.rejected_at = new Date()
-    } else if (status === "modified") {
-      update.accepted_at = new Date()
-      update.user_edits = userEdits
-    }
-
-    if (feedback) {
-      update.feedback = feedback
-    }
-
-    const generation = await AIGeneration.findByIdAndUpdate(
-      generationId,
-      { $set: update },
-      { new: true }
-    )
+    const generation = await db.query.aiGenerations.findFirst({
+      where: eq(aiGenerations.id, generationId),
+    })
 
     if (!generation) {
       return NextResponse.json(
@@ -54,9 +33,33 @@ export async function POST(request: Request) {
       )
     }
 
+    const updateData: Record<string, unknown> = {
+      status,
+      updated_at: new Date(),
+    }
+
+    if (status === "accepted") {
+      updateData.accepted_at = new Date()
+    } else if (status === "rejected") {
+      updateData.rejected_at = new Date()
+    } else if (status === "modified") {
+      updateData.accepted_at = new Date()
+      updateData.user_edits = userEdits
+    }
+
+    if (feedback) {
+      updateData.feedback = feedback
+    }
+
+    const [updated] = await db
+      .update(aiGenerations)
+      .set(updateData as any)
+      .where(eq(aiGenerations.id, generationId))
+      .returning()
+
     return NextResponse.json({
       success: true,
-      data: { generation },
+      data: { generation: updated },
     })
   } catch (error) {
     console.error("Error updating AI generation:", error)
@@ -85,13 +88,8 @@ export async function GET(request: Request) {
       )
     }
 
-    await connectToDatabase()
-
-    const query: Record<string, unknown> = {}
-
     // Find user by telegram ID first to get user_id
-    const { User } = await import("@/lib/models")
-    const user = await User.findOne({ telegram_id: telegramId })
+    const user = await db.query.users.findFirst({ where: eq(users.telegram_id, telegramId) })
     if (!user) {
       return NextResponse.json({
         success: true,
@@ -99,16 +97,16 @@ export async function GET(request: Request) {
       })
     }
 
-    query.user_id = user._id
+    const whereConditions = type
+      ? and(eq(aiGenerations.user_id, user.id), eq(aiGenerations.type, type as any))
+      : eq(aiGenerations.user_id, user.id)
 
-    if (type) {
-      query.type = type
-    }
-
-    const generations = await AIGeneration.find(query)
-      .sort({ createdAt: -1 })
+    const generations = await db
+      .select()
+      .from(aiGenerations)
+      .where(whereConditions)
+      .orderBy(desc(aiGenerations.created_at))
       .limit(limit)
-      .lean()
 
     return NextResponse.json({
       success: true,
